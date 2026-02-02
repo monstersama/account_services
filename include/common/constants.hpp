@@ -1,0 +1,28 @@
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+
+namespace acct {
+
+// 队列容量定义（必须是2的幂）
+inline constexpr std::size_t kUpstreamQueueCapacity = 4096;
+inline constexpr std::size_t kDownstreamQueueCapacity = 4096;
+inline constexpr std::size_t kResponseQueueCapacity = 8192;
+inline constexpr std::size_t kMaxPositions = 8192;
+inline constexpr std::size_t kMaxActiveOrders = 65536;
+
+// 共享内存魔数和版本
+inline constexpr uint32_t kShmMagic = 0x41435354;  // "ACST"
+inline constexpr uint32_t kShmVersion = 1;
+
+// 字符串长度常量
+inline constexpr std::size_t kBrokerOrderIdSize = 32;
+inline constexpr std::size_t kSecurityIdSize = 16;
+inline constexpr std::size_t kAccountNameSize = 32;
+inline constexpr std::size_t kBrokerCodeSize = 16;
+
+// Cache line size
+inline constexpr std::size_t kCacheLineSize = 64;
+
+}  // namespace acct
