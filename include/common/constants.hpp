@@ -10,7 +10,7 @@ inline constexpr std::size_t kUpstreamQueueCapacity = 4096;
 inline constexpr std::size_t kDownstreamQueueCapacity = 4096;
 inline constexpr std::size_t kResponseQueueCapacity = 8192;
 inline constexpr std::size_t kMaxPositions = 8192;
-inline constexpr std::size_t kMaxActiveOrders = 65536;
+inline constexpr std::size_t kMaxActiveOrders = 1048576;  // 2^20
 
 // 共享内存魔数和版本
 inline constexpr uint32_t kShmMagic = 0x41435354;  // "ACST"
