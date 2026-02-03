@@ -12,7 +12,12 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -DNDEBUG")
 set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g3")
 
 # 头文件路径
-include_directories(${CMAKE_SOURCE_DIR}/include)
+# include/ - 对外公开API头文件
+# src/     - 内部实现头文件
+include_directories(
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/src
+)
 
 # ============ 共享库 libacct_order.so ============
 add_library(acct_order SHARED
