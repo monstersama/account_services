@@ -19,28 +19,7 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/src
 )
 
-# ============ 共享库 libacct_order.so ============
-add_library(acct_order SHARED
-    src/api/order_api.cpp
-)
-
-target_compile_definitions(acct_order PRIVATE ACCT_API_EXPORT)
-target_link_libraries(acct_order PRIVATE rt pthread)
-
-set_target_properties(acct_order PROPERTIES
-    VERSION ${PROJECT_VERSION}
-    SOVERSION 1
-    CXX_VISIBILITY_PRESET hidden
-    VISIBILITY_INLINES_HIDDEN ON
-)
-
-# ============ 安装 ============
-install(TARGETS acct_order
-    LIBRARY DESTINATION lib
-)
-
-install(FILES
-    include/api/order_api.h
-    include/api/export.h
-    DESTINATION include/acct
-)
+# ============ 子模块 ============
+add_subdirectory(src/api)
+add_subdirectory(test)
+add_subdirectory(examples)

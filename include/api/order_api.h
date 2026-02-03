@@ -42,10 +42,9 @@ typedef struct acct_context* acct_ctx_t;
 
 /**
  * @brief 初始化订单 API 上下文
- * @param shm_name 共享内存名称 (例如 "/acct_upstream")
  * @return 上下文句柄，失败返回 NULL
  */
-ACCT_API acct_ctx_t acct_init(const char* shm_name);
+ACCT_API acct_ctx_t acct_init(void);
 
 /**
  * @brief 销毁上下文并释放资源

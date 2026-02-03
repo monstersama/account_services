@@ -38,18 +38,14 @@ struct acct_context {
 
 extern "C" {
 
-ACCT_API acct_ctx_t acct_init(const char* shm_name) {
-    if (!shm_name || shm_name[0] == '\0') {
-        return nullptr;
-    }
-
+ACCT_API acct_ctx_t acct_init(void) {
     auto* ctx = new (std::nothrow) acct_context();
     if (!ctx) {
         return nullptr;
     }
 
     // 打开共享内存（只读写模式，假设账户服务已创建）
-    ctx->shm_fd = shm_open(shm_name, O_RDWR, 0666);
+    ctx->shm_fd = shm_open(acct::kStrategyOrderShmName, O_RDWR, 0666);
     if (ctx->shm_fd < 0) {
         delete ctx;
         return nullptr;

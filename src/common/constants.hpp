@@ -12,6 +12,9 @@ inline constexpr std::size_t kResponseQueueCapacity = 131072;
 inline constexpr std::size_t kMaxPositions = 8192;
 inline constexpr std::size_t kMaxActiveOrders = 1048576;  // 2^20
 
+// 默认共享内存名称
+inline constexpr const char* kStrategyOrderShmName = "/strategy_order_shm";
+
 // 共享内存魔数和版本
 inline constexpr uint32_t kShmMagic = 0x41435354;  // "ACST"
 inline constexpr uint32_t kShmVersion = 1;
