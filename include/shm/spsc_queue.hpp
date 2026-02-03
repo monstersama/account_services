@@ -7,11 +7,11 @@
 namespace acct {
 
 // 单生产者单消费者无锁环形队列
-// T 必须是 trivially copyable
+// T 必须可拷贝赋值（支持含 std::atomic 成员的类型）
 // Capacity 必须是 2 的幂
 template <typename T, std::size_t Capacity>
 class alignas(64) spsc_queue {
-    static_assert(std::is_trivially_copyable_v<T>, "T must be trivially copyable");
+    static_assert(std::is_copy_assignable_v<T>, "T must be copy assignable");
     static_assert((Capacity & (Capacity - 1)) == 0, "Capacity must be power of 2");
 
 public:
@@ -43,5 +43,68 @@ private:
     alignas(64) std::atomic<std::size_t> tail_{0};
     alignas(64) T buffer_[Capacity];
 };
+
+// ============ 实现 ============
+
+template <typename T, std::size_t Capacity>
+void spsc_queue<T, Capacity>::init() noexcept {
+    head_.store(0, std::memory_order_relaxed);
+    tail_.store(0, std::memory_order_relaxed);
+}
+
+template <typename T, std::size_t Capacity>
+bool spsc_queue<T, Capacity>::try_push(const T& item) noexcept {
+    const std::size_t head = head_.load(std::memory_order_relaxed);
+    const std::size_t tail = tail_.load(std::memory_order_acquire);
+
+    // 检查队列是否已满
+    if (((head + 1) & kMask) == tail) {
+        return false;
+    }
+
+    buffer_[head] = item;
+    head_.store((head + 1) & kMask, std::memory_order_release);
+    return true;
+}
+
+template <typename T, std::size_t Capacity>
+bool spsc_queue<T, Capacity>::try_pop(T& item) noexcept {
+    const std::size_t tail = tail_.load(std::memory_order_relaxed);
+    const std::size_t head = head_.load(std::memory_order_acquire);
+
+    // 检查队列是否为空
+    if (tail == head) {
+        return false;
+    }
+
+    item = buffer_[tail];
+    tail_.store((tail + 1) & kMask, std::memory_order_release);
+    return true;
+}
+
+template <typename T, std::size_t Capacity>
+bool spsc_queue<T, Capacity>::try_peek(T& item) const noexcept {
+    const std::size_t tail = tail_.load(std::memory_order_relaxed);
+    const std::size_t head = head_.load(std::memory_order_acquire);
+
+    if (tail == head) {
+        return false;
+    }
+
+    item = buffer_[tail];
+    return true;
+}
+
+template <typename T, std::size_t Capacity>
+std::size_t spsc_queue<T, Capacity>::size() const noexcept {
+    const std::size_t head = head_.load(std::memory_order_acquire);
+    const std::size_t tail = tail_.load(std::memory_order_acquire);
+    return (head - tail + Capacity) & kMask;
+}
+
+template <typename T, std::size_t Capacity>
+bool spsc_queue<T, Capacity>::empty() const noexcept {
+    return head_.load(std::memory_order_acquire) == tail_.load(std::memory_order_acquire);
+}
 
 }  // namespace acct

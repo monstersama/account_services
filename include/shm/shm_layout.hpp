@@ -15,11 +15,9 @@ namespace acct {
 struct alignas(64) shm_header {
     uint32_t magic;                        // 魔数 0x41435354 ("ACST")
     uint32_t version;                      // 版本号
-    account_id_t account_id;               // 账户ID
-    std::atomic<account_state_t> state;    // 账户状态
     timestamp_ns_t create_time;            // 创建时间
     timestamp_ns_t last_update;            // 最后更新时间
-    uint64_t reserved[4];                  // 预留字段
+    uint64_t reserved[6];                  // 预留字段
 
     static constexpr uint32_t kMagic = 0x41435354;
     static constexpr uint32_t kVersion = 1;
@@ -37,8 +35,8 @@ struct alignas(64) trade_response {
     dvalue_t dvalue_traded;
     dvalue_t dfee;
     md_time_t md_time_traded;
+    uint32_t padding0;
     timestamp_ns_t recv_time_ns;
-    uint8_t reserved[8];
 };
 
 static_assert(sizeof(trade_response) == 64, "trade_response must be 64 bytes");
@@ -46,7 +44,7 @@ static_assert(sizeof(trade_response) == 64, "trade_response must be 64 bytes");
 // 上游共享内存（策略→账户服务）
 struct upstream_shm_layout {
     shm_header header;
-    spsc_queue<order_request, kUpstreamQueueCapacity> order_queue;
+    spsc_queue<order_request, kStrategyOrderQueueCapacity> strategy_order_queue;
 
     static constexpr std::size_t total_size() { return sizeof(upstream_shm_layout); }
 };
