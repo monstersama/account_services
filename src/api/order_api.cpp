@@ -16,7 +16,7 @@ extern "C" int close(int __fd) noexcept;
 namespace {
 
 // 版本号
-constexpr const char* kVersion = "1.0.0";
+constexpr const char* kVersion = "1.0.1";
 
 // 最大缓存订单数
 constexpr std::size_t kMaxCachedOrders = 1024;
