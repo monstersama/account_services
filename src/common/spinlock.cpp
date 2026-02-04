@@ -16,12 +16,15 @@
 namespace acct {
 
 void spinlock::lock() noexcept {
-    // TTAS (Test-And-Test-And-Set) + 指数退避优化
-    // 先读取检查，避免不必要的原子写操作，减少缓存一致性流量
+    // TTAS (Test-And-Test-And-Set) + compare_exchange_weak + 指数退避优化
+    // compare_exchange_weak 在失败时只读，减少缓存一致性流量
+
+    bool expected = false;
 
     // 快速路径：尝试立即获取锁
-    if (!flag_.load(std::memory_order_relaxed) && 
-        !flag_.exchange(true, std::memory_order_acquire)) {
+    if (flag_.compare_exchange_weak(expected, true,
+                                    std::memory_order_acquire,
+                                    std::memory_order_relaxed)) {
         return;
     }
 
@@ -40,22 +43,24 @@ void spinlock::lock() noexcept {
             backoff = (backoff < max_backoff) ? (backoff << 1) : max_backoff;
         }
 
-        // 第二步：Test-And-Set - 尝试获取锁
-        if (!flag_.exchange(true, std::memory_order_acquire)) {
+        // 第二步：尝试获取锁（compare_exchange_weak 可能更快）
+        expected = false;
+        if (flag_.compare_exchange_weak(expected, true,
+                                        std::memory_order_acquire,
+                                        std::memory_order_relaxed)) {
             return;
         }
 
-        // 失败说明在读取和交换之间有其他线程获取了锁
-        // 继续循环，指数退避已经增加
+        // 失败说明有竞争，继续循环（指数退避已增加）
     }
 }
 
 bool spinlock::try_lock() noexcept {
-    // TTAS 模式尝试获取锁
-    if (flag_.load(std::memory_order_relaxed)) {
-        return false;
-    }
-    return !flag_.exchange(true, std::memory_order_acquire);
+    // 使用 compare_exchange_weak 尝试获取锁
+    bool expected = false;
+    return flag_.compare_exchange_weak(expected, true,
+                                       std::memory_order_acquire,
+                                       std::memory_order_relaxed);
 }
 
 void spinlock::unlock() noexcept {
