@@ -1,11 +1,14 @@
 #pragma once
 
 #include "common/fixed_string.hpp"
+#include "common/types.hpp"
 
 #include <atomic>
-#include <cstdint>
 #include <cstring>
 #include <string_view>
+
+namespace acct { 
+
 
 enum class order_type_t : uint8_t {
   NotSet = 0,
@@ -46,13 +49,6 @@ enum class order_status_t : uint8_t {
   Finished = 0x62,
   Unknown = 0xFF,
 };
-
-using internal_order_id_t = uint32_t;
-using internal_security_id_t = uint16_t;
-using volume_t = uint64_t;
-using dprice_t = uint64_t;
-using dvalue_t = uint64_t;
-using md_time_t = uint32_t;
 
 inline constexpr std::size_t BROKER_ORDER_ID_SIZE = 32;
 inline constexpr std::size_t SECURITY_ID_SIZE = 16;
@@ -217,3 +213,4 @@ static_assert(sizeof(order_request) == 192,
               "order_request must be 192 bytes (3 cache lines)");
 static_assert(alignof(order_request) == 64,
               "order_request must be 64-byte aligned");
+};

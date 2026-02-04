@@ -12,11 +12,6 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -DNDEBUG")
 set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g3")
 
 # ============ 版本号定义 ============
-# API 版本 (libacct_order.so) - 独立控制
-set(ACCT_API_VERSION_MAJOR 1)
-set(ACCT_API_VERSION_MINOR 0)
-set(ACCT_API_VERSION_PATCH 2)
-set(ACCT_API_VERSION "${ACCT_API_VERSION_MAJOR}.${ACCT_API_VERSION_MINOR}.${ACCT_API_VERSION_PATCH}")
 
 # 生成版本头文件
 configure_file(

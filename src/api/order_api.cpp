@@ -6,6 +6,7 @@
 #include "version.h"
 
 #include <atomic>
+#include <cstdio>
 #include <cstring>
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -21,6 +22,8 @@ constexpr std::size_t kMaxCachedOrders = 1024;
 
 }  // namespace
 
+using namespace acct;
+
 // 内部上下文结构
 struct acct_context {
     acct::upstream_shm_layout* shm_ptr = nullptr;
@@ -29,7 +32,7 @@ struct acct_context {
     std::atomic<uint32_t> next_order_id{1};
 
     // 缓存的订单（new_order 创建，send_order 发送）
-    std::unordered_map<uint32_t, order_request> cached_orders;
+    std::unordered_map<uint32_t, acct::order_request> cached_orders;
 
     bool initialized = false;
 };
@@ -129,22 +132,22 @@ ACCT_API uint32_t acct_new_order(
     // 分配订单ID
     uint32_t order_id = context->next_order_id.fetch_add(1, std::memory_order_relaxed);
 
-    // 将浮点价格转换为内部整数格式（元 -> 分*10000，即乘以 1000000）
-    dprice_t internal_price = static_cast<dprice_t>(price * 1000000.0 + 0.5);
+    // 将浮点价格转换为内部整数格式（元 -> 分，乘以 100）
+    acct::dprice_t internal_price = static_cast<acct::dprice_t>(price * 100.0 + 0.5);
 
     // 创建订单请求（internal_security_id 内部实现，暂时使用0）
-    order_request request;
+    acct::order_request request;
     request.init_new(
         std::string_view(security_id),
-        static_cast<internal_security_id_t>(0),  // 内部实现，暂时使用0
-        static_cast<internal_order_id_t>(order_id),
-        static_cast<trade_side_t>(side),
-        static_cast<market_t>(market),
-        static_cast<volume_t>(volume),
+        static_cast<acct::internal_security_id_t>(0),  // 内部实现，暂时使用0
+        static_cast<acct::internal_order_id_t>(order_id),
+        static_cast<acct::trade_side_t>(side),
+        static_cast<acct::market_t>(market),
+        static_cast<acct::volume_t>(volume),
         internal_price,
-        static_cast<md_time_t>(md_time)
+        static_cast<acct::seconds_t>(md_time)
     );
-    request.order_status.store(order_status_t::NotSet, std::memory_order_relaxed);
+    request.order_status.store(acct::order_status_t::NotSet, std::memory_order_relaxed);
 
     // 缓存订单
     context->cached_orders[order_id] = request;
@@ -169,7 +172,7 @@ ACCT_API acct_error_t acct_send_order(acct_ctx_t ctx, uint32_t order_id) {
     }
 
     // 更新状态
-    it->second.order_status.store(order_status_t::StrategySubmitted, std::memory_order_release);
+    it->second.order_status.store(acct::order_status_t::StrategySubmitted, std::memory_order_release);
 
     // 推入队列
     bool success = context->shm_ptr->strategy_order_queue.try_push(it->second);
@@ -215,8 +218,8 @@ ACCT_API uint32_t acct_submit_order(
     // 分配订单ID
     uint32_t order_id = context->next_order_id.fetch_add(1, std::memory_order_relaxed);
 
-    // 将浮点价格转换为内部整数格式（元 -> 分*10000，即乘以 1000000）
-    dprice_t internal_price = static_cast<dprice_t>(price * 1000000.0 + 0.5);
+    // 将浮点价格转换为内部整数格式（元 -> 分，乘以 100）
+    dprice_t internal_price = static_cast<dprice_t>(price * 100.0 + 0.5);
 
     // 创建订单请求（internal_security_id 内部实现，暂时使用0）
     order_request request;
@@ -228,7 +231,7 @@ ACCT_API uint32_t acct_submit_order(
         static_cast<market_t>(market),
         static_cast<volume_t>(volume),
         internal_price,
-        static_cast<md_time_t>(md_time)
+        static_cast<seconds_t>(md_time)
     );
     request.order_status.store(order_status_t::StrategySubmitted, std::memory_order_release);
 

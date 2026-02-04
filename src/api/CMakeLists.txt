@@ -1,3 +1,9 @@
+# API 版本 (libacct_order.so) - 独立控制
+set(ACCT_API_VERSION_MAJOR 1)
+set(ACCT_API_VERSION_MINOR 0)
+set(ACCT_API_VERSION_PATCH 3)
+set(ACCT_API_VERSION "${ACCT_API_VERSION_MAJOR}.${ACCT_API_VERSION_MINOR}.${ACCT_API_VERSION_PATCH}")
+
 # ============ 共享库 libacct_order.so ============
 add_library(acct_order SHARED
     order_api.cpp

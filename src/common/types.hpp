@@ -6,15 +6,14 @@
 
 namespace acct {
 
-// ========== 复用现有类型 (from order_request.hpp) ==========
 using internal_order_id_t = uint32_t;
 using internal_security_id_t = uint16_t;
 using volume_t = uint64_t;
-using dprice_t = uint64_t;   // 价格，单位：分 * 10000 (4位小数精度)
+using dprice_t = uint64_t;   // 价格，单位：分 (2位小数精度)
 using dvalue_t = uint64_t;   // 金额，单位：分
-using md_time_t = uint32_t;  // 行情时间 HHMMSSMMM
+using md_time_t = uint32_t;  // 具体时间（毫秒）
+using seconds_t = uint32_t;  // 时间（秒），非具体时间点
 
-// ========== 新增类型 ==========
 using account_id_t = uint32_t;
 using strategy_id_t = uint16_t;
 using sequence_t = uint64_t;
