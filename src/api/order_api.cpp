@@ -20,6 +20,19 @@ namespace {
 // 最大缓存订单数
 constexpr std::size_t kMaxCachedOrders = 1024;
 
+// 获取当前系统时间的 md_time（HHMMSSmmm 格式）
+inline acct::md_time_t get_current_md_time() {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    struct tm tm_info;
+    localtime_r(&ts.tv_sec, &tm_info);
+    uint32_t hours = tm_info.tm_hour;
+    uint32_t minutes = tm_info.tm_min;
+    uint32_t seconds = tm_info.tm_sec;
+    uint32_t milliseconds = static_cast<uint32_t>(ts.tv_nsec / 1000000);
+    return hours * 10000000 + minutes * 100000 + seconds * 1000 + milliseconds;
+}
+
 }  // namespace
 
 using namespace acct;
@@ -102,7 +115,7 @@ ACCT_API uint32_t acct_new_order(
     uint8_t market,
     uint64_t volume,
     double price,
-    uint32_t md_time
+    uint32_t valid_sec
 ) {
     if (!ctx || !security_id) {
         return 0;
@@ -135,6 +148,12 @@ ACCT_API uint32_t acct_new_order(
     // 将浮点价格转换为内部整数格式（元 -> 分，乘以 100）
     acct::dprice_t internal_price = static_cast<acct::dprice_t>(price * 100.0 + 0.5);
 
+    // 使用当前系统时间作为 md_time（HHMMSSmmm 格式）
+    acct::md_time_t md_time = get_current_md_time();
+
+    // valid_sec 参数暂时不使用（为避免未使用警告）
+    (void)valid_sec;
+
     // 创建订单请求（internal_security_id 内部实现，暂时使用0）
     acct::order_request request;
     request.init_new(
@@ -145,7 +164,7 @@ ACCT_API uint32_t acct_new_order(
         static_cast<acct::market_t>(market),
         static_cast<acct::volume_t>(volume),
         internal_price,
-        static_cast<acct::seconds_t>(md_time)
+        md_time
     );
     request.order_status.store(acct::order_status_t::NotSet, std::memory_order_relaxed);
 
@@ -193,7 +212,7 @@ ACCT_API uint32_t acct_submit_order(
     uint8_t market,
     uint64_t volume,
     double price,
-    uint32_t md_time
+    uint32_t valid_sec
 ) {
     if (!ctx || !security_id) {
         return 0;
@@ -221,6 +240,12 @@ ACCT_API uint32_t acct_submit_order(
     // 将浮点价格转换为内部整数格式（元 -> 分，乘以 100）
     dprice_t internal_price = static_cast<dprice_t>(price * 100.0 + 0.5);
 
+    // 使用当前系统时间作为 md_time（HHMMSSmmm 格式）
+    md_time_t md_time = get_current_md_time();
+
+    // valid_sec 参数暂时不使用（为避免未使用警告）
+    (void)valid_sec;
+
     // 创建订单请求（internal_security_id 内部实现，暂时使用0）
     order_request request;
     request.init_new(
@@ -231,7 +256,7 @@ ACCT_API uint32_t acct_submit_order(
         static_cast<market_t>(market),
         static_cast<volume_t>(volume),
         internal_price,
-        static_cast<seconds_t>(md_time)
+        md_time
     );
     request.order_status.store(order_status_t::StrategySubmitted, std::memory_order_release);
 
@@ -247,7 +272,7 @@ ACCT_API uint32_t acct_submit_order(
 ACCT_API uint32_t acct_cancel_order(
     acct_ctx_t ctx,
     uint32_t orig_order_id,
-    uint32_t md_time
+    uint32_t valid_sec
 ) {
     if (!ctx) {
         return 0;
@@ -261,11 +286,17 @@ ACCT_API uint32_t acct_cancel_order(
     // 分配撤单请求ID
     uint32_t cancel_id = context->next_order_id.fetch_add(1, std::memory_order_relaxed);
 
+    // 使用当前系统时间作为 md_time（HHMMSSmmm 格式）
+    md_time_t md_time = get_current_md_time();
+
+    // valid_sec 参数暂时不使用（为避免未使用警告）
+    (void)valid_sec;
+
     // 创建撤单请求
     order_request request;
     request.init_cancel(
         static_cast<internal_order_id_t>(cancel_id),
-        static_cast<md_time_t>(md_time),
+        md_time,
         static_cast<internal_order_id_t>(orig_order_id)
     );
     request.order_status.store(order_status_t::StrategySubmitted, std::memory_order_release);

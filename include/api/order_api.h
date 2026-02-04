@@ -75,7 +75,7 @@ ACCT_API void acct_destroy(acct_ctx_t ctx);
  * @param market 市场 (ACCT_MARKET_SZ / SH / BJ / HK)
  * @param volume 委托数量
  * @param price 委托价格 (单位: 元, 如 10.5 表示 10.5元)
- * @param md_time 订单有效时间(单位: 秒, 0 表示无时间限制)
+ * @param valid_sec 订单有效时间(单位: 秒, 0 表示无时间限制)
  * @return 成功返回订单ID，失败返回0
  */
 ACCT_API uint32_t acct_new_order(
@@ -85,7 +85,7 @@ ACCT_API uint32_t acct_new_order(
     uint8_t market,
     uint64_t volume,
     double price,
-    uint32_t md_time
+    uint32_t valid_sec
 );
 
 /**
@@ -104,7 +104,7 @@ ACCT_API acct_error_t acct_send_order(acct_ctx_t ctx, uint32_t order_id);
  * @param market 市场
  * @param volume 委托数量
  * @param price 委托价格
- * @param md_time 订单有效时间(单位: 秒, 0 表示无时间限制)
+ * @param valid_sec 订单有效时间(单位: 秒, 0 表示无时间限制)
  * @return 成功返回订单ID，失败返回0
  */
 ACCT_API uint32_t acct_submit_order(
@@ -114,7 +114,7 @@ ACCT_API uint32_t acct_submit_order(
     uint8_t market,
     uint64_t volume,
     double price,
-    uint32_t md_time
+    uint32_t valid_sec
 );
 
 // ============ 撤单接口 ============
@@ -123,13 +123,13 @@ ACCT_API uint32_t acct_submit_order(
  * @brief 发送撤单请求
  * @param ctx 上下文
  * @param orig_order_id 要撤销的原订单ID
- * @param md_time 订单有效时间(单位: 秒, 0 表示无时间限制)
+ * @param valid_sec 订单有效时间(单位: 秒, 0 表示无时间限制)
  * @return 成功返回撤单请求ID，失败返回0
  */
 ACCT_API uint32_t acct_cancel_order(
     acct_ctx_t ctx,
     uint32_t orig_order_id,
-    uint32_t md_time
+    uint32_t valid_sec
 );
 
 // ============ 辅助接口 ============
