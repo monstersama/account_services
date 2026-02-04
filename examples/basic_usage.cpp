@@ -102,42 +102,37 @@ int main() {
     // 3. 提交订单
     printf("\n--- 步骤3: 提交订单 ---\n");
 
-    uint32_t order_id = 0;
-    acct_error_t err = acct_submit_order(
+    uint32_t order_id = acct_submit_order(
         ctx,
         "000001",           // 证券代码: 平安银行
-        1,                  // 内部证券ID
         ACCT_SIDE_BUY,      // 买入
         ACCT_MARKET_SZ,     // 深圳市场
         100,                // 数量: 100股
-        1050000,            // 价格: 10.5000 元 (单位: 分 * 10000)
-        93000000,           // 行情时间: 09:30:00.000
-        &order_id
+        10.5,               // 价格: 10.5 元
+        93000000            // 行情时间: 09:30:00.000
     );
 
-    if (err == ACCT_OK) {
+    if (order_id != 0) {
         printf("[Client] 订单提交成功, order_id=%u\n", order_id);
     } else {
-        fprintf(stderr, "[Client] 订单提交失败: %s\n", acct_strerror(err));
+        fprintf(stderr, "[Client] 订单提交失败\n");
     }
 
     // 提交第二个订单
-    err = acct_submit_order(
+    order_id = acct_submit_order(
         ctx,
         "600519",           // 证券代码: 贵州茅台
-        2,                  // 内部证券ID
         ACCT_SIDE_SELL,     // 卖出
         ACCT_MARKET_SH,     // 上海市场
         10,                 // 数量: 10股
-        180000000,          // 价格: 1800.0000 元
-        93001000,           // 行情时间: 09:30:01.000
-        &order_id
+        1800.0,             // 价格: 1800.0 元
+        93001000            // 行情时间: 09:30:01.000
     );
 
-    if (err == ACCT_OK) {
+    if (order_id != 0) {
         printf("[Client] 订单提交成功, order_id=%u\n", order_id);
     } else {
-        fprintf(stderr, "[Client] 订单提交失败: %s\n", acct_strerror(err));
+        fprintf(stderr, "[Client] 订单提交失败\n");
     }
 
     // 4. 查询队列状态
@@ -148,23 +143,21 @@ int main() {
     // 5. 使用 new_order + send_order 分步操作
     printf("\n--- 步骤5: 分步创建和发送订单 ---\n");
 
-    err = acct_new_order(
+    order_id = acct_new_order(
         ctx,
         "300750",           // 证券代码: 宁德时代
-        3,
         ACCT_SIDE_BUY,
         ACCT_MARKET_SZ,
         50,
-        25000000,           // 250.0000 元
-        93002000,
-        &order_id
+        250.0,              // 250.0 元
+        93002000
     );
 
-    if (err == ACCT_OK) {
+    if (order_id != 0) {
         printf("[Client] 订单已创建, order_id=%u (未发送)\n", order_id);
 
         // 发送订单
-        err = acct_send_order(ctx, order_id);
+        acct_error_t err = acct_send_order(ctx, order_id);
         if (err == ACCT_OK) {
             printf("[Client] 订单已发送, order_id=%u\n", order_id);
         } else {

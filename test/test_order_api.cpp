@@ -29,26 +29,24 @@ TEST(strerror) {
 }
 
 TEST(null_ctx_operations) {
-    // 所有操作对 NULL 上下文应该返回 INVALID_PARAM
-    uint32_t order_id = 0;
-
-    acct_error_t err = acct_new_order(
-        nullptr, "000001", 1, ACCT_SIDE_BUY, ACCT_MARKET_SZ,
-        100, 100000, 93000000, &order_id
+    // 所有操作对 NULL 上下文应该返回 0
+    uint32_t order_id = acct_new_order(
+        nullptr, "000001", ACCT_SIDE_BUY, ACCT_MARKET_SZ,
+        100, 10.5, 93000000
     );
+    assert(order_id == 0);
+
+    acct_error_t err = acct_send_order(nullptr, 1);
     assert(err == ACCT_ERR_INVALID_PARAM);
 
-    err = acct_send_order(nullptr, 1);
-    assert(err == ACCT_ERR_INVALID_PARAM);
-
-    err = acct_submit_order(
-        nullptr, "000001", 1, ACCT_SIDE_BUY, ACCT_MARKET_SZ,
-        100, 100000, 93000000, &order_id
+    order_id = acct_submit_order(
+        nullptr, "000001", ACCT_SIDE_BUY, ACCT_MARKET_SZ,
+        100, 10.5, 93000000
     );
-    assert(err == ACCT_ERR_INVALID_PARAM);
+    assert(order_id == 0);
 
-    err = acct_cancel_order(nullptr, 1, 93000000, &order_id);
-    assert(err == ACCT_ERR_INVALID_PARAM);
+    order_id = acct_cancel_order(nullptr, 1, 93000000);
+    assert(order_id == 0);
 
     assert(acct_queue_size(nullptr) == 0);
 

@@ -94,55 +94,56 @@ ACCT_API void acct_destroy(acct_ctx_t ctx) {
     delete context;
 }
 
-ACCT_API acct_error_t acct_new_order(
+ACCT_API uint32_t acct_new_order(
     acct_ctx_t ctx,
     const char* security_id,
-    uint16_t internal_security_id,
     uint8_t side,
     uint8_t market,
     uint64_t volume,
-    uint64_t price,
-    uint32_t md_time,
-    uint32_t* out_order_id
+    double price,
+    uint32_t md_time
 ) {
-    if (!ctx || !security_id || !out_order_id) {
-        return ACCT_ERR_INVALID_PARAM;
+    if (!ctx || !security_id) {
+        return 0;
     }
 
     auto* context = ctx;
     if (!context->initialized) {
-        return ACCT_ERR_NOT_INITIALIZED;
+        return 0;
     }
 
     // 验证参数
     if (side != ACCT_SIDE_BUY && side != ACCT_SIDE_SELL) {
-        return ACCT_ERR_INVALID_PARAM;
+        return 0;
     }
     if (market < ACCT_MARKET_SZ || market > ACCT_MARKET_HK) {
-        return ACCT_ERR_INVALID_PARAM;
+        return 0;
     }
     if (volume == 0) {
-        return ACCT_ERR_INVALID_PARAM;
+        return 0;
     }
 
     // 检查缓存容量
     if (context->cached_orders.size() >= kMaxCachedOrders) {
-        return ACCT_ERR_INTERNAL;
+        return 0;
     }
 
     // 分配订单ID
     uint32_t order_id = context->next_order_id.fetch_add(1, std::memory_order_relaxed);
 
-    // 创建订单请求
+    // 将浮点价格转换为内部整数格式（元 -> 分*10000，即乘以 1000000）
+    dprice_t internal_price = static_cast<dprice_t>(price * 1000000.0 + 0.5);
+
+    // 创建订单请求（internal_security_id 内部实现，暂时使用0）
     order_request request;
     request.init_new(
         std::string_view(security_id),
-        static_cast<internal_security_id_t>(internal_security_id),
+        static_cast<internal_security_id_t>(0),  // 内部实现，暂时使用0
         static_cast<internal_order_id_t>(order_id),
         static_cast<trade_side_t>(side),
         static_cast<market_t>(market),
         static_cast<volume_t>(volume),
-        static_cast<dprice_t>(price),
+        internal_price,
         static_cast<md_time_t>(md_time)
     );
     request.order_status.store(order_status_t::NotSet, std::memory_order_relaxed);
@@ -150,8 +151,7 @@ ACCT_API acct_error_t acct_new_order(
     // 缓存订单
     context->cached_orders[order_id] = request;
 
-    *out_order_id = order_id;
-    return ACCT_OK;
+    return order_id;
 }
 
 ACCT_API acct_error_t acct_send_order(acct_ctx_t ctx, uint32_t order_id) {
@@ -185,50 +185,51 @@ ACCT_API acct_error_t acct_send_order(acct_ctx_t ctx, uint32_t order_id) {
     return ACCT_OK;
 }
 
-ACCT_API acct_error_t acct_submit_order(
+ACCT_API uint32_t acct_submit_order(
     acct_ctx_t ctx,
     const char* security_id,
-    uint16_t internal_security_id,
     uint8_t side,
     uint8_t market,
     uint64_t volume,
-    uint64_t price,
-    uint32_t md_time,
-    uint32_t* out_order_id
+    double price,
+    uint32_t md_time
 ) {
-    if (!ctx || !security_id || !out_order_id) {
-        return ACCT_ERR_INVALID_PARAM;
+    if (!ctx || !security_id) {
+        return 0;
     }
 
     auto* context = ctx;
     if (!context->initialized) {
-        return ACCT_ERR_NOT_INITIALIZED;
+        return 0;
     }
 
     // 验证参数
     if (side != ACCT_SIDE_BUY && side != ACCT_SIDE_SELL) {
-        return ACCT_ERR_INVALID_PARAM;
+        return 0;
     }
     if (market < ACCT_MARKET_SZ || market > ACCT_MARKET_HK) {
-        return ACCT_ERR_INVALID_PARAM;
+        return 0;
     }
     if (volume == 0) {
-        return ACCT_ERR_INVALID_PARAM;
+        return 0;
     }
 
     // 分配订单ID
     uint32_t order_id = context->next_order_id.fetch_add(1, std::memory_order_relaxed);
 
-    // 创建订单请求
+    // 将浮点价格转换为内部整数格式（元 -> 分*10000，即乘以 1000000）
+    dprice_t internal_price = static_cast<dprice_t>(price * 1000000.0 + 0.5);
+
+    // 创建订单请求（internal_security_id 内部实现，暂时使用0）
     order_request request;
     request.init_new(
         std::string_view(security_id),
-        static_cast<internal_security_id_t>(internal_security_id),
+        static_cast<internal_security_id_t>(0),  // 内部实现，暂时使用0
         static_cast<internal_order_id_t>(order_id),
         static_cast<trade_side_t>(side),
         static_cast<market_t>(market),
         static_cast<volume_t>(volume),
-        static_cast<dprice_t>(price),
+        internal_price,
         static_cast<md_time_t>(md_time)
     );
     request.order_status.store(order_status_t::StrategySubmitted, std::memory_order_release);
@@ -236,26 +237,24 @@ ACCT_API acct_error_t acct_submit_order(
     // 直接推入队列
     bool success = context->shm_ptr->strategy_order_queue.try_push(request);
     if (!success) {
-        return ACCT_ERR_QUEUE_FULL;
+        return 0;
     }
 
-    *out_order_id = order_id;
-    return ACCT_OK;
+    return order_id;
 }
 
-ACCT_API acct_error_t acct_cancel_order(
+ACCT_API uint32_t acct_cancel_order(
     acct_ctx_t ctx,
     uint32_t orig_order_id,
-    uint32_t md_time,
-    uint32_t* out_cancel_id
+    uint32_t md_time
 ) {
-    if (!ctx || !out_cancel_id) {
-        return ACCT_ERR_INVALID_PARAM;
+    if (!ctx) {
+        return 0;
     }
 
     auto* context = ctx;
     if (!context->initialized) {
-        return ACCT_ERR_NOT_INITIALIZED;
+        return 0;
     }
 
     // 分配撤单请求ID
@@ -273,11 +272,10 @@ ACCT_API acct_error_t acct_cancel_order(
     // 推入队列
     bool success = context->shm_ptr->strategy_order_queue.try_push(request);
     if (!success) {
-        return ACCT_ERR_QUEUE_FULL;
+        return 0;
     }
 
-    *out_cancel_id = cancel_id;
-    return ACCT_OK;
+    return cancel_id;
 }
 
 ACCT_API size_t acct_queue_size(acct_ctx_t ctx) {

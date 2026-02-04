@@ -1,10 +1,23 @@
 #ifndef ACCT_ORDER_API_H
 #define ACCT_ORDER_API_H
 
-#include "export.h"
-
 #include <stddef.h>
 #include <stdint.h>
+
+// ===== export.h 内容内联 =====
+#if defined(_WIN32) || defined(__CYGWIN__)
+    #ifdef ACCT_API_EXPORT
+        #define ACCT_API __declspec(dllexport)
+    #else
+        #define ACCT_API __declspec(dllimport)
+    #endif
+#else
+    #ifdef ACCT_API_EXPORT
+        #define ACCT_API __attribute__((visibility("default")))
+    #else
+        #define ACCT_API
+    #endif
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -58,25 +71,21 @@ ACCT_API void acct_destroy(acct_ctx_t ctx);
  * @brief 创建新订单（不发送，仅缓存在本地）
  * @param ctx 上下文
  * @param security_id 证券代码 (如 "000001")
- * @param internal_security_id 内部证券ID
  * @param side 买卖方向 (ACCT_SIDE_BUY / ACCT_SIDE_SELL)
  * @param market 市场 (ACCT_MARKET_SZ / SH / BJ / HK)
  * @param volume 委托数量
- * @param price 委托价格 (单位: 分 * 10000, 即4位小数精度)
- * @param md_time 行情触发时间 (格式: HHMMSSMMM)
- * @param out_order_id 输出分配的内部订单ID
- * @return 错误码
+ * @param price 委托价格 (单位: 元, 如 10.5 表示 10.5元)
+ * @param md_time 订单有效时间
+ * @return 成功返回订单ID，失败返回0
  */
-ACCT_API acct_error_t acct_new_order(
+ACCT_API uint32_t acct_new_order(
     acct_ctx_t ctx,
     const char* security_id,
-    uint16_t internal_security_id,
     uint8_t side,
     uint8_t market,
     uint64_t volume,
-    uint64_t price,
-    uint32_t md_time,
-    uint32_t* out_order_id
+    double price,
+    uint32_t md_time
 );
 
 /**
@@ -91,25 +100,21 @@ ACCT_API acct_error_t acct_send_order(acct_ctx_t ctx, uint32_t order_id);
  * @brief 创建并发送订单（便捷接口，合并 new_order + send_order）
  * @param ctx 上下文
  * @param security_id 证券代码
- * @param internal_security_id 内部证券ID
  * @param side 买卖方向
  * @param market 市场
  * @param volume 委托数量
  * @param price 委托价格
- * @param md_time 行情触发时间
- * @param out_order_id 输出内部订单ID
- * @return 错误码
+ * @param md_time 订单有效时间
+ * @return 成功返回订单ID，失败返回0
  */
-ACCT_API acct_error_t acct_submit_order(
+ACCT_API uint32_t acct_submit_order(
     acct_ctx_t ctx,
     const char* security_id,
-    uint16_t internal_security_id,
     uint8_t side,
     uint8_t market,
     uint64_t volume,
-    uint64_t price,
-    uint32_t md_time,
-    uint32_t* out_order_id
+    double price,
+    uint32_t md_time
 );
 
 // ============ 撤单接口 ============
@@ -118,15 +123,13 @@ ACCT_API acct_error_t acct_submit_order(
  * @brief 发送撤单请求
  * @param ctx 上下文
  * @param orig_order_id 要撤销的原订单ID
- * @param md_time 行情触发时间
- * @param out_cancel_id 输出撤单请求的订单ID
- * @return 错误码
+ * @param md_time 订单有效时间
+ * @return 成功返回撤单请求ID，失败返回0
  */
-ACCT_API acct_error_t acct_cancel_order(
+ACCT_API uint32_t acct_cancel_order(
     acct_ctx_t ctx,
     uint32_t orig_order_id,
-    uint32_t md_time,
-    uint32_t* out_cancel_id
+    uint32_t md_time
 );
 
 // ============ 辅助接口 ============
