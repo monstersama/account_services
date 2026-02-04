@@ -1,161 +1,170 @@
-#ifndef ACCT_ORDER_API_H
-#define ACCT_ORDER_API_H
+#pragma once
 
-#include <stddef.h>
-#include <stdint.h>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <string_view>
 
-// ===== export.h 内容内联 =====
+// 导出宏定义
 #if defined(_WIN32) || defined(__CYGWIN__)
     #ifdef ACCT_API_EXPORT
-        #define ACCT_API __declspec(dllexport)
+        #define ACCT_API_CPP __declspec(dllexport)
     #else
-        #define ACCT_API __declspec(dllimport)
+        #define ACCT_API_CPP __declspec(dllimport)
     #endif
 #else
     #ifdef ACCT_API_EXPORT
-        #define ACCT_API __attribute__((visibility("default")))
+        #define ACCT_API_CPP __attribute__((visibility("default")))
     #else
-        #define ACCT_API
+        #define ACCT_API_CPP
     #endif
 #endif
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace acct {
 
-// ============ 错误码 ============
-typedef enum {
-    ACCT_OK = 0,
-    ACCT_ERR_NOT_INITIALIZED = -1,
-    ACCT_ERR_INVALID_PARAM = -2,
-    ACCT_ERR_QUEUE_FULL = -3,
-    ACCT_ERR_SHM_FAILED = -4,
-    ACCT_ERR_ORDER_NOT_FOUND = -5,
-    ACCT_ERR_INTERNAL = -99,
-} acct_error_t;
+// 前向声明内部结构
+struct acct_context;
+
+// ============ 错误码枚举 ============
+enum class Error {
+    Ok = 0,
+    NotInitialized = -1,
+    InvalidParam = -2,
+    QueueFull = -3,
+    ShmFailed = -4,
+    OrderNotFound = -5,
+    // 初始化专用错误码
+    InitNoMemory = -6,          // 内存分配失败
+    InitShmOpenFailed = -7,     // shm_open() 失败
+    InitMmapFailed = -8,        // mmap() 失败
+    InitInvalidMagic = -9,      // 魔数验证失败
+    Internal = -99,
+};
 
 // ============ 市场枚举 ============
-typedef enum {
-    ACCT_MARKET_SZ = 1,
-    ACCT_MARKET_SH = 2,
-    ACCT_MARKET_BJ = 3,
-    ACCT_MARKET_HK = 4,
-} acct_market_t;
+enum class Market : uint8_t {
+    SZ = 1,  // 深圳
+    SH = 2,  // 上海
+    BJ = 3,  // 北京
+    HK = 4,  // 香港
+};
 
 // ============ 买卖方向 ============
-typedef enum {
-    ACCT_SIDE_BUY = 1,
-    ACCT_SIDE_SELL = 2,
-} acct_side_t;
+enum class Side : uint8_t {
+    Buy = 1,
+    Sell = 2,
+};
 
-// ============ 上下文句柄 ============
-typedef struct acct_context* acct_ctx_t;
+// ============ C++ Order API 类 ============
+class ACCT_API_CPP OrderApi {
+public:
+    /**
+     * @brief 工厂函数：创建 OrderApi 实例
+     * @param out_error 用于存储错误码的指针（可为 nullptr，表示不需要错误信息）
+     * @return 成功返回实例，失败返回 nullptr
+     * @note 如果提供了 out_error 且初始化失败，*out_error 将被设置为具体错误码
+     */
+    static std::unique_ptr<OrderApi> create(Error* out_error = nullptr);
 
-// ============ 初始化/销毁 ============
+    // 析构函数 - 在实现文件中定义
+    ~OrderApi();
 
-/**
- * @brief 初始化订单 API 上下文
- * @return 上下文句柄，失败返回 NULL
- */
-ACCT_API acct_ctx_t acct_init(void);
+    // 禁止拷贝
+    OrderApi(const OrderApi&) = delete;
+    OrderApi& operator=(const OrderApi&) = delete;
 
-/**
- * @brief 销毁上下文并释放资源
- * @param ctx 上下文句柄
- */
-ACCT_API void acct_destroy(acct_ctx_t ctx);
+    // 允许移动 - 在实现文件中定义
+    OrderApi(OrderApi&& other) noexcept;
+    OrderApi& operator=(OrderApi&& other) noexcept;
 
-// ============ 核心订单接口 ============
+    // ============ 核心订单接口 ============
 
-/**
- * @brief 创建新订单（不发送，仅缓存在本地）
- * @param ctx 上下文
- * @param security_id 证券代码 (如 "000001")
- * @param side 买卖方向 (ACCT_SIDE_BUY / ACCT_SIDE_SELL)
- * @param market 市场 (ACCT_MARKET_SZ / SH / BJ / HK)
- * @param volume 委托数量
- * @param price 委托价格 (单位: 元, 如 10.5 表示 10.5元)
- * @param valid_sec 保留参数（暂未使用，传入 0 即可）
- * @return 成功返回订单ID，失败返回0
- */
-ACCT_API uint32_t acct_new_order(
-    acct_ctx_t ctx,
-    const char* security_id,
-    uint8_t side,
-    uint8_t market,
-    uint64_t volume,
-    double price,
-    uint32_t valid_sec
-);
+    /**
+     * @brief 创建新订单（不发送，仅缓存在本地）
+     * @param security_id 证券代码 (如 "000001")
+     * @param side 买卖方向 (Side::Buy / Side::Sell)
+     * @param market 市场 (Market::SZ / SH / BJ / HK)
+     * @param volume 委托数量
+     * @param price 委托价格 (单位: 元, 如 10.5 表示 10.5元)
+     * @param valid_sec 保留参数（暂未使用，默认为 0）
+     * @return 成功返回订单ID，失败返回 0
+     */
+    uint32_t newOrder(
+        std::string_view security_id,
+        Side side,
+        Market market,
+        uint64_t volume,
+        double price,
+        uint32_t valid_sec = 0
+    );
 
-/**
- * @brief 发送已创建的订单到共享内存队列
- * @param ctx 上下文
- * @param order_id 订单ID (由 acct_new_order 返回)
- * @return 错误码
- */
-ACCT_API acct_error_t acct_send_order(acct_ctx_t ctx, uint32_t order_id);
+    /**
+     * @brief 发送已创建的订单到共享内存队列
+     * @param order_id 订单ID (由 newOrder 返回)
+     * @return 错误码 (Error::Ok 表示成功)
+     */
+    Error sendOrder(uint32_t order_id);
 
-/**
- * @brief 创建并发送订单（便捷接口，合并 new_order + send_order）
- * @param ctx 上下文
- * @param security_id 证券代码
- * @param side 买卖方向
- * @param market 市场
- * @param volume 委托数量
- * @param price 委托价格
- * @param valid_sec 保留参数（暂未使用，传入 0 即可）
- * @return 成功返回订单ID，失败返回0
- */
-ACCT_API uint32_t acct_submit_order(
-    acct_ctx_t ctx,
-    const char* security_id,
-    uint8_t side,
-    uint8_t market,
-    uint64_t volume,
-    double price,
-    uint32_t valid_sec
-);
+    /**
+     * @brief 创建并发送订单（便捷接口，合并 new_order + send_order）
+     * @param security_id 证券代码
+     * @param side 买卖方向
+     * @param market 市场
+     * @param volume 委托数量
+     * @param price 委托价格
+     * @param valid_sec 保留参数（暂未使用，默认为 0）
+     * @return 成功返回订单ID，失败返回 0
+     */
+    uint32_t submitOrder(
+        std::string_view security_id,
+        Side side,
+        Market market,
+        uint64_t volume,
+        double price,
+        uint32_t valid_sec = 0
+    );
 
-// ============ 撤单接口 ============
+    /**
+     * @brief 发送撤单请求
+     * @param orig_order_id 要撤销的原订单ID
+     * @param valid_sec 保留参数（暂未使用，默认为 0）
+     * @return 成功返回撤单请求ID，失败返回 0
+     */
+    uint32_t cancelOrder(uint32_t orig_order_id, uint32_t valid_sec = 0);
 
-/**
- * @brief 发送撤单请求
- * @param ctx 上下文
- * @param orig_order_id 要撤销的原订单ID
- * @param valid_sec 保留参数（暂未使用，传入 0 即可）
- * @return 成功返回撤单请求ID，失败返回0
- */
-ACCT_API uint32_t acct_cancel_order(
-    acct_ctx_t ctx,
-    uint32_t orig_order_id,
-    uint32_t valid_sec
-);
+    // ============ 辅助接口 ============
 
-// ============ 辅助接口 ============
+    /**
+     * @brief 获取队列当前元素数量
+     * @return 队列元素数量
+     */
+    size_t queueSize() const;
 
-/**
- * @brief 获取队列当前元素数量
- * @param ctx 上下文
- * @return 队列元素数量
- */
-ACCT_API size_t acct_queue_size(acct_ctx_t ctx);
+    /**
+     * @brief 检查是否已初始化
+     * @return 已初始化返回 true
+     */
+    bool isInitialized() const noexcept;
 
-/**
- * @brief 获取错误描述字符串
- * @param err 错误码
- * @return 错误描述
- */
-ACCT_API const char* acct_strerror(acct_error_t err);
+    /**
+     * @brief 获取错误描述字符串
+     * @param err 错误码
+     * @return 错误描述
+     */
+    static const char* errorString(Error err);
 
-/**
- * @brief 获取库版本号
- * @return 版本字符串
- */
-ACCT_API const char* acct_version(void);
+    /**
+     * @brief 获取库版本号
+     * @return 版本字符串
+     */
+    static const char* version();
 
-#ifdef __cplusplus
-}
-#endif
+private:
+    // 私有构造函数，只能通过 create() 创建
+    OrderApi();
 
-#endif // ACCT_ORDER_API_H
+    // 内部上下文指针
+    acct_context* ctx_ = nullptr;
+};
+
+} // namespace acct

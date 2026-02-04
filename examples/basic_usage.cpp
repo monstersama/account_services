@@ -1,15 +1,15 @@
 /**
- * 使用 libacct_order.so 的示例程序
+ * 使用 libacct_order.so C++ API 的示例程序
  *
  * 演示如何：
  * 1. 创建共享内存（模拟账户服务）
- * 2. 初始化 API 上下文
+ * 2. 使用 C++ API 初始化
  * 3. 提交订单
  * 4. 查询队列状态
- * 5. 清理资源
+ * 5. 资源自动清理（RAII）
  */
 
-#include "api/order_api.h"
+#include "api/order_api.hpp"
 
 // 内部头文件（仅用于创建共享内存，实际使用时由账户服务创建）
 #include "common/constants.hpp"
@@ -76,10 +76,12 @@ static void destroy_shm(void* ptr) {
 }
 
 int main() {
-    printf("=== libacct_order.so 使用示例 ===\n\n");
+    using namespace acct;
+
+    printf("=== libacct_order.so C++ API 使用示例 ===\n\n");
 
     // 打印版本
-    printf("API Version: %s\n\n", acct_version());
+    printf("API Version: %s\n\n", OrderApi::version());
 
     // 1. 创建共享内存（实际场景由账户服务创建）
     printf("--- 步骤1: 创建共享内存 ---\n");
@@ -89,24 +91,25 @@ int main() {
         return 1;
     }
 
-    // 2. 初始化 API 上下文
+    // 2. 初始化 API（使用 C++ API）
     printf("\n--- 步骤2: 初始化 API ---\n");
-    acct_ctx_t ctx = acct_init();
-    if (!ctx) {
-        fprintf(stderr, "初始化失败: %s\n", acct_strerror(ACCT_ERR_SHM_FAILED));
+    Error err;
+    auto api = OrderApi::create(&err);
+    if (!api) {
+        fprintf(stderr, "初始化失败: %s (错误码: %d)\n",
+                OrderApi::errorString(err), static_cast<int>(err));
         destroy_shm(shm_ptr);
         return 1;
     }
-    printf("[Client] API 上下文初始化成功\n");
+    printf("[Client] API 初始化成功\n");
 
     // 3. 提交订单
     printf("\n--- 步骤3: 提交订单 ---\n");
 
-    uint32_t order_id = acct_submit_order(
-        ctx,
+    uint32_t order_id = api->submitOrder(
         "000001",           // 证券代码: 平安银行
-        ACCT_SIDE_BUY,      // 买入
-        ACCT_MARKET_SZ,     // 深圳市场
+        Side::Buy,          // 买入
+        Market::SZ,         // 深圳市场
         100,                // 数量: 100股
         10.5,               // 价格: 10.5 元
         0                   // valid_sec: 保留参数（暂未使用）
@@ -119,11 +122,10 @@ int main() {
     }
 
     // 提交第二个订单
-    order_id = acct_submit_order(
-        ctx,
+    order_id = api->submitOrder(
         "600519",           // 证券代码: 贵州茅台
-        ACCT_SIDE_SELL,     // 卖出
-        ACCT_MARKET_SH,     // 上海市场
+        Side::Sell,         // 卖出
+        Market::SH,         // 上海市场
         10,                 // 数量: 10股
         1800.0,             // 价格: 1800.0 元
         0                   // valid_sec: 保留参数（暂未使用）
@@ -137,17 +139,16 @@ int main() {
 
     // 4. 查询队列状态
     printf("\n--- 步骤4: 查询队列状态 ---\n");
-    size_t queue_size = acct_queue_size(ctx);
+    size_t queue_size = api->queueSize();
     printf("[Client] 当前队列中有 %zu 个订单\n", queue_size);
 
-    // 5. 使用 new_order + send_order 分步操作
+    // 5. 使用 newOrder + sendOrder 分步操作
     printf("\n--- 步骤5: 分步创建和发送订单 ---\n");
 
-    order_id = acct_new_order(
-        ctx,
+    order_id = api->newOrder(
         "300750",           // 证券代码: 宁德时代
-        ACCT_SIDE_BUY,
-        ACCT_MARKET_SZ,
+        Side::Buy,
+        Market::SZ,
         50,
         250.0,              // 250.0 元
         0                   // valid_sec: 保留参数（暂未使用）
@@ -157,22 +158,21 @@ int main() {
         printf("[Client] 订单已创建, order_id=%u (未发送)\n", order_id);
 
         // 发送订单
-        acct_error_t err = acct_send_order(ctx, order_id);
-        if (err == ACCT_OK) {
+        Error send_err = api->sendOrder(order_id);
+        if (send_err == Error::Ok) {
             printf("[Client] 订单已发送, order_id=%u\n", order_id);
         } else {
-            fprintf(stderr, "[Client] 发送失败: %s\n", acct_strerror(err));
+            fprintf(stderr, "[Client] 发送失败: %s\n", OrderApi::errorString(send_err));
         }
     }
 
     // 最终队列状态
     printf("\n--- 最终状态 ---\n");
-    printf("[Client] 队列中共有 %zu 个订单\n", acct_queue_size(ctx));
+    printf("[Client] 队列中共有 %zu 个订单\n", api->queueSize());
 
-    // 6. 清理
-    printf("\n--- 步骤6: 清理资源 ---\n");
-    acct_destroy(ctx);
-    printf("[Client] API 上下文已销毁\n");
+    // 6. 清理（C++ API 使用 RAII，析构时自动清理）
+    printf("\n--- 步骤6: 资源自动清理 ---\n");
+    printf("[Client] API 资源将在作用域结束时自动清理\n");
 
     destroy_shm(shm_ptr);
 

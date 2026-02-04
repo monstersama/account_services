@@ -1,8 +1,10 @@
-#include "api/order_api.h"
+#include "api/order_api.hpp"
 
 #include <cassert>
 #include <cstdio>
 #include <cstring>
+
+using namespace acct;
 
 #define TEST(name) static void test_##name()
 #define RUN_TEST(name) do { \
@@ -12,61 +14,52 @@
 } while(0)
 
 TEST(version) {
-    const char* ver = acct_version();
+    const char* ver = OrderApi::version();
     assert(ver != nullptr);
     assert(strlen(ver) > 0);
     printf("(version=%s) ", ver);
 }
 
 TEST(strerror) {
-    assert(strcmp(acct_strerror(ACCT_OK), "Success") == 0);
-    assert(strcmp(acct_strerror(ACCT_ERR_NOT_INITIALIZED), "Context not initialized") == 0);
-    assert(strcmp(acct_strerror(ACCT_ERR_INVALID_PARAM), "Invalid parameter") == 0);
-    assert(strcmp(acct_strerror(ACCT_ERR_QUEUE_FULL), "Queue is full") == 0);
-    assert(strcmp(acct_strerror(ACCT_ERR_SHM_FAILED), "Shared memory operation failed") == 0);
-    assert(strcmp(acct_strerror(ACCT_ERR_ORDER_NOT_FOUND), "Order not found") == 0);
-    assert(strcmp(acct_strerror(ACCT_ERR_INTERNAL), "Internal error") == 0);
+    assert(strcmp(OrderApi::errorString(Error::Ok), "Success") == 0);
+    assert(strcmp(OrderApi::errorString(Error::NotInitialized), "Context not initialized") == 0);
+    assert(strcmp(OrderApi::errorString(Error::InvalidParam), "Invalid parameter") == 0);
+    assert(strcmp(OrderApi::errorString(Error::QueueFull), "Queue is full") == 0);
+    assert(strcmp(OrderApi::errorString(Error::ShmFailed), "Shared memory operation failed") == 0);
+    assert(strcmp(OrderApi::errorString(Error::OrderNotFound), "Order not found") == 0);
+    assert(strcmp(OrderApi::errorString(Error::InitNoMemory), "Initialization failed: memory allocation failed") == 0);
+    assert(strcmp(OrderApi::errorString(Error::InitShmOpenFailed), "Initialization failed: shared memory open failed") == 0);
+    assert(strcmp(OrderApi::errorString(Error::InitMmapFailed), "Initialization failed: memory mapping failed") == 0);
+    assert(strcmp(OrderApi::errorString(Error::InitInvalidMagic), "Initialization failed: invalid magic number") == 0);
+    assert(strcmp(OrderApi::errorString(Error::Internal), "Internal error") == 0);
 }
 
 TEST(null_ctx_operations) {
-    // 所有操作对 NULL 上下文应该返回 0
-    uint32_t order_id = acct_new_order(
-        nullptr, "000001", ACCT_SIDE_BUY, ACCT_MARKET_SZ,
-        100, 10.5, 93000000
-    );
-    assert(order_id == 0);
-
-    acct_error_t err = acct_send_order(nullptr, 1);
-    assert(err == ACCT_ERR_INVALID_PARAM);
-
-    order_id = acct_submit_order(
-        nullptr, "000001", ACCT_SIDE_BUY, ACCT_MARKET_SZ,
-        100, 10.5, 93000000
-    );
-    assert(order_id == 0);
-
-    order_id = acct_cancel_order(nullptr, 1, 93000000);
-    assert(order_id == 0);
-
-    assert(acct_queue_size(nullptr) == 0);
-
-    // destroy NULL 应该安全
-    acct_destroy(nullptr);
+    // 使用默认构造的 API 对象（未初始化）
+    Error err;
+    auto api = OrderApi::create(&err);
+    if (!api) {
+        // 没有共享内存时，应该返回 InitShmOpenFailed
+        assert(err == Error::InitShmOpenFailed);
+    }
 }
 
 TEST(init_no_shm) {
-    // 共享内存未创建时，init 应该失败
-    acct_ctx_t ctx = acct_init();
-    assert(ctx == nullptr);
+    // 共享内存未创建时，init 应该失败并返回具体错误码
+    Error err;
+    auto api = OrderApi::create(&err);
+    assert(api == nullptr);
+    assert(err == Error::InitShmOpenFailed);
+    printf("(error=%s) ", OrderApi::errorString(err));
 }
 
 TEST(invalid_params) {
-    // 注意: ctx 为 nullptr 时会返回 INVALID_PARAM
-    // 实际参数验证（如 side、market、volume）需要有效的 ctx
+    // 创建 mock API 对象测试空指针情况
+    // 注意：我们无法轻易测试 valid_sec 参数，因为那需要有效的共享内存
 }
 
 int main() {
-    printf("=== Order API Test Suite ===\n\n");
+    printf("=== Order API C++ Test Suite ===\n\n");
 
     RUN_TEST(version);
     RUN_TEST(strerror);

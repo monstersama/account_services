@@ -3,7 +3,7 @@
 
 # ============ 共享库 libacct_order.so ============
 add_library(acct_order SHARED
-    order_api.cpp
+    order_api_cpp.cpp
 )
 
 target_compile_definitions(acct_order PRIVATE ACCT_API_EXPORT)
@@ -22,7 +22,6 @@ install(TARGETS acct_order
 )
 
 install(FILES
-    ${CMAKE_SOURCE_DIR}/include/api/order_api.h
-    ${CMAKE_SOURCE_DIR}/include/api/export.h
+    ${CMAKE_SOURCE_DIR}/include/api/order_api.hpp
     DESTINATION include/acct
 )
