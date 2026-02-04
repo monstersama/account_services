@@ -3,6 +3,7 @@
 #include "common/types.hpp"
 #include "order/order_request.hpp"
 #include "shm/shm_layout.hpp"
+#include "version.h"
 
 #include <atomic>
 #include <cstring>
@@ -14,9 +15,6 @@
 extern "C" int close(int __fd) noexcept;
 
 namespace {
-
-// 版本号
-constexpr const char* kVersion = "1.0.1";
 
 // 最大缓存订单数
 constexpr std::size_t kMaxCachedOrders = 1024;
@@ -305,7 +303,7 @@ ACCT_API const char* acct_strerror(acct_error_t err) {
 }
 
 ACCT_API const char* acct_version(void) {
-    return kVersion;
+    return ACCT_API_VERSION;
 }
 
 }  // extern "C"

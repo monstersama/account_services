@@ -7,8 +7,8 @@ target_compile_definitions(acct_order PRIVATE ACCT_API_EXPORT)
 target_link_libraries(acct_order PRIVATE rt pthread)
 
 set_target_properties(acct_order PROPERTIES
-    VERSION ${PROJECT_VERSION}
-    SOVERSION 1
+    VERSION ${ACCT_API_VERSION}
+    SOVERSION ${ACCT_API_VERSION_MAJOR}
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON
 )
