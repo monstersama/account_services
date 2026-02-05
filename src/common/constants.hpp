@@ -17,7 +17,7 @@ inline constexpr const char* kStrategyOrderShmName = "/strategy_order_shm";
 
 // 共享内存魔数和版本
 inline constexpr uint32_t kShmMagic = 0x41435354;  // "ACST"
-inline constexpr uint32_t kShmVersion = 1;
+inline constexpr uint32_t kShmVersion = 2;
 
 // 字符串长度常量
 inline constexpr std::size_t kBrokerOrderIdSize = 32;

@@ -17,10 +17,11 @@ struct alignas(64) shm_header {
     uint32_t version;                      // 版本号
     timestamp_ns_t create_time;            // 创建时间
     timestamp_ns_t last_update;            // 最后更新时间
-    uint64_t reserved[6];                  // 预留字段
+    std::atomic<uint32_t> next_order_id{1}; // 订单ID计数器（跨进程持久化）
+    uint64_t reserved[5];                  // 预留字段
 
     static constexpr uint32_t kMagic = 0x41435354;
-    static constexpr uint32_t kVersion = 1;
+    static constexpr uint32_t kVersion = 2;
 };
 
 // 成交回报（来自交易进程）

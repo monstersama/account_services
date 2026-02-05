@@ -6,14 +6,18 @@
 #include "version.h"
 
 #include <atomic>
+#include <cerrno>
 #include <cstdio>
 #include <cstring>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <unordered_map>
 
-// close() 前向声明，避免 <unistd.h> 中 acct() 与 namespace acct 冲突
-extern "C" int close(int __fd) noexcept;
+// 前向声明，避免 <unistd.h> 中 acct() 与 namespace acct 冲突
+extern "C" {
+int close(int __fd) noexcept;
+int ftruncate(int __fd, long __length) noexcept;
+}
 
 namespace {
 
@@ -42,7 +46,7 @@ struct acct_context {
     acct::upstream_shm_layout* shm_ptr = nullptr;
     int shm_fd = -1;
     std::size_t shm_size = 0;
-    std::atomic<uint32_t> next_order_id{1};
+    // next_order_id 现在存储在共享内存 header 中
 
     // 缓存的订单（new_order 创建，send_order 发送）
     std::unordered_map<uint32_t, acct::order_request> cached_orders;
@@ -52,47 +56,88 @@ struct acct_context {
 
 extern "C" {
 
-ACCT_API acct_ctx_t acct_init(void) {
+ACCT_API acct_error_t acct_init(acct_ctx_t* out_ctx) {
+    if (!out_ctx) {
+        return ACCT_ERR_INVALID_PARAM;
+    }
+    *out_ctx = nullptr;
+
     auto* ctx = new (std::nothrow) acct_context();
     if (!ctx) {
-        return nullptr;
-    }
-
-    // 打开共享内存（只读写模式，假设账户服务已创建）
-    ctx->shm_fd = shm_open(acct::kStrategyOrderShmName, O_RDWR, 0666);
-    if (ctx->shm_fd < 0) {
-        delete ctx;
-        return nullptr;
+        return ACCT_ERR_INTERNAL;
     }
 
     ctx->shm_size = sizeof(acct::upstream_shm_layout);
+
+    // 尝试打开已存在的共享内存
+    ctx->shm_fd = shm_open(acct::kStrategyOrderShmName, O_RDWR, 0666);
+    bool is_new = false;
+
+    if (ctx->shm_fd < 0) {
+        // 不存在则创建
+        ctx->shm_fd = shm_open(acct::kStrategyOrderShmName, O_CREAT | O_RDWR, 0666);
+        if (ctx->shm_fd < 0) {
+            delete ctx;
+            return ACCT_ERR_SHM_FAILED;
+        }
+        is_new = true;
+
+        // 设置共享内存大小
+        if (ftruncate(ctx->shm_fd, ctx->shm_size) < 0) {
+            close(ctx->shm_fd);
+            shm_unlink(acct::kStrategyOrderShmName);
+            delete ctx;
+            return ACCT_ERR_SHM_FAILED;
+        }
+    }
 
     // 映射共享内存
     void* ptr = mmap(nullptr, ctx->shm_size, PROT_READ | PROT_WRITE,
                      MAP_SHARED, ctx->shm_fd, 0);
     if (ptr == MAP_FAILED) {
         close(ctx->shm_fd);
+        if (is_new) {
+            shm_unlink(acct::kStrategyOrderShmName);
+        }
         delete ctx;
-        return nullptr;
+        return ACCT_ERR_SHM_FAILED;
     }
 
     ctx->shm_ptr = static_cast<acct::upstream_shm_layout*>(ptr);
 
-    // 验证魔数
-    if (ctx->shm_ptr->header.magic != acct::shm_header::kMagic) {
-        munmap(ptr, ctx->shm_size);
-        close(ctx->shm_fd);
-        delete ctx;
-        return nullptr;
+    // 新创建的共享内存需要初始化
+    if (is_new) {
+        ctx->shm_ptr->header.magic = acct::shm_header::kMagic;
+        ctx->shm_ptr->header.version = acct::shm_header::kVersion;
+        ctx->shm_ptr->header.create_time = 0;
+        ctx->shm_ptr->header.last_update = 0;
+        ctx->shm_ptr->header.next_order_id.store(1, std::memory_order_relaxed);
+        // 队列构造时已自动初始化
+    } else {
+        // 验证魔数
+        if (ctx->shm_ptr->header.magic != acct::shm_header::kMagic) {
+            munmap(ptr, ctx->shm_size);
+            close(ctx->shm_fd);
+            delete ctx;
+            return ACCT_ERR_SHM_FAILED;
+        }
+        // 验证版本
+        if (ctx->shm_ptr->header.version != acct::shm_header::kVersion) {
+            munmap(ptr, ctx->shm_size);
+            close(ctx->shm_fd);
+            delete ctx;
+            return ACCT_ERR_SHM_FAILED;
+        }
     }
 
     ctx->initialized = true;
-    return ctx;
+    *out_ctx = ctx;
+    return ACCT_OK;
 }
 
-ACCT_API void acct_destroy(acct_ctx_t ctx) {
+ACCT_API acct_error_t acct_destroy(acct_ctx_t ctx) {
     if (!ctx) {
-        return;
+        return ACCT_ERR_INVALID_PARAM;
     }
 
     auto* context = ctx;
@@ -106,44 +151,51 @@ ACCT_API void acct_destroy(acct_ctx_t ctx) {
     }
 
     delete context;
+    return ACCT_OK;
 }
 
-ACCT_API uint32_t acct_new_order(
+ACCT_API acct_error_t acct_new_order(
     acct_ctx_t ctx,
     const char* security_id,
     uint8_t side,
     uint8_t market,
     uint64_t volume,
     double price,
-    uint32_t valid_sec
+    uint32_t valid_sec,
+    uint32_t* out_order_id
 ) {
+    if (!out_order_id) {
+        return ACCT_ERR_INVALID_PARAM;
+    }
+    *out_order_id = 0;
+
     if (!ctx || !security_id) {
-        return 0;
+        return ACCT_ERR_INVALID_PARAM;
     }
 
     auto* context = ctx;
     if (!context->initialized) {
-        return 0;
+        return ACCT_ERR_NOT_INITIALIZED;
     }
 
     // 验证参数
     if (side != ACCT_SIDE_BUY && side != ACCT_SIDE_SELL) {
-        return 0;
+        return ACCT_ERR_INVALID_PARAM;
     }
     if (market < ACCT_MARKET_SZ || market > ACCT_MARKET_HK) {
-        return 0;
+        return ACCT_ERR_INVALID_PARAM;
     }
     if (volume == 0) {
-        return 0;
+        return ACCT_ERR_INVALID_PARAM;
     }
 
     // 检查缓存容量
     if (context->cached_orders.size() >= kMaxCachedOrders) {
-        return 0;
+        return ACCT_ERR_CACHE_FULL;
     }
 
-    // 分配订单ID
-    uint32_t order_id = context->next_order_id.fetch_add(1, std::memory_order_relaxed);
+    // 分配订单ID（从共享内存 header 中原子递增）
+    uint32_t order_id = context->shm_ptr->header.next_order_id.fetch_add(1, std::memory_order_relaxed);
 
     // 将浮点价格转换为内部整数格式（元 -> 分，乘以 100）
     acct::dprice_t internal_price = static_cast<acct::dprice_t>(price * 100.0 + 0.5);
@@ -171,7 +223,8 @@ ACCT_API uint32_t acct_new_order(
     // 缓存订单
     context->cached_orders[order_id] = request;
 
-    return order_id;
+    *out_order_id = order_id;
+    return ACCT_OK;
 }
 
 ACCT_API acct_error_t acct_send_order(acct_ctx_t ctx, uint32_t order_id) {
@@ -205,37 +258,43 @@ ACCT_API acct_error_t acct_send_order(acct_ctx_t ctx, uint32_t order_id) {
     return ACCT_OK;
 }
 
-ACCT_API uint32_t acct_submit_order(
+ACCT_API acct_error_t acct_submit_order(
     acct_ctx_t ctx,
     const char* security_id,
     uint8_t side,
     uint8_t market,
     uint64_t volume,
     double price,
-    uint32_t valid_sec
+    uint32_t valid_sec,
+    uint32_t* out_order_id
 ) {
+    if (!out_order_id) {
+        return ACCT_ERR_INVALID_PARAM;
+    }
+    *out_order_id = 0;
+
     if (!ctx || !security_id) {
-        return 0;
+        return ACCT_ERR_INVALID_PARAM;
     }
 
     auto* context = ctx;
     if (!context->initialized) {
-        return 0;
+        return ACCT_ERR_NOT_INITIALIZED;
     }
 
     // 验证参数
     if (side != ACCT_SIDE_BUY && side != ACCT_SIDE_SELL) {
-        return 0;
+        return ACCT_ERR_INVALID_PARAM;
     }
     if (market < ACCT_MARKET_SZ || market > ACCT_MARKET_HK) {
-        return 0;
+        return ACCT_ERR_INVALID_PARAM;
     }
     if (volume == 0) {
-        return 0;
+        return ACCT_ERR_INVALID_PARAM;
     }
 
-    // 分配订单ID
-    uint32_t order_id = context->next_order_id.fetch_add(1, std::memory_order_relaxed);
+    // 分配订单ID（从共享内存 header 中原子递增）
+    uint32_t order_id = context->shm_ptr->header.next_order_id.fetch_add(1, std::memory_order_relaxed);
 
     // 将浮点价格转换为内部整数格式（元 -> 分，乘以 100）
     dprice_t internal_price = static_cast<dprice_t>(price * 100.0 + 0.5);
@@ -263,28 +322,35 @@ ACCT_API uint32_t acct_submit_order(
     // 直接推入队列
     bool success = context->shm_ptr->strategy_order_queue.try_push(request);
     if (!success) {
-        return 0;
+        return ACCT_ERR_QUEUE_FULL;
     }
 
-    return order_id;
+    *out_order_id = order_id;
+    return ACCT_OK;
 }
 
-ACCT_API uint32_t acct_cancel_order(
+ACCT_API acct_error_t acct_cancel_order(
     acct_ctx_t ctx,
     uint32_t orig_order_id,
-    uint32_t valid_sec
+    uint32_t valid_sec,
+    uint32_t* out_cancel_id
 ) {
+    if (!out_cancel_id) {
+        return ACCT_ERR_INVALID_PARAM;
+    }
+    *out_cancel_id = 0;
+
     if (!ctx) {
-        return 0;
+        return ACCT_ERR_INVALID_PARAM;
     }
 
     auto* context = ctx;
     if (!context->initialized) {
-        return 0;
+        return ACCT_ERR_NOT_INITIALIZED;
     }
 
-    // 分配撤单请求ID
-    uint32_t cancel_id = context->next_order_id.fetch_add(1, std::memory_order_relaxed);
+    // 分配撤单请求ID（从共享内存 header 中原子递增）
+    uint32_t cancel_id = context->shm_ptr->header.next_order_id.fetch_add(1, std::memory_order_relaxed);
 
     // 使用当前系统时间作为 md_time（HHMMSSmmm 格式）
     md_time_t md_time = get_current_md_time();
@@ -304,23 +370,30 @@ ACCT_API uint32_t acct_cancel_order(
     // 推入队列
     bool success = context->shm_ptr->strategy_order_queue.try_push(request);
     if (!success) {
-        return 0;
+        return ACCT_ERR_QUEUE_FULL;
     }
 
-    return cancel_id;
+    *out_cancel_id = cancel_id;
+    return ACCT_OK;
 }
 
-ACCT_API size_t acct_queue_size(acct_ctx_t ctx) {
+ACCT_API acct_error_t acct_queue_size(acct_ctx_t ctx, size_t* out_size) {
+    if (!out_size) {
+        return ACCT_ERR_INVALID_PARAM;
+    }
+    *out_size = 0;
+
     if (!ctx) {
-        return 0;
+        return ACCT_ERR_INVALID_PARAM;
     }
 
     auto* context = ctx;
     if (!context->initialized || !context->shm_ptr) {
-        return 0;
+        return ACCT_ERR_NOT_INITIALIZED;
     }
 
-    return context->shm_ptr->strategy_order_queue.size();
+    *out_size = context->shm_ptr->strategy_order_queue.size();
+    return ACCT_OK;
 }
 
 ACCT_API const char* acct_strerror(acct_error_t err) {
@@ -331,6 +404,7 @@ ACCT_API const char* acct_strerror(acct_error_t err) {
         case ACCT_ERR_QUEUE_FULL:       return "Queue is full";
         case ACCT_ERR_SHM_FAILED:       return "Shared memory operation failed";
         case ACCT_ERR_ORDER_NOT_FOUND:  return "Order not found";
+        case ACCT_ERR_CACHE_FULL:       return "Order cache is full";
         case ACCT_ERR_INTERNAL:         return "Internal error";
         default:                        return "Unknown error";
     }
@@ -338,6 +412,17 @@ ACCT_API const char* acct_strerror(acct_error_t err) {
 
 ACCT_API const char* acct_version(void) {
     return ACCT_API_VERSION;
+}
+
+ACCT_API acct_error_t acct_cleanup_shm(void) {
+    if (shm_unlink(acct::kStrategyOrderShmName) < 0) {
+        // 如果共享内存不存在，返回成功（幂等操作）
+        if (errno == ENOENT) {
+            return ACCT_OK;
+        }
+        return ACCT_ERR_SHM_FAILED;
+    }
+    return ACCT_OK;
 }
 
 }  // extern "C"

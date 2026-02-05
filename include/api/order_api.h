@@ -31,6 +31,7 @@ typedef enum {
     ACCT_ERR_QUEUE_FULL = -3,
     ACCT_ERR_SHM_FAILED = -4,
     ACCT_ERR_ORDER_NOT_FOUND = -5,
+    ACCT_ERR_CACHE_FULL = -6,       // 订单缓存已满
     ACCT_ERR_INTERNAL = -99,
 } acct_error_t;
 
@@ -55,15 +56,24 @@ typedef struct acct_context* acct_ctx_t;
 
 /**
  * @brief 初始化订单 API 上下文
- * @return 上下文句柄，失败返回 NULL
+ * @param out_ctx 输出参数：上下文句柄指针
+ * @return 错误码，ACCT_OK 表示成功
  */
-ACCT_API acct_ctx_t acct_init(void);
+ACCT_API acct_error_t acct_init(acct_ctx_t* out_ctx);
 
 /**
  * @brief 销毁上下文并释放资源
  * @param ctx 上下文句柄
+ * @return 错误码，ACCT_OK 表示成功
  */
-ACCT_API void acct_destroy(acct_ctx_t ctx);
+ACCT_API acct_error_t acct_destroy(acct_ctx_t ctx);
+
+/**
+ * @brief 清理共享内存（删除共享内存文件）
+ * @return 错误码，ACCT_OK 表示成功
+ * @note 调用此函数前需确保所有使用该共享内存的上下文已销毁
+ */
+ACCT_API acct_error_t acct_cleanup_shm(void);
 
 // ============ 核心订单接口 ============
 
@@ -76,16 +86,18 @@ ACCT_API void acct_destroy(acct_ctx_t ctx);
  * @param volume 委托数量
  * @param price 委托价格 (单位: 元, 如 10.5 表示 10.5元)
  * @param valid_sec 保留参数（暂未使用，传入 0 即可）
- * @return 成功返回订单ID，失败返回0
+ * @param out_order_id 输出参数：订单ID
+ * @return 错误码，ACCT_OK 表示成功
  */
-ACCT_API uint32_t acct_new_order(
+ACCT_API acct_error_t acct_new_order(
     acct_ctx_t ctx,
     const char* security_id,
     uint8_t side,
     uint8_t market,
     uint64_t volume,
     double price,
-    uint32_t valid_sec
+    uint32_t valid_sec,
+    uint32_t* out_order_id
 );
 
 /**
@@ -105,16 +117,18 @@ ACCT_API acct_error_t acct_send_order(acct_ctx_t ctx, uint32_t order_id);
  * @param volume 委托数量
  * @param price 委托价格
  * @param valid_sec 保留参数（暂未使用，传入 0 即可）
- * @return 成功返回订单ID，失败返回0
+ * @param out_order_id 输出参数：订单ID
+ * @return 错误码，ACCT_OK 表示成功
  */
-ACCT_API uint32_t acct_submit_order(
+ACCT_API acct_error_t acct_submit_order(
     acct_ctx_t ctx,
     const char* security_id,
     uint8_t side,
     uint8_t market,
     uint64_t volume,
     double price,
-    uint32_t valid_sec
+    uint32_t valid_sec,
+    uint32_t* out_order_id
 );
 
 // ============ 撤单接口 ============
@@ -124,12 +138,14 @@ ACCT_API uint32_t acct_submit_order(
  * @param ctx 上下文
  * @param orig_order_id 要撤销的原订单ID
  * @param valid_sec 保留参数（暂未使用，传入 0 即可）
- * @return 成功返回撤单请求ID，失败返回0
+ * @param out_cancel_id 输出参数：撤单请求ID
+ * @return 错误码，ACCT_OK 表示成功
  */
-ACCT_API uint32_t acct_cancel_order(
+ACCT_API acct_error_t acct_cancel_order(
     acct_ctx_t ctx,
     uint32_t orig_order_id,
-    uint32_t valid_sec
+    uint32_t valid_sec,
+    uint32_t* out_cancel_id
 );
 
 // ============ 辅助接口 ============
@@ -137,9 +153,10 @@ ACCT_API uint32_t acct_cancel_order(
 /**
  * @brief 获取队列当前元素数量
  * @param ctx 上下文
- * @return 队列元素数量
+ * @param out_size 输出参数：队列元素数量
+ * @return 错误码，ACCT_OK 表示成功
  */
-ACCT_API size_t acct_queue_size(acct_ctx_t ctx);
+ACCT_API acct_error_t acct_queue_size(acct_ctx_t ctx, size_t* out_size);
 
 /**
  * @brief 获取错误描述字符串
