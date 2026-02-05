@@ -1,12 +1,12 @@
 #pragma once
 
-#include "common/fixed_string.hpp"
-#include "common/types.hpp"
-#include "order/order_request.hpp"
-
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+#include "common/fixed_string.hpp"
+#include "common/types.hpp"
+#include "order/order_request.hpp"
 
 namespace acct_service {
 
@@ -39,10 +39,8 @@ public:
 
     // 查询接口
     const trade_record* find_trade(uint64_t trade_id) const;
-    std::vector<const trade_record*> get_trades_by_order(
-        internal_order_id_t order_id) const;
-    std::vector<const trade_record*> get_trades_by_security(
-        internal_security_id_t security_id) const;
+    std::vector<const trade_record*> get_trades_by_order(internal_order_id_t order_id) const;
+    std::vector<const trade_record*> get_trades_by_security(internal_security_id_t security_id) const;
     std::vector<const trade_record*> get_all_trades() const;
 
     // 统计接口
@@ -57,9 +55,8 @@ private:
     std::vector<trade_record> trades_;
     std::unordered_map<uint64_t, std::size_t> id_index_;
     std::unordered_map<internal_order_id_t, std::vector<std::size_t>> order_index_;
-    std::unordered_map<internal_security_id_t, std::vector<std::size_t>>
-        security_index_;
+    std::unordered_map<internal_security_id_t, std::vector<std::size_t>> security_index_;
     uint64_t next_trade_id_ = 1;
 };
 
-}  // namespace acct
+}  // namespace acct_service

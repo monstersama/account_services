@@ -1,11 +1,11 @@
 #pragma once
 
-#include "common/types.hpp"
-#include "order/order_request.hpp"
-
 #include <functional>
 #include <string>
 #include <vector>
+
+#include "common/types.hpp"
+#include "order/order_request.hpp"
 
 namespace acct_service {
 
@@ -56,4 +56,4 @@ private:
     order_id_generator_t id_generator_;
 };
 
-}  // namespace acct
+}  // namespace acct_service

@@ -19,8 +19,7 @@ void md_time_to_str(md_time_t t, char* buf, std::size_t buf_size) {
     uint32_t seconds = (t / 1000) % 100;
     uint32_t millis = t % 1000;
 
-    std::snprintf(buf, buf_size, "%02u:%02u:%02u.%03u",
-                  hours, minutes, seconds, millis);
+    std::snprintf(buf, buf_size, "%02u:%02u:%02u.%03u", hours, minutes, seconds, millis);
 }
 
 md_time_t now_md_time() {
@@ -39,4 +38,4 @@ md_time_t now_md_time() {
     return hours * 10000000 + minutes * 100000 + seconds * 1000 + millis;
 }
 
-}  // namespace acct
+}  // namespace acct_service

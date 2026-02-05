@@ -1,12 +1,12 @@
 #pragma once
 
-#include "common/fixed_string.hpp"
-#include "common/types.hpp"
-#include "order/order_request.hpp"
-
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+#include "common/fixed_string.hpp"
+#include "common/types.hpp"
+#include "order/order_request.hpp"
 
 namespace acct_service {
 
@@ -51,8 +51,7 @@ public:
 
     // 查询接口
     const entrust_record* find_entrust(internal_order_id_t order_id) const;
-    std::vector<const entrust_record*> get_entrusts_by_security(
-        internal_security_id_t security_id) const;
+    std::vector<const entrust_record*> get_entrusts_by_security(internal_security_id_t security_id) const;
     std::vector<const entrust_record*> get_active_entrusts() const;
     std::vector<const entrust_record*> get_all_entrusts() const;
 
@@ -66,8 +65,7 @@ public:
 private:
     std::vector<entrust_record> entrusts_;
     std::unordered_map<internal_order_id_t, std::size_t> id_index_;
-    std::unordered_map<internal_security_id_t, std::vector<std::size_t>>
-        security_index_;
+    std::unordered_map<internal_security_id_t, std::vector<std::size_t>> security_index_;
 };
 
-}  // namespace acct
+}  // namespace acct_service

@@ -1,9 +1,9 @@
 #pragma once
 
-#include "common/types.hpp"
-
 #include <cstdint>
 #include <ctime>
+
+#include "common/types.hpp"
 
 namespace acct_service {
 
@@ -26,4 +26,4 @@ inline uint64_t ns_to_us(timestamp_ns_t ns) { return ns / 1000; }
 // 纳秒转毫秒
 inline uint64_t ns_to_ms(timestamp_ns_t ns) { return ns / 1'000'000; }
 
-}  // namespace acct
+}  // namespace acct_service

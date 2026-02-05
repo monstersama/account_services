@@ -6,17 +6,17 @@
 
 // ===== export.h 内容内联 =====
 #if defined(_WIN32) || defined(__CYGWIN__)
-    #ifdef ACCT_API_EXPORT
-        #define ACCT_API __declspec(dllexport)
-    #else
-        #define ACCT_API __declspec(dllimport)
-    #endif
+#ifdef ACCT_API_EXPORT
+#define ACCT_API __declspec(dllexport)
 #else
-    #ifdef ACCT_API_EXPORT
-        #define ACCT_API __attribute__((visibility("default")))
-    #else
-        #define ACCT_API
-    #endif
+#define ACCT_API __declspec(dllimport)
+#endif
+#else
+#ifdef ACCT_API_EXPORT
+#define ACCT_API __attribute__((visibility("default")))
+#else
+#define ACCT_API
+#endif
 #endif
 
 #ifdef __cplusplus
@@ -31,7 +31,7 @@ typedef enum {
     ACCT_ERR_QUEUE_FULL = -3,
     ACCT_ERR_SHM_FAILED = -4,
     ACCT_ERR_ORDER_NOT_FOUND = -5,
-    ACCT_ERR_CACHE_FULL = -6,       // 订单缓存已满
+    ACCT_ERR_CACHE_FULL = -6,  // 订单缓存已满
     ACCT_ERR_INTERNAL = -99,
 } acct_error_t;
 
@@ -89,16 +89,8 @@ ACCT_API acct_error_t acct_cleanup_shm(void);
  * @param out_order_id 输出参数：订单ID
  * @return 错误码，ACCT_OK 表示成功
  */
-ACCT_API acct_error_t acct_new_order(
-    acct_ctx_t ctx,
-    const char* security_id,
-    uint8_t side,
-    uint8_t market,
-    uint64_t volume,
-    double price,
-    uint32_t valid_sec,
-    uint32_t* out_order_id
-);
+ACCT_API acct_error_t acct_new_order(acct_ctx_t ctx, const char* security_id, uint8_t side, uint8_t market,
+    uint64_t volume, double price, uint32_t valid_sec, uint32_t* out_order_id);
 
 /**
  * @brief 发送已创建的订单到共享内存队列
@@ -120,16 +112,8 @@ ACCT_API acct_error_t acct_send_order(acct_ctx_t ctx, uint32_t order_id);
  * @param out_order_id 输出参数：订单ID
  * @return 错误码，ACCT_OK 表示成功
  */
-ACCT_API acct_error_t acct_submit_order(
-    acct_ctx_t ctx,
-    const char* security_id,
-    uint8_t side,
-    uint8_t market,
-    uint64_t volume,
-    double price,
-    uint32_t valid_sec,
-    uint32_t* out_order_id
-);
+ACCT_API acct_error_t acct_submit_order(acct_ctx_t ctx, const char* security_id, uint8_t side, uint8_t market,
+    uint64_t volume, double price, uint32_t valid_sec, uint32_t* out_order_id);
 
 // ============ 撤单接口 ============
 
@@ -142,11 +126,7 @@ ACCT_API acct_error_t acct_submit_order(
  * @return 错误码，ACCT_OK 表示成功
  */
 ACCT_API acct_error_t acct_cancel_order(
-    acct_ctx_t ctx,
-    uint32_t orig_order_id,
-    uint32_t valid_sec,
-    uint32_t* out_cancel_id
-);
+    acct_ctx_t ctx, uint32_t orig_order_id, uint32_t valid_sec, uint32_t* out_cancel_id);
 
 // ============ 辅助接口 ============
 
@@ -175,4 +155,4 @@ ACCT_API const char* acct_version(void);
 }
 #endif
 
-#endif // ACCT_ORDER_API_H
+#endif  // ACCT_ORDER_API_H

@@ -1,17 +1,19 @@
 #include "api/order_api.h"
-#include "common/constants.hpp"
-#include "common/types.hpp"
-#include "order/order_request.hpp"
-#include "shm/shm_layout.hpp"
-#include "version.h"
+
+#include <fcntl.h>
+#include <sys/mman.h>
 
 #include <atomic>
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
-#include <fcntl.h>
-#include <sys/mman.h>
 #include <unordered_map>
+
+#include "common/constants.hpp"
+#include "common/types.hpp"
+#include "order/order_request.hpp"
+#include "shm/shm_layout.hpp"
+#include "version.h"
 
 // 前向声明，避免 <unistd.h> 中 acct() 与 namespace acct 冲突
 extern "C" {
@@ -92,8 +94,7 @@ ACCT_API acct_error_t acct_init(acct_ctx_t* out_ctx) {
     }
 
     // 映射共享内存
-    void* ptr = mmap(nullptr, ctx->shm_size, PROT_READ | PROT_WRITE,
-                     MAP_SHARED, ctx->shm_fd, 0);
+    void* ptr = mmap(nullptr, ctx->shm_size, PROT_READ | PROT_WRITE, MAP_SHARED, ctx->shm_fd, 0);
     if (ptr == MAP_FAILED) {
         close(ctx->shm_fd);
         if (is_new) {
@@ -154,16 +155,8 @@ ACCT_API acct_error_t acct_destroy(acct_ctx_t ctx) {
     return ACCT_OK;
 }
 
-ACCT_API acct_error_t acct_new_order(
-    acct_ctx_t ctx,
-    const char* security_id,
-    uint8_t side,
-    uint8_t market,
-    uint64_t volume,
-    double price,
-    uint32_t valid_sec,
-    uint32_t* out_order_id
-) {
+ACCT_API acct_error_t acct_new_order(acct_ctx_t ctx, const char* security_id, uint8_t side, uint8_t market,
+    uint64_t volume, double price, uint32_t valid_sec, uint32_t* out_order_id) {
     if (!out_order_id) {
         return ACCT_ERR_INVALID_PARAM;
     }
@@ -208,16 +201,11 @@ ACCT_API acct_error_t acct_new_order(
 
     // 创建订单请求（internal_security_id 内部实现，暂时使用0）
     acct_service::order_request request;
-    request.init_new(
-        std::string_view(security_id),
+    request.init_new(std::string_view(security_id),
         static_cast<acct_service::internal_security_id_t>(0),  // 内部实现，暂时使用0
-        static_cast<acct_service::internal_order_id_t>(order_id),
-        static_cast<acct_service::trade_side_t>(side),
-        static_cast<acct_service::market_t>(market),
-        static_cast<acct_service::volume_t>(volume),
-        internal_price,
-        md_time
-    );
+        static_cast<acct_service::internal_order_id_t>(order_id), static_cast<acct_service::trade_side_t>(side),
+        static_cast<acct_service::market_t>(market), static_cast<acct_service::volume_t>(volume), internal_price,
+        md_time);
     request.order_status.store(acct_service::order_status_t::NotSet, std::memory_order_relaxed);
 
     // 缓存订单
@@ -258,16 +246,8 @@ ACCT_API acct_error_t acct_send_order(acct_ctx_t ctx, uint32_t order_id) {
     return ACCT_OK;
 }
 
-ACCT_API acct_error_t acct_submit_order(
-    acct_ctx_t ctx,
-    const char* security_id,
-    uint8_t side,
-    uint8_t market,
-    uint64_t volume,
-    double price,
-    uint32_t valid_sec,
-    uint32_t* out_order_id
-) {
+ACCT_API acct_error_t acct_submit_order(acct_ctx_t ctx, const char* security_id, uint8_t side, uint8_t market,
+    uint64_t volume, double price, uint32_t valid_sec, uint32_t* out_order_id) {
     if (!out_order_id) {
         return ACCT_ERR_INVALID_PARAM;
     }
@@ -307,16 +287,10 @@ ACCT_API acct_error_t acct_submit_order(
 
     // 创建订单请求（internal_security_id 内部实现，暂时使用0）
     order_request request;
-    request.init_new(
-        std::string_view(security_id),
+    request.init_new(std::string_view(security_id),
         static_cast<internal_security_id_t>(0),  // 内部实现，暂时使用0
-        static_cast<internal_order_id_t>(order_id),
-        static_cast<trade_side_t>(side),
-        static_cast<market_t>(market),
-        static_cast<volume_t>(volume),
-        internal_price,
-        md_time
-    );
+        static_cast<internal_order_id_t>(order_id), static_cast<trade_side_t>(side), static_cast<market_t>(market),
+        static_cast<volume_t>(volume), internal_price, md_time);
     request.order_status.store(order_status_t::StrategySubmitted, std::memory_order_release);
 
     // 直接推入队列
@@ -330,11 +304,7 @@ ACCT_API acct_error_t acct_submit_order(
 }
 
 ACCT_API acct_error_t acct_cancel_order(
-    acct_ctx_t ctx,
-    uint32_t orig_order_id,
-    uint32_t valid_sec,
-    uint32_t* out_cancel_id
-) {
+    acct_ctx_t ctx, uint32_t orig_order_id, uint32_t valid_sec, uint32_t* out_cancel_id) {
     if (!out_cancel_id) {
         return ACCT_ERR_INVALID_PARAM;
     }
@@ -361,10 +331,7 @@ ACCT_API acct_error_t acct_cancel_order(
     // 创建撤单请求
     order_request request;
     request.init_cancel(
-        static_cast<internal_order_id_t>(cancel_id),
-        md_time,
-        static_cast<internal_order_id_t>(orig_order_id)
-    );
+        static_cast<internal_order_id_t>(cancel_id), md_time, static_cast<internal_order_id_t>(orig_order_id));
     request.order_status.store(order_status_t::StrategySubmitted, std::memory_order_release);
 
     // 推入队列
@@ -398,21 +365,28 @@ ACCT_API acct_error_t acct_queue_size(acct_ctx_t ctx, size_t* out_size) {
 
 ACCT_API const char* acct_strerror(acct_error_t err) {
     switch (err) {
-        case ACCT_OK:                   return "Success";
-        case ACCT_ERR_NOT_INITIALIZED:  return "Context not initialized";
-        case ACCT_ERR_INVALID_PARAM:    return "Invalid parameter";
-        case ACCT_ERR_QUEUE_FULL:       return "Queue is full";
-        case ACCT_ERR_SHM_FAILED:       return "Shared memory operation failed";
-        case ACCT_ERR_ORDER_NOT_FOUND:  return "Order not found";
-        case ACCT_ERR_CACHE_FULL:       return "Order cache is full";
-        case ACCT_ERR_INTERNAL:         return "Internal error";
-        default:                        return "Unknown error";
+        case ACCT_OK:
+            return "Success";
+        case ACCT_ERR_NOT_INITIALIZED:
+            return "Context not initialized";
+        case ACCT_ERR_INVALID_PARAM:
+            return "Invalid parameter";
+        case ACCT_ERR_QUEUE_FULL:
+            return "Queue is full";
+        case ACCT_ERR_SHM_FAILED:
+            return "Shared memory operation failed";
+        case ACCT_ERR_ORDER_NOT_FOUND:
+            return "Order not found";
+        case ACCT_ERR_CACHE_FULL:
+            return "Order cache is full";
+        case ACCT_ERR_INTERNAL:
+            return "Internal error";
+        default:
+            return "Unknown error";
     }
 }
 
-ACCT_API const char* acct_version(void) {
-    return ACCT_API_VERSION;
-}
+ACCT_API const char* acct_version(void) { return ACCT_API_VERSION; }
 
 ACCT_API acct_error_t acct_cleanup_shm(void) {
     if (shm_unlink(acct_service::kStrategyOrderShmName) < 0) {

@@ -1,10 +1,10 @@
 #pragma once
 
-#include "common/types.hpp"
-#include "shm/shm_layout.hpp"
-
 #include <string>
 #include <string_view>
+
+#include "common/types.hpp"
+#include "shm/shm_layout.hpp"
 
 namespace acct_service {
 
@@ -30,20 +30,16 @@ public:
     shm_manager& operator=(shm_manager&& other) noexcept;
 
     // 创建/打开上游共享内存
-    upstream_shm_layout* open_upstream(std::string_view name, shm_mode mode,
-                                       account_id_t account_id);
+    upstream_shm_layout* open_upstream(std::string_view name, shm_mode mode, account_id_t account_id);
 
     // 创建/打开下游共享内存
-    downstream_shm_layout* open_downstream(std::string_view name, shm_mode mode,
-                                           account_id_t account_id);
+    downstream_shm_layout* open_downstream(std::string_view name, shm_mode mode, account_id_t account_id);
 
     // 创建/打开成交回报共享内存
-    trades_shm_layout* open_trades(std::string_view name, shm_mode mode,
-                                   account_id_t account_id);
+    trades_shm_layout* open_trades(std::string_view name, shm_mode mode, account_id_t account_id);
 
     // 创建/打开持仓共享内存
-    positions_shm_layout* open_positions(std::string_view name, shm_mode mode,
-                                         account_id_t account_id);
+    positions_shm_layout* open_positions(std::string_view name, shm_mode mode, account_id_t account_id);
 
     // 关闭并解除映射
     void close();
@@ -79,4 +75,4 @@ inline std::string make_shm_name(std::string_view prefix, account_id_t account_i
     return std::string("/") + std::string(prefix) + "_" + std::to_string(account_id);
 }
 
-}  // namespace acct
+}  // namespace acct_service

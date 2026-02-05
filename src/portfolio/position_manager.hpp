@@ -1,16 +1,16 @@
 #pragma once
 
-#include "common/spinlock.hpp"
-#include "common/types.hpp"
-#include "order/order_request.hpp"
-#include "portfolio/positions.h"
-#include "shm/shm_layout.hpp"
-
 #include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
+
+#include "common/spinlock.hpp"
+#include "common/types.hpp"
+#include "order/order_request.hpp"
+#include "portfolio/positions.h"
+#include "shm/shm_layout.hpp"
 
 namespace acct_service {
 
@@ -52,24 +52,20 @@ public:
     const position* get_position(internal_security_id_t security_id) const;
     position* get_position_mut(internal_security_id_t security_id);
     volume_t get_sellable_volume(internal_security_id_t security_id) const;
-    bool freeze_position(internal_security_id_t security_id, volume_t volume,
-                         internal_order_id_t order_id);
-    bool unfreeze_position(internal_security_id_t security_id, volume_t volume,
-                           internal_order_id_t order_id);
-    bool deduct_position(internal_security_id_t security_id, volume_t volume,
-                         dvalue_t value, internal_order_id_t order_id);
-    bool add_position(internal_security_id_t security_id, volume_t volume,
-                      dprice_t price, internal_order_id_t order_id);
+    bool freeze_position(internal_security_id_t security_id, volume_t volume, internal_order_id_t order_id);
+    bool unfreeze_position(internal_security_id_t security_id, volume_t volume, internal_order_id_t order_id);
+    bool deduct_position(
+        internal_security_id_t security_id, volume_t volume, dvalue_t value, internal_order_id_t order_id);
+    bool add_position(
+        internal_security_id_t security_id, volume_t volume, dprice_t price, internal_order_id_t order_id);
 
     // === 查询接口 ===
 
     std::vector<const position*> get_all_positions() const;
     fund_info get_fund_info() const;
     std::size_t position_count() const noexcept;
-    std::optional<internal_security_id_t> find_security_id(
-        std::string_view code) const;
-    internal_security_id_t add_security(std::string_view code,
-                                        std::string_view name, market_t market);
+    std::optional<internal_security_id_t> find_security_id(std::string_view code) const;
+    internal_security_id_t add_security(std::string_view code, std::string_view name, market_t market);
 
 private:
     position* get_or_create_position(internal_security_id_t security_id);
@@ -83,4 +79,4 @@ private:
     internal_security_id_t next_security_id_ = 1;
 };
 
-}  // namespace acct
+}  // namespace acct_service

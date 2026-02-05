@@ -1,14 +1,14 @@
 #pragma once
 
-#include "common/constants.hpp"
-#include "common/spinlock.hpp"
-#include "common/types.hpp"
-#include "order/order_request.hpp"
-
 #include <array>
 #include <atomic>
 #include <unordered_map>
 #include <vector>
+
+#include "common/constants.hpp"
+#include "common/spinlock.hpp"
+#include "common/types.hpp"
+#include "order/order_request.hpp"
 
 namespace acct_service {
 
@@ -51,8 +51,7 @@ public:
     bool update_status(internal_order_id_t order_id, order_status_t new_status);
 
     // 更新订单成交信息
-    bool update_trade(internal_order_id_t order_id, volume_t vol, dprice_t px,
-                      dvalue_t val, dvalue_t fee);
+    bool update_trade(internal_order_id_t order_id, volume_t vol, dprice_t px, dvalue_t val, dvalue_t fee);
 
     // 移除已完成订单（移到历史）
     bool archive_order(internal_order_id_t order_id);
@@ -61,8 +60,7 @@ public:
     std::vector<internal_order_id_t> get_active_order_ids() const;
 
     // 获取证券的所有订单
-    std::vector<internal_order_id_t> get_orders_by_security(
-        internal_security_id_t security_id) const;
+    std::vector<internal_order_id_t> get_orders_by_security(internal_security_id_t security_id) const;
 
     // 获取活跃订单数量
     std::size_t active_count() const noexcept;
@@ -77,12 +75,11 @@ private:
     std::array<order_entry, kMaxActiveOrders> orders_;
     std::unordered_map<internal_order_id_t, std::size_t> id_to_index_;
     std::unordered_map<uint64_t, internal_order_id_t> broker_id_map_;
-    std::unordered_map<internal_security_id_t, std::vector<internal_order_id_t>>
-        security_orders_;
+    std::unordered_map<internal_security_id_t, std::vector<internal_order_id_t>> security_orders_;
     std::vector<std::size_t> free_slots_;
     std::size_t active_count_ = 0;
     std::atomic<internal_order_id_t> next_order_id_{1};
     mutable spinlock lock_;
 };
 
-}  // namespace acct
+}  // namespace acct_service

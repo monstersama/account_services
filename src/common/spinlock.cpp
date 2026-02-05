@@ -22,9 +22,7 @@ void spinlock::lock() noexcept {
     bool expected = false;
 
     // 快速路径：尝试立即获取锁
-    if (flag_.compare_exchange_weak(expected, true,
-                                    std::memory_order_acquire,
-                                    std::memory_order_relaxed)) {
+    if (flag_.compare_exchange_weak(expected, true, std::memory_order_acquire, std::memory_order_relaxed)) {
         return;
     }
 
@@ -45,9 +43,7 @@ void spinlock::lock() noexcept {
 
         // 第二步：尝试获取锁（compare_exchange_weak 可能更快）
         expected = false;
-        if (flag_.compare_exchange_weak(expected, true,
-                                        std::memory_order_acquire,
-                                        std::memory_order_relaxed)) {
+        if (flag_.compare_exchange_weak(expected, true, std::memory_order_acquire, std::memory_order_relaxed)) {
             return;
         }
 
@@ -58,18 +54,12 @@ void spinlock::lock() noexcept {
 bool spinlock::try_lock() noexcept {
     // 使用 compare_exchange_weak 尝试获取锁
     bool expected = false;
-    return flag_.compare_exchange_weak(expected, true,
-                                       std::memory_order_acquire,
-                                       std::memory_order_relaxed);
+    return flag_.compare_exchange_weak(expected, true, std::memory_order_acquire, std::memory_order_relaxed);
 }
 
-void spinlock::unlock() noexcept {
-    flag_.store(false, std::memory_order_release);
-}
+void spinlock::unlock() noexcept { flag_.store(false, std::memory_order_release); }
 
-bool spinlock::is_locked() const noexcept {
-    return flag_.load(std::memory_order_relaxed);
-}
+bool spinlock::is_locked() const noexcept { return flag_.load(std::memory_order_relaxed); }
 
 // lock_guard 实现
 template <typename Lock>
@@ -84,8 +74,7 @@ lock_guard<Lock>::~lock_guard() {
 
 // unique_lock 实现
 template <typename Lock>
-unique_lock<Lock>::unique_lock(Lock& lock, bool try_lock)
-    : lock_(&lock), owns_lock_(false) {
+unique_lock<Lock>::unique_lock(Lock& lock, bool try_lock) : lock_(&lock), owns_lock_(false) {
     if (try_lock) {
         owns_lock_ = lock_->try_lock();
     } else {
@@ -118,4 +107,4 @@ void unique_lock<Lock>::unlock() {
 template class lock_guard<spinlock>;
 template class unique_lock<spinlock>;
 
-}  // namespace acct
+}  // namespace acct_service

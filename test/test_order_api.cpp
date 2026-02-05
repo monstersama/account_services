@@ -1,15 +1,16 @@
-#include "api/order_api.h"
-
 #include <cassert>
 #include <cstdio>
 #include <cstring>
 
+#include "api/order_api.h"
+
 #define TEST(name) static void test_##name()
-#define RUN_TEST(name) do { \
-    printf("Running %s... ", #name); \
-    test_##name(); \
-    printf("PASSED\n"); \
-} while(0)
+#define RUN_TEST(name)                   \
+    do {                                 \
+        printf("Running %s... ", #name); \
+        test_##name();                   \
+        printf("PASSED\n");              \
+    } while (0)
 
 TEST(version) {
     const char* ver = acct_version();
@@ -32,20 +33,14 @@ TEST(strerror) {
 TEST(null_ctx_operations) {
     // 所有操作对 NULL 上下文应该返回错误码
     uint32_t order_id = 0;
-    acct_error_t err = acct_new_order(
-        nullptr, "000001", ACCT_SIDE_BUY, ACCT_MARKET_SZ,
-        100, 10.5, 93000000, &order_id
-    );
+    acct_error_t err = acct_new_order(nullptr, "000001", ACCT_SIDE_BUY, ACCT_MARKET_SZ, 100, 10.5, 93000000, &order_id);
     assert(err == ACCT_ERR_INVALID_PARAM);
     assert(order_id == 0);
 
     err = acct_send_order(nullptr, 1);
     assert(err == ACCT_ERR_INVALID_PARAM);
 
-    err = acct_submit_order(
-        nullptr, "000001", ACCT_SIDE_BUY, ACCT_MARKET_SZ,
-        100, 10.5, 93000000, &order_id
-    );
+    err = acct_submit_order(nullptr, "000001", ACCT_SIDE_BUY, ACCT_MARKET_SZ, 100, 10.5, 93000000, &order_id);
     assert(err == ACCT_ERR_INVALID_PARAM);
     assert(order_id == 0);
 

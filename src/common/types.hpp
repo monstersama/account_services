@@ -80,4 +80,4 @@ inline timestamp_ns_t now_ns() {
     return static_cast<timestamp_ns_t>(ts.tv_sec) * 1'000'000'000ULL + ts.tv_nsec;
 }
 
-}  // namespace acct
+}  // namespace acct_service

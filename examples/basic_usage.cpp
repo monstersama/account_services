@@ -8,9 +8,9 @@
  * 4. 清理资源
  */
 
-#include "api/order_api.h"
-
 #include <cstdio>
+
+#include "api/order_api.h"
 
 int main() {
     printf("=== libacct_order.so 使用示例 ===\n\n");
@@ -32,16 +32,14 @@ int main() {
     printf("\n--- 步骤2: 提交订单 ---\n");
 
     uint32_t order_id = 0;
-    acct_error_t submit_err = acct_submit_order(
-        ctx,
-        "000001",           // 证券代码: 平安银行
-        ACCT_SIDE_BUY,      // 买入
-        ACCT_MARKET_SZ,     // 深圳市场
-        100,                // 数量: 100股
-        10.5,               // 价格: 10.5 元
-        0,                  // valid_sec: 保留参数（暂未使用）
-        &order_id
-    );
+    acct_error_t submit_err = acct_submit_order(ctx,
+        "000001",        // 证券代码: 平安银行
+        ACCT_SIDE_BUY,   // 买入
+        ACCT_MARKET_SZ,  // 深圳市场
+        100,             // 数量: 100股
+        10.5,            // 价格: 10.5 元
+        0,               // valid_sec: 保留参数（暂未使用）
+        &order_id);
 
     if (submit_err == ACCT_OK) {
         printf("[Client] 订单提交成功, order_id=%u\n", order_id);
@@ -50,16 +48,14 @@ int main() {
     }
 
     // 提交第二个订单
-    submit_err = acct_submit_order(
-        ctx,
-        "600519",           // 证券代码: 贵州茅台
-        ACCT_SIDE_SELL,     // 卖出
-        ACCT_MARKET_SH,     // 上海市场
-        10,                 // 数量: 10股
-        1800.0,             // 价格: 1800.0 元
-        0,                  // valid_sec: 保留参数（暂未使用）
-        &order_id
-    );
+    submit_err = acct_submit_order(ctx,
+        "600519",        // 证券代码: 贵州茅台
+        ACCT_SIDE_SELL,  // 卖出
+        ACCT_MARKET_SH,  // 上海市场
+        10,              // 数量: 10股
+        1800.0,          // 价格: 1800.0 元
+        0,               // valid_sec: 保留参数（暂未使用）
+        &order_id);
 
     if (submit_err == ACCT_OK) {
         printf("[Client] 订单提交成功, order_id=%u\n", order_id);
@@ -77,16 +73,12 @@ int main() {
     printf("\n--- 步骤4: 分步创建和发送订单 ---\n");
 
     order_id = 0;
-    acct_error_t new_err = acct_new_order(
-        ctx,
-        "300750",           // 证券代码: 宁德时代
-        ACCT_SIDE_BUY,
-        ACCT_MARKET_SZ,
-        50,
-        250.0,              // 250.0 元
-        0,                  // valid_sec: 保留参数（暂未使用）
-        &order_id
-    );
+    acct_error_t new_err = acct_new_order(ctx,
+        "300750",  // 证券代码: 宁德时代
+        ACCT_SIDE_BUY, ACCT_MARKET_SZ, 50,
+        250.0,  // 250.0 元
+        0,      // valid_sec: 保留参数（暂未使用）
+        &order_id);
 
     if (new_err == ACCT_OK) {
         printf("[Client] 订单已创建, order_id=%u (未发送)\n", order_id);

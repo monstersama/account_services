@@ -50,4 +50,4 @@ private:
     bool owns_lock_;
 };
 
-}  // namespace acct
+}  // namespace acct_service

@@ -1,5 +1,8 @@
 #pragma once
 
+#include <atomic>
+#include <cstdint>
+
 #include "common/types.hpp"
 #include "core/config_manager.hpp"
 #include "order/order_book.hpp"
@@ -7,9 +10,6 @@
 #include "portfolio/position_manager.hpp"
 #include "risk/risk_manager.hpp"
 #include "shm/shm_layout.hpp"
-
-#include <atomic>
-#include <cstdint>
 
 namespace acct_service {
 
@@ -36,9 +36,8 @@ struct event_loop_stats {
 class event_loop {
 public:
     event_loop(const event_loop_config& config, upstream_shm_layout* upstream_shm,
-               downstream_shm_layout* downstream_shm, order_book& order_book,
-               order_router& router, position_manager& positions,
-               risk_manager& risk);
+        downstream_shm_layout* downstream_shm, order_book& order_book, order_router& router,
+        position_manager& positions, risk_manager& risk);
     ~event_loop();
 
     // 禁止拷贝
@@ -89,4 +88,4 @@ private:
     timestamp_ns_t last_stats_time_ = 0;
 };
 
-}  // namespace acct
+}  // namespace acct_service

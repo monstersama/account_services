@@ -107,4 +107,4 @@ bool spsc_queue<T, Capacity>::empty() const noexcept {
     return head_.load(std::memory_order_acquire) == tail_.load(std::memory_order_acquire);
 }
 
-}  // namespace acct
+}  // namespace acct_service

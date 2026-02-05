@@ -1,11 +1,11 @@
 #pragma once
 
+#include <vector>
+
 #include "common/types.hpp"
 #include "order/order_book.hpp"
 #include "order/order_splitter.hpp"
 #include "shm/shm_layout.hpp"
-
-#include <vector>
 
 namespace acct_service {
 
@@ -22,8 +22,7 @@ struct router_stats {
 // 订单路由器
 class order_router {
 public:
-    order_router(order_book& book, downstream_shm_layout* shm,
-                 const split_config& config);
+    order_router(order_book& book, downstream_shm_layout* shm, const split_config& config);
     ~order_router() = default;
 
     // 禁止拷贝
@@ -37,8 +36,7 @@ public:
     std::size_t route_orders(std::vector<order_entry*>& entries);
 
     // 处理撤单请求
-    bool route_cancel(internal_order_id_t orig_id, internal_order_id_t cancel_id,
-                      md_time_t time);
+    bool route_cancel(internal_order_id_t orig_id, internal_order_id_t cancel_id, md_time_t time);
 
     // 获取统计信息
     const router_stats& stats() const noexcept;
@@ -56,4 +54,4 @@ private:
     router_stats stats_;
 };
 
-}  // namespace acct
+}  // namespace acct_service

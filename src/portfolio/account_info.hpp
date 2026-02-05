@@ -1,10 +1,10 @@
 #pragma once
 
+#include <string>
+
 #include "common/fixed_string.hpp"
 #include "common/types.hpp"
 #include "order/order_request.hpp"
-
-#include <string>
 
 namespace acct_service {
 
@@ -63,4 +63,4 @@ private:
     account_info info_;
 };
 
-}  // namespace acct
+}  // namespace acct_service

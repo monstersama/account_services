@@ -28,4 +28,4 @@ inline constexpr std::size_t kBrokerCodeSize = 16;
 // Cache line size
 inline constexpr std::size_t kCacheLineSize = 64;
 
-}  // namespace acct
+}  // namespace acct_service

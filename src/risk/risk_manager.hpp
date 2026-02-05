@@ -1,13 +1,13 @@
 #pragma once
 
+#include <functional>
+#include <memory>
+#include <vector>
+
 #include "common/types.hpp"
 #include "order/order_request.hpp"
 #include "portfolio/position_manager.hpp"
 #include "risk/risk_checker.hpp"
-
-#include <functional>
-#include <memory>
-#include <vector>
 
 namespace acct_service {
 
@@ -53,12 +53,10 @@ public:
 
     // 风控检查
     risk_check_result check_order(const order_request& order);
-    std::vector<risk_check_result> check_orders(
-        const std::vector<order_request>& orders);
+    std::vector<risk_check_result> check_orders(const std::vector<order_request>& orders);
 
     // 回调
-    using post_check_callback_t =
-        std::function<void(const order_request&, const risk_check_result&)>;
+    using post_check_callback_t = std::function<void(const order_request&, const risk_check_result&)>;
     void set_post_check_callback(post_check_callback_t callback);
 
     // 规则管理
@@ -69,8 +67,7 @@ public:
     const risk_rule* get_rule(const char* name) const;
 
     // 涨跌停价格
-    void update_price_limits(internal_security_id_t security_id,
-                             dprice_t limit_up, dprice_t limit_down);
+    void update_price_limits(internal_security_id_t security_id, dprice_t limit_up, dprice_t limit_down);
     void clear_price_limits();
 
     // 配置
@@ -95,4 +92,4 @@ private:
     rate_limit_rule* rate_limit_rule_ = nullptr;
 };
 
-}  // namespace acct
+}  // namespace acct_service

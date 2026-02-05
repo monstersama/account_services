@@ -1,24 +1,24 @@
 #pragma once
 
+#include <atomic>
+#include <cstdint>
+
 #include "common/constants.hpp"
 #include "common/types.hpp"
 #include "order/order_request.hpp"
 #include "portfolio/positions.h"
 #include "shm/spsc_queue.hpp"
 
-#include <atomic>
-#include <cstdint>
-
 namespace acct_service {
 
 // order共享内存头部
 struct alignas(64) shm_header {
-    uint32_t magic;                        // 魔数 0x41435354 ("ACST")
-    uint32_t version;                      // 版本号
-    timestamp_ns_t create_time;            // 创建时间
-    timestamp_ns_t last_update;            // 最后更新时间
-    std::atomic<uint32_t> next_order_id{1}; // 订单ID计数器（跨进程持久化）
-    uint64_t reserved[5];                  // 预留字段
+    uint32_t magic;                          // 魔数 0x41435354 ("ACST")
+    uint32_t version;                        // 版本号
+    timestamp_ns_t create_time;              // 创建时间
+    timestamp_ns_t last_update;              // 最后更新时间
+    std::atomic<uint32_t> next_order_id{1};  // 订单ID计数器（跨进程持久化）
+    uint64_t reserved[5];                    // 预留字段
 
     static constexpr uint32_t kMagic = 0x41435354;
     static constexpr uint32_t kVersion = 2;
@@ -26,11 +26,11 @@ struct alignas(64) shm_header {
 
 // 持仓共享内存头部
 struct alignas(64) positions_header {
-    uint32_t magic;                        // 魔数 0x41435354 ("ACST")
-    uint32_t version;                      // 账户服务版本号
-    timestamp_ns_t create_time;            // 创建时间
-    timestamp_ns_t last_update;            // 最后更新时间
-    std::atomic<uint32_t> id{1};           // （跨进程持久化）
+    uint32_t magic;               // 魔数 0x41435354 ("ACST")
+    uint32_t version;             // 账户服务版本号
+    timestamp_ns_t create_time;   // 创建时间
+    timestamp_ns_t last_update;   // 最后更新时间
+    std::atomic<uint32_t> id{1};  // （跨进程持久化）
 
     static constexpr uint32_t kMagic = 0x41435354;
     static constexpr uint32_t kVersion = 2;
@@ -89,4 +89,4 @@ struct positions_shm_layout {
     static constexpr std::size_t total_size() { return sizeof(positions_shm_layout); }
 };
 
-}  // namespace acct
+}  // namespace acct_service

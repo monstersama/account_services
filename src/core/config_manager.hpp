@@ -1,10 +1,10 @@
 #pragma once
 
+#include <string>
+
 #include "common/types.hpp"
 #include "order/order_splitter.hpp"
 #include "risk/risk_manager.hpp"
-
-#include <string>
 
 namespace acct_service {
 
@@ -93,4 +93,4 @@ private:
     std::string config_path_;
 };
 
-}  // namespace acct
+}  // namespace acct_service

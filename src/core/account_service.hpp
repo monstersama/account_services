@@ -1,5 +1,8 @@
 #pragma once
 
+#include <memory>
+#include <string>
+
 #include "core/config_manager.hpp"
 #include "core/event_loop.hpp"
 #include "order/order_book.hpp"
@@ -10,9 +13,6 @@
 #include "portfolio/trade_record.hpp"
 #include "risk/risk_manager.hpp"
 #include "shm/shm_manager.hpp"
-
-#include <memory>
-#include <string>
 
 namespace acct_service {
 
@@ -105,4 +105,4 @@ private:
     std::unique_ptr<event_loop> event_loop_;
 };
 
-}  // namespace acct
+}  // namespace acct_service
