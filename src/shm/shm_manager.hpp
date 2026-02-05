@@ -61,7 +61,7 @@ private:
     // 内部实现：打开或创建共享内存
     void* open_impl(std::string_view name, std::size_t size, shm_mode mode);
 
-    // 初始化共享内存头部
+    // 初始化共享内存头部(暂时不用account_id,只做预留)
     void init_header(shm_header* header, account_id_t account_id);
 
     // 验证共享内存头部
