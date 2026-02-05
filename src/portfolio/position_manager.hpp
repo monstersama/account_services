@@ -12,7 +12,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace acct {
+namespace acct_service {
 
 // 持仓变动记录
 struct position_change {

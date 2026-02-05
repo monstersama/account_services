@@ -14,7 +14,7 @@
 #include <memory>
 #include <string>
 
-namespace acct {
+namespace acct_service {
 
 // 账户服务状态
 enum class service_state_t {

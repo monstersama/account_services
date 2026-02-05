@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <ctime>
 
-namespace acct {
+namespace acct_service {
 
 using internal_order_id_t = uint32_t;
 using internal_security_id_t = uint16_t;

@@ -6,7 +6,7 @@
 
 #include <string>
 
-namespace acct {
+namespace acct_service {
 
 // 账户信息
 struct account_info {

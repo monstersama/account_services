@@ -9,7 +9,7 @@
 #include <memory>
 #include <vector>
 
-namespace acct {
+namespace acct_service {
 
 // 风控配置
 struct risk_config {

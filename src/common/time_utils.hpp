@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <ctime>
 
-namespace acct {
+namespace acct_service {
 
 // 获取当前纳秒时间戳（CLOCK_REALTIME）
 inline timestamp_ns_t now_realtime_ns() {

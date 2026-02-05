@@ -8,7 +8,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace acct {
+namespace acct_service {
 
 // 成交记录
 struct alignas(64) trade_record {

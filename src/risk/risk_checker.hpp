@@ -8,7 +8,7 @@
 #include <string>
 #include <unordered_map>
 
-namespace acct {
+namespace acct_service {
 
 // 风控检查结果
 struct risk_check_result {

@@ -25,7 +25,7 @@ namespace {
 constexpr std::size_t kMaxCachedOrders = 1024;
 
 // 获取当前系统时间的 md_time（HHMMSSmmm 格式）
-inline acct::md_time_t get_current_md_time() {
+inline acct_service::md_time_t get_current_md_time() {
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
     struct tm tm_info;
@@ -39,17 +39,17 @@ inline acct::md_time_t get_current_md_time() {
 
 }  // namespace
 
-using namespace acct;
+using namespace acct_service;
 
 // 内部上下文结构
 struct acct_context {
-    acct::upstream_shm_layout* shm_ptr = nullptr;
+    acct_service::upstream_shm_layout* shm_ptr = nullptr;
     int shm_fd = -1;
     std::size_t shm_size = 0;
     // next_order_id 现在存储在共享内存 header 中
 
     // 缓存的订单（new_order 创建，send_order 发送）
-    std::unordered_map<uint32_t, acct::order_request> cached_orders;
+    std::unordered_map<uint32_t, acct_service::order_request> cached_orders;
 
     bool initialized = false;
 };
@@ -67,15 +67,15 @@ ACCT_API acct_error_t acct_init(acct_ctx_t* out_ctx) {
         return ACCT_ERR_INTERNAL;
     }
 
-    ctx->shm_size = sizeof(acct::upstream_shm_layout);
+    ctx->shm_size = sizeof(acct_service::upstream_shm_layout);
 
     // 尝试打开已存在的共享内存
-    ctx->shm_fd = shm_open(acct::kStrategyOrderShmName, O_RDWR, 0666);
+    ctx->shm_fd = shm_open(acct_service::kStrategyOrderShmName, O_RDWR, 0666);
     bool is_new = false;
 
     if (ctx->shm_fd < 0) {
         // 不存在则创建
-        ctx->shm_fd = shm_open(acct::kStrategyOrderShmName, O_CREAT | O_RDWR, 0666);
+        ctx->shm_fd = shm_open(acct_service::kStrategyOrderShmName, O_CREAT | O_RDWR, 0666);
         if (ctx->shm_fd < 0) {
             delete ctx;
             return ACCT_ERR_SHM_FAILED;
@@ -85,7 +85,7 @@ ACCT_API acct_error_t acct_init(acct_ctx_t* out_ctx) {
         // 设置共享内存大小
         if (ftruncate(ctx->shm_fd, ctx->shm_size) < 0) {
             close(ctx->shm_fd);
-            shm_unlink(acct::kStrategyOrderShmName);
+            shm_unlink(acct_service::kStrategyOrderShmName);
             delete ctx;
             return ACCT_ERR_SHM_FAILED;
         }
@@ -97,32 +97,32 @@ ACCT_API acct_error_t acct_init(acct_ctx_t* out_ctx) {
     if (ptr == MAP_FAILED) {
         close(ctx->shm_fd);
         if (is_new) {
-            shm_unlink(acct::kStrategyOrderShmName);
+            shm_unlink(acct_service::kStrategyOrderShmName);
         }
         delete ctx;
         return ACCT_ERR_SHM_FAILED;
     }
 
-    ctx->shm_ptr = static_cast<acct::upstream_shm_layout*>(ptr);
+    ctx->shm_ptr = static_cast<acct_service::upstream_shm_layout*>(ptr);
 
     // 新创建的共享内存需要初始化
     if (is_new) {
-        ctx->shm_ptr->header.magic = acct::shm_header::kMagic;
-        ctx->shm_ptr->header.version = acct::shm_header::kVersion;
+        ctx->shm_ptr->header.magic = acct_service::shm_header::kMagic;
+        ctx->shm_ptr->header.version = acct_service::shm_header::kVersion;
         ctx->shm_ptr->header.create_time = 0;
         ctx->shm_ptr->header.last_update = 0;
         ctx->shm_ptr->header.next_order_id.store(1, std::memory_order_relaxed);
         // 队列构造时已自动初始化
     } else {
         // 验证魔数
-        if (ctx->shm_ptr->header.magic != acct::shm_header::kMagic) {
+        if (ctx->shm_ptr->header.magic != acct_service::shm_header::kMagic) {
             munmap(ptr, ctx->shm_size);
             close(ctx->shm_fd);
             delete ctx;
             return ACCT_ERR_SHM_FAILED;
         }
         // 验证版本
-        if (ctx->shm_ptr->header.version != acct::shm_header::kVersion) {
+        if (ctx->shm_ptr->header.version != acct_service::shm_header::kVersion) {
             munmap(ptr, ctx->shm_size);
             close(ctx->shm_fd);
             delete ctx;
@@ -198,27 +198,27 @@ ACCT_API acct_error_t acct_new_order(
     uint32_t order_id = context->shm_ptr->header.next_order_id.fetch_add(1, std::memory_order_relaxed);
 
     // 将浮点价格转换为内部整数格式（元 -> 分，乘以 100）
-    acct::dprice_t internal_price = static_cast<acct::dprice_t>(price * 100.0 + 0.5);
+    acct_service::dprice_t internal_price = static_cast<acct_service::dprice_t>(price * 100.0 + 0.5);
 
     // 使用当前系统时间作为 md_time（HHMMSSmmm 格式）
-    acct::md_time_t md_time = get_current_md_time();
+    acct_service::md_time_t md_time = get_current_md_time();
 
     // valid_sec 参数暂时不使用（为避免未使用警告）
     (void)valid_sec;
 
     // 创建订单请求（internal_security_id 内部实现，暂时使用0）
-    acct::order_request request;
+    acct_service::order_request request;
     request.init_new(
         std::string_view(security_id),
-        static_cast<acct::internal_security_id_t>(0),  // 内部实现，暂时使用0
-        static_cast<acct::internal_order_id_t>(order_id),
-        static_cast<acct::trade_side_t>(side),
-        static_cast<acct::market_t>(market),
-        static_cast<acct::volume_t>(volume),
+        static_cast<acct_service::internal_security_id_t>(0),  // 内部实现，暂时使用0
+        static_cast<acct_service::internal_order_id_t>(order_id),
+        static_cast<acct_service::trade_side_t>(side),
+        static_cast<acct_service::market_t>(market),
+        static_cast<acct_service::volume_t>(volume),
         internal_price,
         md_time
     );
-    request.order_status.store(acct::order_status_t::NotSet, std::memory_order_relaxed);
+    request.order_status.store(acct_service::order_status_t::NotSet, std::memory_order_relaxed);
 
     // 缓存订单
     context->cached_orders[order_id] = request;
@@ -244,7 +244,7 @@ ACCT_API acct_error_t acct_send_order(acct_ctx_t ctx, uint32_t order_id) {
     }
 
     // 更新状态
-    it->second.order_status.store(acct::order_status_t::StrategySubmitted, std::memory_order_release);
+    it->second.order_status.store(acct_service::order_status_t::StrategySubmitted, std::memory_order_release);
 
     // 推入队列
     bool success = context->shm_ptr->strategy_order_queue.try_push(it->second);
@@ -415,7 +415,7 @@ ACCT_API const char* acct_version(void) {
 }
 
 ACCT_API acct_error_t acct_cleanup_shm(void) {
-    if (shm_unlink(acct::kStrategyOrderShmName) < 0) {
+    if (shm_unlink(acct_service::kStrategyOrderShmName) < 0) {
         // 如果共享内存不存在，返回成功（幂等操作）
         if (errno == ENOENT) {
             return ACCT_OK;

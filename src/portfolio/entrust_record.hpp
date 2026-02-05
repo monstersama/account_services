@@ -8,7 +8,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace acct {
+namespace acct_service {
 
 // 委托记录（订单的持久化版本）
 struct entrust_record {

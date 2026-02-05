@@ -3,7 +3,7 @@
 #include <cstdio>
 #include <ctime>
 
-namespace acct {
+namespace acct_service {
 
 void md_time_to_str(md_time_t t, char* buf, std::size_t buf_size) {
     if (buf_size < 13) {  // HH:MM:SS.MMM 需要12字符 + null

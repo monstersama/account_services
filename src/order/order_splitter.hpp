@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-namespace acct {
+namespace acct_service {
 
 // 拆单配置
 struct split_config {

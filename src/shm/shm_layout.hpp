@@ -9,9 +9,9 @@
 #include <atomic>
 #include <cstdint>
 
-namespace acct {
+namespace acct_service {
 
-// 共享内存头部
+// order共享内存头部
 struct alignas(64) shm_header {
     uint32_t magic;                        // 魔数 0x41435354 ("ACST")
     uint32_t version;                      // 版本号
@@ -19,6 +19,18 @@ struct alignas(64) shm_header {
     timestamp_ns_t last_update;            // 最后更新时间
     std::atomic<uint32_t> next_order_id{1}; // 订单ID计数器（跨进程持久化）
     uint64_t reserved[5];                  // 预留字段
+
+    static constexpr uint32_t kMagic = 0x41435354;
+    static constexpr uint32_t kVersion = 2;
+};
+
+// 持仓共享内存头部
+struct alignas(64) positions_header {
+    uint32_t magic;                        // 魔数 0x41435354 ("ACST")
+    uint32_t version;                      // 账户服务版本号
+    timestamp_ns_t create_time;            // 创建时间
+    timestamp_ns_t last_update;            // 最后更新时间
+    std::atomic<uint32_t> id{1};           // （跨进程持久化）
 
     static constexpr uint32_t kMagic = 0x41435354;
     static constexpr uint32_t kVersion = 2;
@@ -42,6 +54,14 @@ struct alignas(64) trade_response {
 
 static_assert(sizeof(trade_response) == 64, "trade_response must be 64 bytes");
 
+// 成交回报共享内存（交易进程→账户服务）
+struct trades_shm_layout {
+    shm_header header;
+    spsc_queue<trade_response, kResponseQueueCapacity> response_queue;
+
+    static constexpr std::size_t total_size() { return sizeof(trades_shm_layout); }
+};
+
 // 上游共享内存（策略→账户服务）
 struct upstream_shm_layout {
     shm_header header;
@@ -54,14 +74,14 @@ struct upstream_shm_layout {
 struct downstream_shm_layout {
     shm_header header;
     spsc_queue<order_request, kDownstreamQueueCapacity> order_queue;
-    spsc_queue<trade_response, kResponseQueueCapacity> response_queue;
+    // response_queue 已移到 trades_shm_layout，实现职责分离
 
     static constexpr std::size_t total_size() { return sizeof(downstream_shm_layout); }
 };
 
 // 持仓共享内存（可被外部监控读取）
 struct positions_shm_layout {
-    shm_header header;
+    positions_header header;  // 使用专门的持仓头部
     alignas(64) fund_info fund;
     alignas(64) std::atomic<std::size_t> position_count{0};
     alignas(64) position positions[kMaxPositions];

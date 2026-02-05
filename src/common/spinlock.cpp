@@ -13,7 +13,7 @@
 #define CPU_PAUSE() ((void)0)
 #endif
 
-namespace acct {
+namespace acct_service {
 
 void spinlock::lock() noexcept {
     // TTAS (Test-And-Test-And-Set) + compare_exchange_weak + 指数退避优化

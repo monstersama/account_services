@@ -10,7 +10,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace acct {
+namespace acct_service {
 
 // 订单条目（扩展订单信息）
 struct order_entry {

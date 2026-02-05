@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace acct {
+namespace acct_service {
 
 // 队列容量定义（必须是2的幂）
 inline constexpr std::size_t kStrategyOrderQueueCapacity = 65536;

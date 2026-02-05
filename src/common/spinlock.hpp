@@ -2,7 +2,7 @@
 
 #include <atomic>
 
-namespace acct {
+namespace acct_service {
 
 // 高性能自旋锁（64字节对齐避免false sharing）
 class alignas(64) spinlock {

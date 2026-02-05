@@ -6,7 +6,7 @@
 
 #include <string>
 
-namespace acct {
+namespace acct_service {
 
 // 共享内存配置
 struct shm_config {

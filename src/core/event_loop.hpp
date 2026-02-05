@@ -11,7 +11,7 @@
 #include <atomic>
 #include <cstdint>
 
-namespace acct {
+namespace acct_service {
 
 // 事件循环统计
 struct event_loop_stats {

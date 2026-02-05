@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <type_traits>
 
-namespace acct {
+namespace acct_service {
 
 // 单生产者单消费者无锁环形队列
 // T 必须可拷贝赋值（支持含 std::atomic 成员的类型）

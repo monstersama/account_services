@@ -6,7 +6,7 @@
 #include <string>
 #include <string_view>
 
-namespace acct {
+namespace acct_service {
 
 // 共享内存访问模式
 enum class shm_mode {
@@ -36,6 +36,10 @@ public:
     // 创建/打开下游共享内存
     downstream_shm_layout* open_downstream(std::string_view name, shm_mode mode,
                                            account_id_t account_id);
+
+    // 创建/打开成交回报共享内存
+    trades_shm_layout* open_trades(std::string_view name, shm_mode mode,
+                                   account_id_t account_id);
 
     // 创建/打开持仓共享内存
     positions_shm_layout* open_positions(std::string_view name, shm_mode mode,
@@ -67,6 +71,7 @@ private:
     void* ptr_ = nullptr;
     std::size_t size_ = 0;
     int fd_ = -1;
+    bool last_open_is_new_ = false;
 };
 
 // 便捷函数：生成共享内存名称
