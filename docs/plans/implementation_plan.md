@@ -110,7 +110,7 @@
 
 #### 3.3 风控检查器 (risk_checker)
 **文件**: `src/risk/risk_checker.cpp`
-**说明**: 实现各类风控规则
+**说明**: 目前仅走流程，规则函数先留空（空实现）
 **依赖**: types, order_request, position_manager
 **关键功能**:
 - **资金检查** (`fund_check_rule`): 检查可用资金是否充足
@@ -120,10 +120,12 @@
 - **涨跌停价格检查** (`price_limit_rule`): 检查委托价格是否在涨跌停范围内
 - **重复订单检查** (`duplicate_order_rule`): 检查是否重复提交相同订单
 - **流速限制** (`rate_limit_rule`): 检查每秒订单数是否超过限制
+**仅写函数框架（空实现）**:
+- 所有 `*_rule::check()`、`name()`、`set_*()` 等接口
 
 #### 3.4 风控管理器 (risk_manager)
 **文件**: `src/risk/risk_manager.cpp`
-**说明**: 统筹管理所有风控规则
+**说明**: 目前仅走流程，管理器函数先留空（空实现）
 **依赖**: types, order_request, position_manager, risk_checker
 **关键功能**:
 - `check_order()`: 对单个订单执行所有风控检查
@@ -132,6 +134,8 @@
 - 规则管理: `add_rule()`, `remove_rule()`, `enable_rule()`
 - 价格限制: `update_price_limits()`, `clear_price_limits()`
 - 统计: `stats()`, `reset_stats()`
+**仅写函数框架（空实现）**:
+- 所有管理器公共接口（按上述关键功能列表）
 
 ---
 

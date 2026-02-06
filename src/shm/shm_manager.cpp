@@ -243,6 +243,10 @@ positions_shm_layout *SHMManager::open_positions(std::string_view name, shm_mode
     if (last_open_is_new_) {
         layout->header.magic = positions_header::kMagic;
         layout->header.version = positions_header::kVersion;
+        layout->header.header_size = static_cast<uint32_t>(sizeof(positions_header));
+        layout->header.total_size = static_cast<uint32_t>(sizeof(positions_shm_layout));
+        layout->header.capacity = static_cast<uint32_t>(kMaxPositions);
+        layout->header.init_state = 0;
         layout->header.create_time = now_ns();
         layout->header.last_update = now_ns();
         layout->header.id.store(1, std::memory_order_relaxed);
@@ -257,6 +261,27 @@ positions_shm_layout *SHMManager::open_positions(std::string_view name, shm_mode
         if (layout->header.version != positions_header::kVersion) {
             std::cerr << "Invalid positions shm version: expected " << positions_header::kVersion << ", got "
                       << layout->header.version << std::endl;
+            close();
+            return nullptr;
+        }
+        const uint32_t expected_header_size = static_cast<uint32_t>(sizeof(positions_header));
+        if (layout->header.header_size != expected_header_size) {
+            std::cerr << "Invalid positions shm header size: expected " << expected_header_size << ", got "
+                      << layout->header.header_size << std::endl;
+            close();
+            return nullptr;
+        }
+        const uint32_t expected_total_size = static_cast<uint32_t>(sizeof(positions_shm_layout));
+        if (layout->header.total_size != expected_total_size) {
+            std::cerr << "Invalid positions shm total size: expected " << expected_total_size << ", got "
+                      << layout->header.total_size << std::endl;
+            close();
+            return nullptr;
+        }
+        const uint32_t expected_capacity = static_cast<uint32_t>(kMaxPositions);
+        if (layout->header.capacity != expected_capacity) {
+            std::cerr << "Invalid positions shm capacity: expected " << expected_capacity << ", got "
+                      << layout->header.capacity << std::endl;
             close();
             return nullptr;
         }

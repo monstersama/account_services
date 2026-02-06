@@ -26,15 +26,22 @@ struct alignas(64) shm_header {
 
 // 持仓共享内存头部
 struct alignas(64) positions_header {
-    uint32_t magic;               // 魔数 0x41435354 ("ACST")
-    uint32_t version;             // 账户服务版本号
-    timestamp_ns_t create_time;   // 创建时间
-    timestamp_ns_t last_update;   // 最后更新时间
-    std::atomic<uint32_t> id{1};  // （跨进程持久化）
+    uint32_t magic;              // 魔数 0x41435354 ("ACST")
+    uint32_t version;            // 账户服务版本号
+    uint32_t header_size;        // 头部大小（字节）
+    uint32_t total_size;         // 全部布局大小（字节）
+    uint32_t capacity;           // positions[] 容量
+    uint32_t init_state;         // 0=未完成初始化，1=可读
+    timestamp_ns_t create_time;  // 创建时间
+    timestamp_ns_t last_update;  // 最后更新时间
+    std::atomic<uint32_t> id{1}; // 
+    uint32_t reserved[3];        // 预留/对齐
 
     static constexpr uint32_t kMagic = 0x41435354;
-    static constexpr uint32_t kVersion = 2;
+    static constexpr uint32_t kVersion = 3;
 };
+
+static_assert(sizeof(positions_header) == 64, "positions_header must be 64 bytes");
 
 // 成交回报（来自交易进程）
 struct alignas(64) trade_response {
@@ -82,7 +89,6 @@ struct downstream_shm_layout {
 // 持仓共享内存（可被外部监控读取）
 struct positions_shm_layout {
     positions_header header;  // 使用专门的持仓头部
-    alignas(64) fund_info fund;
     alignas(64) std::atomic<std::size_t> position_count{0};
     alignas(64) position positions[kMaxPositions];
 

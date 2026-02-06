@@ -6,7 +6,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "common/spinlock.hpp"
 #include "common/types.hpp"
 #include "order/order_request.hpp"
 #include "portfolio/positions.h"
@@ -68,15 +67,8 @@ public:
     internal_security_id_t add_security(std::string_view code, std::string_view name, market_t market);
 
 private:
-    position* get_or_create_position(internal_security_id_t security_id);
-    void sync_fund_to_shm();
-
     positions_shm_layout* shm_;
     std::unordered_map<std::string, internal_security_id_t> code_to_id_;
-    std::unordered_map<internal_security_id_t, std::size_t> id_to_index_;
-    alignas(64) fund_info fund_cache_;
-    mutable spinlock fund_lock_;
-    internal_security_id_t next_security_id_ = 1;
 };
 
 }  // namespace acct_service
