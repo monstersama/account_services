@@ -16,18 +16,18 @@ enum class shm_mode {
 };
 
 // 共享内存管理器
-class shm_manager {
+class SHMManager {
 public:
-    shm_manager();
-    ~shm_manager();
+    SHMManager();
+    ~SHMManager();
 
     // 禁止拷贝
-    shm_manager(const shm_manager&) = delete;
-    shm_manager& operator=(const shm_manager&) = delete;
+    SHMManager(const SHMManager&) = delete;
+    SHMManager& operator=(const SHMManager&) = delete;
 
     // 移动构造/赋值
-    shm_manager(shm_manager&& other) noexcept;
-    shm_manager& operator=(shm_manager&& other) noexcept;
+    SHMManager(SHMManager&& other) noexcept;
+    SHMManager& operator=(SHMManager&& other) noexcept;
 
     // 创建/打开上游共享内存
     upstream_shm_layout* open_upstream(std::string_view name, shm_mode mode, account_id_t account_id);

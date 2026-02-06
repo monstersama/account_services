@@ -7,23 +7,17 @@
 #include <cerrno>
 #include <cstring>
 #include <iostream>
-// 前向声明，避免 <unistd.h> 中 acct() 与 namespace acct 冲突
-// extern "C" {
-// int close(int fd) noexcept;
-// int ftruncate(int fd, off_t length) noexcept;
-// int shm_unlink(const char* name) noexcept;
-// }
 
 namespace acct_service {
 
 // 构造函数
-shm_manager::shm_manager() = default;
+SHMManager::SHMManager() = default;
 
 // 析构函数
-shm_manager::~shm_manager() { close(); }
+SHMManager::~SHMManager() { close(); }
 
 // 移动构造函数
-shm_manager::shm_manager(shm_manager &&other) noexcept
+SHMManager::SHMManager(SHMManager &&other) noexcept
     : name_(std::move(other.name_)), ptr_(other.ptr_), size_(other.size_), fd_(other.fd_) {
     other.ptr_ = nullptr;
     other.size_ = 0;
@@ -31,7 +25,7 @@ shm_manager::shm_manager(shm_manager &&other) noexcept
 }
 
 // 移动赋值运算符
-shm_manager &shm_manager::operator=(shm_manager &&other) noexcept {
+SHMManager &SHMManager::operator=(SHMManager &&other) noexcept {
     if (this != &other) {
         close();
         name_ = std::move(other.name_);
@@ -46,7 +40,7 @@ shm_manager &shm_manager::operator=(shm_manager &&other) noexcept {
 }
 
 // 内部实现：打开或创建共享内存
-void *shm_manager::open_impl(std::string_view name, std::size_t size, shm_mode mode) {
+void *SHMManager::open_impl(std::string_view name, std::size_t size, shm_mode mode) {
     // 如果已经打开了其他共享内存，先关闭
     if (is_open()) {
         close();
@@ -146,7 +140,7 @@ void *shm_manager::open_impl(std::string_view name, std::size_t size, shm_mode m
 }
 
 // 初始化共享内存头部
-void shm_manager::init_header(shm_header *header, account_id_t account_id) {
+void SHMManager::init_header(shm_header *header, account_id_t account_id) {
     header->magic = shm_header::kMagic;
     header->version = shm_header::kVersion;
     header->create_time = now_ns();
@@ -155,7 +149,7 @@ void shm_manager::init_header(shm_header *header, account_id_t account_id) {
 }
 
 // 验证共享内存头部
-bool shm_manager::validate_header(const shm_header *header) {
+bool SHMManager::validate_header(const shm_header *header) {
     if (header->magic != shm_header::kMagic) {
         std::cerr << "Invalid shm magic: expected 0x" << std::hex << shm_header::kMagic << ", got 0x" << header->magic
                   << std::dec << std::endl;
@@ -170,7 +164,7 @@ bool shm_manager::validate_header(const shm_header *header) {
 }
 
 // 创建/打开上游共享内存
-upstream_shm_layout *shm_manager::open_upstream(std::string_view name, shm_mode mode, account_id_t account_id) {
+upstream_shm_layout *SHMManager::open_upstream(std::string_view name, shm_mode mode, account_id_t account_id) {
     constexpr std::size_t size = sizeof(upstream_shm_layout);
     void *ptr = open_impl(name, size, mode);
     if (!ptr) {
@@ -192,7 +186,7 @@ upstream_shm_layout *shm_manager::open_upstream(std::string_view name, shm_mode 
 }
 
 // 创建/打开下游共享内存
-downstream_shm_layout *shm_manager::open_downstream(std::string_view name, shm_mode mode, account_id_t account_id) {
+downstream_shm_layout *SHMManager::open_downstream(std::string_view name, shm_mode mode, account_id_t account_id) {
     constexpr std::size_t size = sizeof(downstream_shm_layout);
     void *ptr = open_impl(name, size, mode);
     if (!ptr) {
@@ -214,7 +208,7 @@ downstream_shm_layout *shm_manager::open_downstream(std::string_view name, shm_m
 }
 
 // 创建/打开成交回报共享内存
-trades_shm_layout *shm_manager::open_trades(std::string_view name, shm_mode mode, account_id_t account_id) {
+trades_shm_layout *SHMManager::open_trades(std::string_view name, shm_mode mode, account_id_t account_id) {
     constexpr std::size_t size = sizeof(trades_shm_layout);
     void *ptr = open_impl(name, size, mode);
     if (!ptr) {
@@ -236,7 +230,7 @@ trades_shm_layout *shm_manager::open_trades(std::string_view name, shm_mode mode
 }
 
 // 创建/打开持仓共享内存
-positions_shm_layout *shm_manager::open_positions(std::string_view name, shm_mode mode, account_id_t account_id) {
+positions_shm_layout *SHMManager::open_positions(std::string_view name, shm_mode mode, account_id_t account_id) {
     constexpr std::size_t size = sizeof(positions_shm_layout);
     void *ptr = open_impl(name, size, mode);
     if (!ptr) {
@@ -272,7 +266,7 @@ positions_shm_layout *shm_manager::open_positions(std::string_view name, shm_mod
 }
 
 // 关闭并解除映射
-void shm_manager::close() {
+void SHMManager::close() {
     if (ptr_ && ptr_ != MAP_FAILED) {
         if (munmap(ptr_, size_) < 0) {
             std::cerr << "munmap failed: " << strerror(errno) << std::endl;
@@ -290,7 +284,7 @@ void shm_manager::close() {
 }
 
 // 删除共享内存对象
-bool shm_manager::unlink(std::string_view name) {
+bool SHMManager::unlink(std::string_view name) {
     if (shm_unlink(std::string(name).c_str()) < 0) {
         std::cerr << "shm_unlink failed for " << name << ": " << strerror(errno) << std::endl;
         return false;
@@ -299,9 +293,9 @@ bool shm_manager::unlink(std::string_view name) {
 }
 
 // 检查是否已打开
-bool shm_manager::is_open() const noexcept { return ptr_ != nullptr && ptr_ != MAP_FAILED; }
+bool SHMManager::is_open() const noexcept { return ptr_ != nullptr && ptr_ != MAP_FAILED; }
 
 // 获取共享内存名称
-const std::string &shm_manager::name() const noexcept { return name_; }
+const std::string &SHMManager::name() const noexcept { return name_; }
 
 }  // namespace acct_service

@@ -83,9 +83,9 @@ private:
     config_manager config_manager_;
 
     // 共享内存管理
-    shm_manager upstream_shm_manager_;
-    shm_manager downstream_shm_manager_;
-    shm_manager positions_shm_manager_;
+    SHMManager upstream_shm_manager_;
+    SHMManager downstream_shm_manager_;
+    SHMManager positions_shm_manager_;
 
     // 共享内存指针
     upstream_shm_layout* upstream_shm_ = nullptr;

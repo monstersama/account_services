@@ -46,12 +46,12 @@ TEST(create_and_open) {
     const std::string name = unique_shm_name("shm_mgr_create_open");
     cleanup_shm(name);
 
-    shm_manager creator;
+    SHMManager creator;
     auto* layout_create = creator.open_upstream(name, shm_mode::Create, 1);
     assert(layout_create != nullptr);
     layout_create->header.next_order_id.store(123, std::memory_order_relaxed);
 
-    shm_manager opener;
+    SHMManager opener;
     auto* layout_open = opener.open_upstream(name, shm_mode::Open, 1);
     assert(layout_open != nullptr);
     const uint32_t val = layout_open->header.next_order_id.load(std::memory_order_relaxed);
@@ -68,12 +68,12 @@ TEST(open_or_create_no_reinit) {
     const std::string name = unique_shm_name("shm_mgr_open_or_create");
     cleanup_shm(name);
 
-    shm_manager first;
+    SHMManager first;
     auto* layout_first = first.open_upstream(name, shm_mode::OpenOrCreate, 1);
     assert(layout_first != nullptr);
     layout_first->header.next_order_id.store(77, std::memory_order_relaxed);
 
-    shm_manager second;
+    SHMManager second;
     auto* layout_second = second.open_upstream(name, shm_mode::OpenOrCreate, 1);
     assert(layout_second != nullptr);
     const uint32_t val = layout_second->header.next_order_id.load(std::memory_order_relaxed);
@@ -98,7 +98,7 @@ TEST(size_mismatch) {
     assert(trunc_rc == 0);
     ::close(fd);
 
-    shm_manager mgr;
+    SHMManager mgr;
     auto* layout = mgr.open_upstream(name, shm_mode::Open, 1);
     assert(layout == nullptr);
 
