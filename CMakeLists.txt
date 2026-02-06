@@ -11,6 +11,8 @@ add_compile_options(-Wall -Wextra -Wpedantic)
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -DNDEBUG")
 set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g3")
 
+enable_testing()
+
 # ============ 版本号定义 ============
 
 # API 版本 (libacct_order.so) - 必须在 configure_file 之前定义
