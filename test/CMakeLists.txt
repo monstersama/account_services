@@ -20,6 +20,20 @@ add_executable(test_position_manager
 
 target_link_libraries(test_position_manager PRIVATE acct_common)
 
+# ============ order_book 拆单追踪测试 ============
+add_executable(test_order_book_split_tracking
+    test_order_book_split_tracking.cpp
+)
+
+target_link_libraries(test_order_book_split_tracking PRIVATE acct_order_core)
+
+# ============ order_router 拆单撤单测试 ============
+add_executable(test_order_router_split_cancel
+    test_order_router_split_cancel.cpp
+)
+
+target_link_libraries(test_order_router_split_cancel PRIVATE acct_order_core)
+
 # 注册到 CTest
 enable_testing()
 # add_test(NAME test_order_api COMMAND test_order_api)

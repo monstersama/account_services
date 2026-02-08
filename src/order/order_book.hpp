@@ -3,6 +3,7 @@
 #include <array>
 #include <atomic>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "common/constants.hpp"
@@ -62,6 +63,12 @@ public:
     // 获取证券的所有订单
     std::vector<internal_order_id_t> get_orders_by_security(internal_security_id_t security_id) const;
 
+    // 获取父单关联的所有子单（包含子撤单）
+    std::vector<internal_order_id_t> get_children(internal_order_id_t parent_id) const;
+
+    // 反查子单对应父单
+    bool try_get_parent(internal_order_id_t child_id, internal_order_id_t& out_parent_id) const noexcept;
+
     // 获取活跃订单数量
     std::size_t active_count() const noexcept;
 
@@ -72,10 +79,17 @@ public:
     void clear();
 
 private:
+    order_entry* find_order_nolock(internal_order_id_t order_id);
+    const order_entry* find_order_nolock(internal_order_id_t order_id) const;
+    void refresh_parent_from_children_nolock(internal_order_id_t parent_id);
+
     std::array<order_entry, kMaxActiveOrders> orders_;
     std::unordered_map<internal_order_id_t, std::size_t> id_to_index_;
     std::unordered_map<uint64_t, internal_order_id_t> broker_id_map_;
     std::unordered_map<internal_security_id_t, std::vector<internal_order_id_t>> security_orders_;
+    std::unordered_map<internal_order_id_t, std::vector<internal_order_id_t>> parent_to_children_;
+    std::unordered_map<internal_order_id_t, internal_order_id_t> child_to_parent_;
+    std::unordered_set<internal_order_id_t> split_parent_error_latched_;
     std::vector<std::size_t> free_slots_;
     std::size_t active_count_ = 0;
     std::atomic<internal_order_id_t> next_order_id_{1};
