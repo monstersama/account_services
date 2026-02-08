@@ -34,6 +34,27 @@ target_include_directories(acct_order_core PUBLIC
 )
 target_link_libraries(acct_order_core PUBLIC acct_common)
 
+# risk 库 (risk_checker, risk_manager)
+add_library(acct_risk STATIC
+    risk/risk_checker.cpp
+    risk/risk_manager.cpp
+)
+target_include_directories(acct_risk PUBLIC
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/generated
+)
+target_link_libraries(acct_risk PUBLIC acct_common)
+
+# core 事件循环库
+add_library(acct_core_loop STATIC
+    core/event_loop.cpp
+)
+target_include_directories(acct_core_loop PUBLIC
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/generated
+)
+target_link_libraries(acct_core_loop PUBLIC acct_common acct_order_core acct_risk)
+
 # ============ 后续阶段将添加更多库 ============
 # - portfolio (position_manager, account_info, trade_record, entrust_record)
 # - order (order_book, order_router, order_splitter)

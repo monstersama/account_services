@@ -62,6 +62,9 @@ public:
     // 注册信号处理
     void setup_signal_handlers();
 
+    // 注入成交回报共享内存（可选）
+    void set_trades_shm(trades_shm_layout* trades_shm) noexcept;
+
 private:
     void loop_iteration();
     std::size_t process_upstream_orders();
@@ -76,6 +79,7 @@ private:
 
     upstream_shm_layout* upstream_shm_;
     downstream_shm_layout* downstream_shm_;
+    trades_shm_layout* trades_shm_ = nullptr;
 
     order_book& order_book_;
     order_router& router_;

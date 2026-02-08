@@ -34,6 +34,22 @@ add_executable(test_order_router_split_cancel
 
 target_link_libraries(test_order_router_split_cancel PRIVATE acct_order_core)
 
+# ============ risk_manager 测试 ==========
+add_executable(test_risk_manager
+    test_risk_manager.cpp
+    ../src/portfolio/position_manager.cpp
+)
+
+target_link_libraries(test_risk_manager PRIVATE acct_risk acct_common)
+
+# ============ event_loop 测试 ==========
+add_executable(test_event_loop
+    test_event_loop.cpp
+    ../src/portfolio/position_manager.cpp
+)
+
+target_link_libraries(test_event_loop PRIVATE acct_core_loop acct_order_core acct_risk acct_common)
+
 # 注册到 CTest
 enable_testing()
 # add_test(NAME test_order_api COMMAND test_order_api)
