@@ -10,9 +10,9 @@ namespace acct_service {
 
 // 共享内存配置
 struct shm_config {
-    std::string upstream_shm_name;
-    std::string downstream_shm_name;
-    std::string positions_shm_name;
+    std::string upstream_shm_name = "/strategy_order_shm";
+    std::string downstream_shm_name = "/downstream_order_shm";
+    std::string positions_shm_name = "/positions_shm";
     bool create_if_not_exist = true;
 };
 
@@ -43,7 +43,7 @@ struct db_config {
 
 // 完整配置
 struct config {
-    account_id_t account_id;
+    account_id_t account_id = 1;
     std::string config_file;
 
     shm_config shm;

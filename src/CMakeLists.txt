@@ -22,6 +22,19 @@ target_include_directories(acct_shm PUBLIC
 )
 target_link_libraries(acct_shm PRIVATE acct_common rt)
 
+# portfolio 库 (position/account/trade/entrust)
+add_library(acct_portfolio STATIC
+    portfolio/position_manager.cpp
+    portfolio/account_info.cpp
+    portfolio/trade_record.cpp
+    portfolio/entrust_record.cpp
+)
+target_include_directories(acct_portfolio PUBLIC
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/generated
+)
+target_link_libraries(acct_portfolio PUBLIC acct_common)
+
 # order 核心库 (order_book, order_router, order_splitter)
 add_library(acct_order_core STATIC
     order/order_book.cpp
@@ -43,7 +56,7 @@ target_include_directories(acct_risk PUBLIC
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_BINARY_DIR}/generated
 )
-target_link_libraries(acct_risk PUBLIC acct_common)
+target_link_libraries(acct_risk PUBLIC acct_common acct_portfolio)
 
 # core 事件循环库
 add_library(acct_core_loop STATIC
@@ -53,10 +66,22 @@ target_include_directories(acct_core_loop PUBLIC
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_BINARY_DIR}/generated
 )
-target_link_libraries(acct_core_loop PUBLIC acct_common acct_order_core acct_risk)
+target_link_libraries(acct_core_loop PUBLIC acct_common acct_order_core acct_risk acct_portfolio)
 
-# ============ 后续阶段将添加更多库 ============
-# - portfolio (position_manager, account_info, trade_record, entrust_record)
-# - order (order_book, order_router, order_splitter)
-# - risk (risk_checker, risk_manager)
-# - core (config_manager, event_loop, account_service, main)
+# core 服务库 (config_manager, account_service)
+add_library(acct_core_service STATIC
+    core/config_manager.cpp
+    core/account_service.cpp
+)
+target_include_directories(acct_core_service PUBLIC
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/generated
+)
+target_link_libraries(acct_core_service PUBLIC
+    acct_common
+    acct_shm
+    acct_portfolio
+    acct_order_core
+    acct_risk
+    acct_core_loop
+)

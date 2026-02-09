@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <memory>
 #include <string>
 
@@ -77,7 +78,7 @@ private:
     // 清理资源
     void cleanup();
 
-    service_state_t state_ = service_state_t::Created;
+    std::atomic<service_state_t> state_{service_state_t::Created};
 
     // 配置
     config_manager config_manager_;

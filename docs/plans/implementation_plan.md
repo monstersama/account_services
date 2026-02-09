@@ -26,30 +26,36 @@
 | 订单簿 | `src/order/order_book.hpp`, `src/order/order_book.cpp` | 完整（含父子追踪） |
 | 订单路由器 | `src/order/order_router.hpp`, `src/order/order_router.cpp` | 完整（含拆单撤单扇出） |
 | 事件循环 | `src/core/event_loop.hpp`, `src/core/event_loop.cpp` | 完整（可选 trades SHM 注入） |
+| 配置管理器 | `src/core/config_manager.hpp`, `src/core/config_manager.cpp` | 完整（文件加载/命令行解析/导出/reload） |
+| 账户信息管理器 | `src/portfolio/account_info.hpp`, `src/portfolio/account_info.cpp` | 完整（配置加载/权限校验/手续费计算） |
+| 成交记录管理器 | `src/portfolio/trade_record.hpp`, `src/portfolio/trade_record.cpp` | 完整（索引查询/统计/导出） |
+| 委托记录管理器 | `src/portfolio/entrust_record.hpp`, `src/portfolio/entrust_record.cpp` | 完整（订单快照更新/活跃查询/导出） |
+| 账户服务主类 | `src/core/account_service.hpp`, `src/core/account_service.cpp` | 完整（初始化/运行/停止/清理） |
 | 对外 C API | `src/api/order_api.cpp` | 完整 |
 
-### 已实现但仍待完善的组件
+### 仍待实现的组件
 | 组件 | 文件 | 当前状态 | 下一步 |
 |------|------|----------|--------|
-| 配置管理器 | `src/core/config_manager.hpp` | 仅接口 | 实现文件与 TOML 加载 |
-| 账户服务主类 | `src/core/account_service.hpp` | 仅接口 | 完成初始化与生命周期管理 |
-| 成交记录管理器 | `src/portfolio/trade_record.hpp` | 仅接口 | 落地存储与查询 |
-| 委托记录管理器 | `src/portfolio/entrust_record.hpp` | 仅接口 | 状态跟踪与落库 |
-| 账户信息管理器 | `src/portfolio/account_info.hpp` | 仅接口 | 初始化与更新逻辑 |
+| 主程序入口 | `src/main.cpp` | 未开始 | 增加启动参数处理与信号退出流程 |
 
-### 本轮已完成更新（订单与事件循环链路）
+### 本轮已完成更新（扩展到配置/服务主类）
 - 新增 `order_book` 父子追踪接口：`get_children()`、`try_get_parent()`。
 - 新增父子映射维护：`parent_to_children_`、`child_to_parent_`、`split_parent_error_latched_`。
 - 实现父单聚合收敛逻辑：子单状态/成交变更触发父单实时聚合。
 - 实现 `order_router` 拆单登记、父单撤单扇出、下游发送失败“尽力继续 + 父单错误锁存”。
 - 实现 `risk_checker` 与 `risk_manager`，补齐资金/持仓/价格/重复/频率规则与统计。
 - 实现 `event_loop` 编排层：上游请求处理、风控接入、下游成交回报收口到 `order_book`。
-- 新增 `acct_order_core`、`acct_risk`、`acct_core_loop` 构建目标与测试目标。
+- 实现 `config_manager`（文件加载、命令行覆盖、配置导出、reload）。
+- 实现 `account_info` / `trade_record` / `entrust_record` 三个记录组件。
+- 实现 `account_service` 主类（配置注入、SHM 初始化、组件装配、run/stop 生命周期）。
+- 新增 `acct_portfolio`、`acct_core_service` 构建目标，并更新现有依赖关系。
 - 新增测试：
   - `test/test_order_book_split_tracking.cpp`
   - `test/test_order_router_split_cancel.cpp`
   - `test/test_risk_manager.cpp`
   - `test/test_event_loop.cpp`
+  - `test/test_config_manager.cpp`
+  - `test/test_account_service.cpp`
 
 ---
 
@@ -143,21 +149,21 @@
 
 ### 阶段 5: 配置和记录管理（第10-11周）
 
-#### 5.1 配置管理器 (config_manager) ⏳
+#### 5.1 配置管理器 (config_manager) ✅
 **文件**: `src/core/config_manager.cpp`
-**说明**: 待实现。
+**说明**: 已实现轻量 TOML 解析、命令行覆盖、配置导出与 reload。
 
-#### 5.2 成交记录管理器 (trade_record) ⏳
+#### 5.2 成交记录管理器 (trade_record) ✅
 **文件**: `src/portfolio/trade_record.cpp`
-**说明**: 待实现。
+**说明**: 已实现成交索引、按订单/证券查询、统计与 CSV 导出。
 
-#### 5.3 委托记录管理器 (entrust_record) ⏳
+#### 5.3 委托记录管理器 (entrust_record) ✅
 **文件**: `src/portfolio/entrust_record.cpp`
-**说明**: 待实现。
+**说明**: 已实现订单快照更新、活跃委托筛选与 CSV 导出。
 
-#### 5.4 账户信息管理器 (account_info) ⏳
+#### 5.4 账户信息管理器 (account_info) ✅
 **文件**: `src/portfolio/account_info.cpp`
-**说明**: 待实现。
+**说明**: 已实现账户配置加载、交易权限判断与手续费计算。
 
 ---
 
@@ -179,9 +185,9 @@
 - 将当前父单全量扫描聚合（O(N 子单数)）演进为增量聚合（O(1) 更新），减少高拆单场景开销。
 - 在统计输出中补充尾延迟分位（p99/p999）采样能力。
 
-#### 6.2 账户服务主类 (account_service) ⏳
+#### 6.2 账户服务主类 (account_service) ✅
 **文件**: `src/core/account_service.cpp`
-**说明**: 待实现，负责全组件初始化、运行与退出。
+**说明**: 已实现全组件初始化、运行与退出生命周期管理。
 
 ---
 
@@ -246,8 +252,9 @@
 - 拆单策略测试（固定量、冰山、TWAP）
 
 ### 阶段5-6 验证
-- 配置加载/验证/热更新测试
+- 配置加载/验证/热更新测试（`test/test_config_manager.cpp`）
 - 事件循环测试（`test/test_event_loop.cpp`）
+- 账户服务初始化/运行/停止测试（`test/test_account_service.cpp`）
 - 集成测试（完整订单生命周期）
 
 ### 阶段7 验证
@@ -268,13 +275,18 @@ src/
 │   └── time_utils.cpp
 ├── shm/
 │   └── shm_manager.cpp
+├── core/
+│   ├── config_manager.cpp
+│   ├── event_loop.cpp
+│   └── account_service.cpp
 ├── portfolio/
-│   └── position_manager.cpp
+│   ├── position_manager.cpp
+│   ├── account_info.cpp
+│   ├── trade_record.cpp
+│   └── entrust_record.cpp
 ├── risk/
 │   ├── risk_checker.cpp
 │   └── risk_manager.cpp
-├── core/
-│   └── event_loop.cpp
 └── order/
     ├── order_book.cpp
     ├── order_router.cpp
@@ -284,7 +296,9 @@ test/
 ├── test_order_book_split_tracking.cpp
 ├── test_order_router_split_cancel.cpp
 ├── test_risk_manager.cpp
-└── test_event_loop.cpp
+├── test_event_loop.cpp
+├── test_config_manager.cpp
+└── test_account_service.cpp
 
 docs/plans/
 └── order_book_split_tracking_plan_zh.md
@@ -295,20 +309,16 @@ docs/plans/
 ```
 src/
 ├── core/
-│   ├── config_manager.cpp
-│   ├── account_service.cpp
 │   └── main.cpp
-└── portfolio/
-    ├── account_info.cpp
-    ├── trade_record.cpp
-    └── entrust_record.cpp
 ```
 
 ### 已更新的文件
-- `src/CMakeLists.txt`: 新增 `acct_order_core`、`acct_risk`、`acct_core_loop` 目标
-- `test/CMakeLists.txt`: 新增拆单追踪、风控与事件循环测试目标
+- `src/CMakeLists.txt`: 新增 `acct_portfolio`、`acct_core_service`，并梳理核心目标依赖
+- `test/CMakeLists.txt`: 新增配置与服务测试目标，统一改为链接库目标
 - `src/order/order_book.hpp`: 新增父子追踪接口与内部映射结构
 - `src/core/event_loop.hpp`: 新增 `set_trades_shm()` 接口
+- `src/core/config_manager.hpp`: 更新默认 SHM 名称与默认 account_id
+- `src/core/account_service.hpp`: `state_` 改为原子状态
 
 ---
 
@@ -320,8 +330,8 @@ src/
 | 2 | 共享内存基础设施 | ✅ 完成 |
 | 3 | 核心交易组件 | ✅ 完成 |
 | 4 | 订单处理组件 | ✅ 完成 |
-| 5 | 配置和记录管理 | ⏳ 未开始 |
-| 6 | 核心服务组件 | 🟨 进行中（event_loop 已完成，account_service 待补） |
+| 5 | 配置和记录管理 | ✅ 完成 |
+| 6 | 核心服务组件 | ✅ 完成 |
 | 7 | 主程序入口 | ⏳ 未开始 |
 
 ---
@@ -333,8 +343,8 @@ src/
 - [x] 阶段 2：共享内存基础设施
 - [x] 阶段 3：核心交易组件
 - [x] 阶段 4：订单处理组件
-- [ ] 阶段 5：配置和记录管理
-- [ ] 阶段 6：核心服务组件（`event_loop` / `account_service`）
+- [x] 阶段 5：配置和记录管理
+- [x] 阶段 6：核心服务组件（`event_loop` / `account_service`）
 - [ ] 阶段 7：主程序入口
 
 ### 阶段 3（核心交易组件）
@@ -346,17 +356,17 @@ src/
 - [x] `risk_manager.cpp`
 
 ### 阶段 5（配置和记录管理）
-- [ ] `config_manager.cpp`
-- [ ] `trade_record.cpp`
-- [ ] `entrust_record.cpp`
-- [ ] `account_info.cpp`
+- [x] `config_manager.cpp`
+- [x] `trade_record.cpp`
+- [x] `entrust_record.cpp`
+- [x] `account_info.cpp`
 
 ### 阶段 6（核心服务组件）
 - [x] `event_loop.cpp`
   - [x] 上游请求统一编排（风控 -> 路由）
   - [x] 下游回报统一收口到 `order_book::update_status/update_trade`
   - [x] 增加关键性能埋点（处理条数、空轮询比、回报延迟）
-- [ ] `account_service.cpp`
+- [x] `account_service.cpp`
 
 ### 阶段 7（主程序入口）
 - [ ] `main.cpp`

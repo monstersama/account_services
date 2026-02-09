@@ -10,9 +10,9 @@ namespace acct_service {
 
 // 账户信息
 struct account_info {
-    account_id_t account_id;
-    account_type_t account_type;
-    account_state_t state;
+    account_id_t account_id = 0;
+    account_type_t account_type = account_type_t::Stock;
+    account_state_t state = account_state_t::Initializing;
     fixed_string<32> account_name;
     fixed_string<32> broker_account;
     fixed_string<16> broker_code;
