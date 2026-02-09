@@ -37,6 +37,7 @@ TEST(load_and_export_roundtrip) {
         out << "\n[shm]\n";
         out << "upstream_shm_name=\"/u_test\"\n";
         out << "downstream_shm_name=\"/d_test\"\n";
+        out << "trades_shm_name=\"/t_test\"\n";
         out << "positions_shm_name=\"/p_test\"\n";
         out << "create_if_not_exist=true\n";
         out << "\n[event_loop]\n";
@@ -51,6 +52,7 @@ TEST(load_and_export_roundtrip) {
     assert(manager.load_from_file(in_path));
     assert(manager.account_id() == 7);
     assert(manager.shm().upstream_shm_name == "/u_test");
+    assert(manager.shm().trades_shm_name == "/t_test");
     assert(manager.event_loop().poll_batch_size == 32);
     assert(manager.split().strategy == split_strategy_t::FixedSize);
     assert(manager.split().max_child_volume == 500);
@@ -61,6 +63,7 @@ TEST(load_and_export_roundtrip) {
     assert(reloaded.load_from_file(out_path));
     assert(reloaded.account_id() == 7);
     assert(reloaded.shm().downstream_shm_name == "/d_test");
+    assert(reloaded.shm().trades_shm_name == "/t_test");
     assert(reloaded.event_loop().idle_sleep_us == 10);
 
     std::remove(in_path.c_str());
@@ -77,13 +80,16 @@ TEST(parse_command_line_and_validate) {
     char arg4[] = "128";
     char arg5[] = "--split-strategy";
     char arg6[] = "iceberg";
+    char arg7[] = "--trades-shm";
+    char arg8[] = "/trades_cli";
 
-    char* argv[] = {arg0, arg1, arg2, arg3, arg4, arg5, arg6};
+    char* argv[] = {arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8};
     assert(manager.parse_command_line(static_cast<int>(sizeof(argv) / sizeof(argv[0])), argv));
 
     assert(manager.account_id() == 9);
     assert(manager.event_loop().poll_batch_size == 128);
     assert(manager.split().strategy == split_strategy_t::Iceberg);
+    assert(manager.shm().trades_shm_name == "/trades_cli");
     assert(manager.validate());
 
     manager.get().account_id = 0;

@@ -86,11 +86,13 @@ private:
     // 共享内存管理
     SHMManager upstream_shm_manager_;
     SHMManager downstream_shm_manager_;
+    SHMManager trades_shm_manager_;
     SHMManager positions_shm_manager_;
 
     // 共享内存指针
     upstream_shm_layout* upstream_shm_ = nullptr;
     downstream_shm_layout* downstream_shm_ = nullptr;
+    trades_shm_layout* trades_shm_ = nullptr;
     positions_shm_layout* positions_shm_ = nullptr;
 
     // 核心组件

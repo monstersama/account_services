@@ -1,4 +1,5 @@
 #include <cassert>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <functional>
@@ -46,6 +47,7 @@ TEST(initialize_and_run_processes_orders) {
     cfg.account_id = 101;
     cfg.shm.upstream_shm_name = unique_shm_name("acct_upstream");
     cfg.shm.downstream_shm_name = unique_shm_name("acct_downstream");
+    cfg.shm.trades_shm_name = unique_shm_name("acct_trades");
     cfg.shm.positions_shm_name = unique_shm_name("acct_positions");
     cfg.shm.create_if_not_exist = true;
 
@@ -69,14 +71,17 @@ TEST(initialize_and_run_processes_orders) {
 
     SHMManager upstream_manager;
     SHMManager downstream_manager;
+    SHMManager trades_manager;
 
     upstream_shm_layout* upstream =
         upstream_manager.open_upstream(cfg.shm.upstream_shm_name, shm_mode::Open, cfg.account_id);
     downstream_shm_layout* downstream =
         downstream_manager.open_downstream(cfg.shm.downstream_shm_name, shm_mode::Open, cfg.account_id);
+    trades_shm_layout* trades = trades_manager.open_trades(cfg.shm.trades_shm_name, shm_mode::Open, cfg.account_id);
 
     assert(upstream != nullptr);
     assert(downstream != nullptr);
+    assert(trades != nullptr);
 
     int run_rc = -1;
     std::thread worker([&service, &run_rc]() { run_rc = service.run(); });
@@ -95,6 +100,30 @@ TEST(initialize_and_run_processes_orders) {
     assert(sent.order_type == order_type_t::New);
     assert(sent.security_id.view() == "000001");
 
+    trade_response rsp{};
+    rsp.internal_order_id = static_cast<internal_order_id_t>(5001);
+    rsp.internal_security_id = static_cast<internal_security_id_t>(1);
+    rsp.trade_side = trade_side_t::Buy;
+    rsp.new_status = order_status_t::MarketAccepted;
+    rsp.volume_traded = static_cast<volume_t>(50);
+    rsp.dprice_traded = static_cast<dprice_t>(1000);
+    rsp.dvalue_traded = static_cast<dvalue_t>(50000);
+    rsp.dfee = static_cast<dvalue_t>(10);
+    rsp.md_time_traded = 93100000;
+    rsp.recv_time_ns = now_ns();
+
+    assert(trades->response_queue.try_push(rsp));
+
+    assert(wait_until([&service]() {
+        const order_entry* order = service.orders().find_order(static_cast<internal_order_id_t>(5001));
+        return order != nullptr && order->request.volume_traded == static_cast<volume_t>(50);
+    }));
+
+    const order_entry* order = service.orders().find_order(static_cast<internal_order_id_t>(5001));
+    assert(order != nullptr);
+    assert(order->request.volume_traded == static_cast<volume_t>(50));
+    assert(order->request.order_status.load(std::memory_order_acquire) == order_status_t::MarketAccepted);
+
     service.stop();
     worker.join();
 
@@ -103,9 +132,11 @@ TEST(initialize_and_run_processes_orders) {
 
     upstream_manager.close();
     downstream_manager.close();
+    trades_manager.close();
 
     (void)SHMManager::unlink(cfg.shm.upstream_shm_name);
     (void)SHMManager::unlink(cfg.shm.downstream_shm_name);
+    (void)SHMManager::unlink(cfg.shm.trades_shm_name);
     (void)SHMManager::unlink(cfg.shm.positions_shm_name);
 }
 

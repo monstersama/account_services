@@ -85,3 +85,9 @@ target_link_libraries(acct_core_service PUBLIC
     acct_risk
     acct_core_loop
 )
+
+# 主程序
+add_executable(acct_service_main
+    main.cpp
+)
+target_link_libraries(acct_service_main PRIVATE acct_core_service)

@@ -129,6 +129,10 @@ bool apply_value(config& cfg, const std::string& key, const std::string& raw_val
         cfg.shm.downstream_shm_name = value;
         return true;
     }
+    if (key == "shm.trades_shm_name") {
+        cfg.shm.trades_shm_name = value;
+        return true;
+    }
     if (key == "shm.positions_shm_name") {
         cfg.shm.positions_shm_name = value;
         return true;
@@ -367,6 +371,13 @@ bool config_manager::parse_command_line(int argc, char* argv[]) {
             config_.shm.positions_shm_name = value;
             continue;
         }
+        if (arg == "--trades-shm") {
+            if (!consume_value(value)) {
+                return false;
+            }
+            config_.shm.trades_shm_name = value;
+            continue;
+        }
         if (arg == "--poll-batch") {
             if (!consume_value(value) || !apply_value(config_, "event_loop.poll_batch_size", value)) {
                 return false;
@@ -402,7 +413,7 @@ bool config_manager::validate() const {
     }
 
     if (config_.shm.upstream_shm_name.empty() || config_.shm.downstream_shm_name.empty() ||
-        config_.shm.positions_shm_name.empty()) {
+        config_.shm.trades_shm_name.empty() || config_.shm.positions_shm_name.empty()) {
         return false;
     }
 
@@ -453,6 +464,7 @@ bool config_manager::export_to_file(const std::string& path) const {
     out << "[shm]\n";
     out << "upstream_shm_name=\"" << config_.shm.upstream_shm_name << "\"\n";
     out << "downstream_shm_name=\"" << config_.shm.downstream_shm_name << "\"\n";
+    out << "trades_shm_name=\"" << config_.shm.trades_shm_name << "\"\n";
     out << "positions_shm_name=\"" << config_.shm.positions_shm_name << "\"\n";
     out << "create_if_not_exist=" << (config_.shm.create_if_not_exist ? "true" : "false") << "\n\n";
 

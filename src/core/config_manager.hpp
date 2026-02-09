@@ -12,6 +12,7 @@ namespace acct_service {
 struct shm_config {
     std::string upstream_shm_name = "/strategy_order_shm";
     std::string downstream_shm_name = "/downstream_order_shm";
+    std::string trades_shm_name = "/trades_shm";
     std::string positions_shm_name = "/positions_shm";
     bool create_if_not_exist = true;
 };

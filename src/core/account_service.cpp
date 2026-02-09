@@ -153,6 +153,11 @@ bool account_service::init_shared_memory() {
         return false;
     }
 
+    trades_shm_ = trades_shm_manager_.open_trades(shm_cfg.trades_shm_name, mode, account_id);
+    if (!trades_shm_) {
+        return false;
+    }
+
     positions_shm_ = positions_shm_manager_.open_positions(shm_cfg.positions_shm_name, mode, account_id);
     if (!positions_shm_) {
         return false;
@@ -193,12 +198,16 @@ bool account_service::init_order_components() {
 }
 
 bool account_service::init_event_loop() {
-    if (!upstream_shm_ || !downstream_shm_ || !order_book_ || !order_router_ || !position_manager_ || !risk_manager_) {
+    if (!upstream_shm_ || !downstream_shm_ || !trades_shm_ || !order_book_ || !order_router_ || !position_manager_ ||
+        !risk_manager_) {
         return false;
     }
 
     event_loop_ = std::make_unique<event_loop>(config_manager_.event_loop(), upstream_shm_, downstream_shm_,
         *order_book_, *order_router_, *position_manager_, *risk_manager_);
+    if (event_loop_) {
+        event_loop_->set_trades_shm(trades_shm_);
+    }
     return static_cast<bool>(event_loop_);
 }
 
@@ -270,10 +279,12 @@ void account_service::cleanup() {
 
     upstream_shm_ = nullptr;
     downstream_shm_ = nullptr;
+    trades_shm_ = nullptr;
     positions_shm_ = nullptr;
 
     upstream_shm_manager_.close();
     downstream_shm_manager_.close();
+    trades_shm_manager_.close();
     positions_shm_manager_.close();
 }
 

@@ -36,7 +36,7 @@
 ### 仍待实现的组件
 | 组件 | 文件 | 当前状态 | 下一步 |
 |------|------|----------|--------|
-| 主程序入口 | `src/main.cpp` | 未开始 | 增加启动参数处理与信号退出流程 |
+| （暂无） | - | - | - |
 
 ### 本轮已完成更新（扩展到配置/服务主类）
 - 新增 `order_book` 父子追踪接口：`get_children()`、`try_get_parent()`。
@@ -193,9 +193,9 @@
 
 ### 阶段 7: 主程序入口（第14周）
 
-#### 7.1 主程序 (main) ⏳
+#### 7.1 主程序 (main) ✅
 **文件**: `src/main.cpp`
-**说明**: 待实现。
+**说明**: 已实现启动入口、参数解析（`--config` / `--help`）、服务初始化与运行。
 
 ---
 
@@ -273,6 +273,7 @@ src/
 ├── common/
 │   ├── spinlock.cpp
 │   └── time_utils.cpp
+├── main.cpp
 ├── shm/
 │   └── shm_manager.cpp
 ├── core/
@@ -307,13 +308,11 @@ docs/plans/
 ### 仍需新建文件
 
 ```
-src/
-├── core/
-│   └── main.cpp
+（无）
 ```
 
 ### 已更新的文件
-- `src/CMakeLists.txt`: 新增 `acct_portfolio`、`acct_core_service`，并梳理核心目标依赖
+- `src/CMakeLists.txt`: 新增 `acct_portfolio`、`acct_core_service`、`acct_service_main`，并梳理核心目标依赖
 - `test/CMakeLists.txt`: 新增配置与服务测试目标，统一改为链接库目标
 - `src/order/order_book.hpp`: 新增父子追踪接口与内部映射结构
 - `src/core/event_loop.hpp`: 新增 `set_trades_shm()` 接口
@@ -332,7 +331,7 @@ src/
 | 4 | 订单处理组件 | ✅ 完成 |
 | 5 | 配置和记录管理 | ✅ 完成 |
 | 6 | 核心服务组件 | ✅ 完成 |
-| 7 | 主程序入口 | ⏳ 未开始 |
+| 7 | 主程序入口 | ✅ 完成 |
 
 ---
 
@@ -345,7 +344,7 @@ src/
 - [x] 阶段 4：订单处理组件
 - [x] 阶段 5：配置和记录管理
 - [x] 阶段 6：核心服务组件（`event_loop` / `account_service`）
-- [ ] 阶段 7：主程序入口
+- [x] 阶段 7：主程序入口
 
 ### 阶段 3（核心交易组件）
 - [x] `position_manager.cpp`
@@ -369,7 +368,7 @@ src/
 - [x] `account_service.cpp`
 
 ### 阶段 7（主程序入口）
-- [ ] `main.cpp`
+- [x] `main.cpp`
 
 ---
 
