@@ -7,7 +7,7 @@ add_library(acct_order SHARED
 )
 
 target_compile_definitions(acct_order PRIVATE ACCT_API_EXPORT)
-target_link_libraries(acct_order PRIVATE rt pthread)
+target_link_libraries(acct_order PRIVATE acct_common rt pthread)
 
 set_target_properties(acct_order PROPERTIES
     VERSION ${ACCT_API_VERSION}

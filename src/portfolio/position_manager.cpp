@@ -3,6 +3,8 @@
 #include <string>
 
 #include "common/constants.hpp"
+#include "common/error.hpp"
+#include "common/log.hpp"
 #include "common/types.hpp"
 
 namespace acct_service {
@@ -106,18 +108,30 @@ bool position_manager::initialize(account_id_t account_id) {
     (void)account_id;
 
     if (!shm_) {
+        error_status status = ACCT_MAKE_ERROR(
+            error_domain::portfolio, error_code::ComponentUnavailable, "position_manager", "positions shm is null", 0);
+        record_error(status);
+        ACCT_LOG_ERROR_STATUS(status);
         return false;
     }
 
     code_to_id_.clear();
 
     if (!header_compatible(shm_->header)) {
+        error_status status = ACCT_MAKE_ERROR(
+            error_domain::portfolio, error_code::ShmHeaderInvalid, "position_manager", "positions shm header incompatible", 0);
+        record_error(status);
+        ACCT_LOG_ERROR_STATUS(status);
         return false;
     }
 
     if (shm_->header.init_state != 1) {
         const std::size_t existing = shm_->position_count.load(std::memory_order_relaxed);
         if (existing != 0) {
+            error_status status = ACCT_MAKE_ERROR(error_domain::portfolio, error_code::ShmHeaderCorrupted,
+                "position_manager", "positions init_state is 0 while count is non-zero", 0);
+            record_error(status);
+            ACCT_LOG_ERROR_STATUS(status);
             return false;
         }
 
@@ -137,6 +151,10 @@ bool position_manager::initialize(account_id_t account_id) {
 
         position* fund_pos = fund_position(shm_);
         if (!fund_pos) {
+            error_status status = ACCT_MAKE_ERROR(error_domain::portfolio, error_code::ShmHeaderCorrupted,
+                "position_manager", "fund position row is unavailable", 0);
+            record_error(status);
+            ACCT_LOG_ERROR_STATUS(status);
             return false;
         }
         ensure_fund_identity(*fund_pos);
@@ -150,6 +168,10 @@ bool position_manager::initialize(account_id_t account_id) {
 
     position* fund_pos = fund_position(shm_);
     if (!fund_pos) {
+        error_status status = ACCT_MAKE_ERROR(error_domain::portfolio, error_code::ShmHeaderCorrupted,
+            "position_manager", "fund position row is unavailable in initialized shm", 0);
+        record_error(status);
+        ACCT_LOG_ERROR_STATUS(status);
         return false;
     }
     ensure_fund_identity(*fund_pos);

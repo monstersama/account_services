@@ -10,6 +10,8 @@
 #include <unordered_map>
 
 #include "common/constants.hpp"
+#include "common/error.hpp"
+#include "common/log.hpp"
 #include "common/types.hpp"
 #include "order/order_request.hpp"
 #include "shm/shm_layout.hpp"
@@ -39,6 +41,13 @@ inline acct_service::md_time_t get_current_md_time() {
     return hours * 10000000 + minutes * 100000 + seconds * 1000 + milliseconds;
 }
 
+acct_error_t api_error(acct_error_t rc, acct_service::error_code code, std::string_view message, int sys_errno = 0) {
+    acct_service::error_status status = ACCT_MAKE_ERROR(acct_service::error_domain::api, code, "order_api", message, sys_errno);
+    acct_service::record_error(status);
+    ACCT_LOG_ERROR_STATUS(status);
+    return rc;
+}
+
 }  // namespace
 
 using namespace acct_service;
@@ -60,13 +69,13 @@ extern "C" {
 
 ACCT_API acct_error_t acct_init(acct_ctx_t* out_ctx) {
     if (!out_ctx) {
-        return ACCT_ERR_INVALID_PARAM;
+        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_init out_ctx is null");
     }
     *out_ctx = nullptr;
 
     auto* ctx = new (std::nothrow) acct_context();
     if (!ctx) {
-        return ACCT_ERR_INTERNAL;
+        return api_error(ACCT_ERR_INTERNAL, error_code::InternalError, "acct_context allocation failed");
     }
 
     ctx->shm_size = sizeof(acct_service::upstream_shm_layout);
@@ -80,7 +89,7 @@ ACCT_API acct_error_t acct_init(acct_ctx_t* out_ctx) {
         ctx->shm_fd = shm_open(acct_service::kStrategyOrderShmName, O_CREAT | O_RDWR, 0666);
         if (ctx->shm_fd < 0) {
             delete ctx;
-            return ACCT_ERR_SHM_FAILED;
+            return api_error(ACCT_ERR_SHM_FAILED, error_code::ShmOpenFailed, "acct_init shm_open create failed", errno);
         }
         is_new = true;
 
@@ -89,7 +98,7 @@ ACCT_API acct_error_t acct_init(acct_ctx_t* out_ctx) {
             close(ctx->shm_fd);
             shm_unlink(acct_service::kStrategyOrderShmName);
             delete ctx;
-            return ACCT_ERR_SHM_FAILED;
+            return api_error(ACCT_ERR_SHM_FAILED, error_code::ShmResizeFailed, "acct_init ftruncate failed", errno);
         }
     }
 
@@ -101,7 +110,7 @@ ACCT_API acct_error_t acct_init(acct_ctx_t* out_ctx) {
             shm_unlink(acct_service::kStrategyOrderShmName);
         }
         delete ctx;
-        return ACCT_ERR_SHM_FAILED;
+        return api_error(ACCT_ERR_SHM_FAILED, error_code::ShmMmapFailed, "acct_init mmap failed", errno);
     }
 
     ctx->shm_ptr = static_cast<acct_service::upstream_shm_layout*>(ptr);
@@ -120,14 +129,14 @@ ACCT_API acct_error_t acct_init(acct_ctx_t* out_ctx) {
             munmap(ptr, ctx->shm_size);
             close(ctx->shm_fd);
             delete ctx;
-            return ACCT_ERR_SHM_FAILED;
+            return api_error(ACCT_ERR_SHM_FAILED, error_code::ShmHeaderInvalid, "acct_init shm magic invalid");
         }
         // 验证版本
         if (ctx->shm_ptr->header.version != acct_service::shm_header::kVersion) {
             munmap(ptr, ctx->shm_size);
             close(ctx->shm_fd);
             delete ctx;
-            return ACCT_ERR_SHM_FAILED;
+            return api_error(ACCT_ERR_SHM_FAILED, error_code::ShmHeaderInvalid, "acct_init shm version invalid");
         }
     }
 
@@ -138,7 +147,7 @@ ACCT_API acct_error_t acct_init(acct_ctx_t* out_ctx) {
 
 ACCT_API acct_error_t acct_destroy(acct_ctx_t ctx) {
     if (!ctx) {
-        return ACCT_ERR_INVALID_PARAM;
+        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_destroy ctx is null");
     }
 
     auto* context = ctx;
@@ -158,33 +167,33 @@ ACCT_API acct_error_t acct_destroy(acct_ctx_t ctx) {
 ACCT_API acct_error_t acct_new_order(acct_ctx_t ctx, const char* security_id, uint8_t side, uint8_t market,
     uint64_t volume, double price, uint32_t valid_sec, uint32_t* out_order_id) {
     if (!out_order_id) {
-        return ACCT_ERR_INVALID_PARAM;
+        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_new_order out_order_id is null");
     }
     *out_order_id = 0;
 
     if (!ctx || !security_id) {
-        return ACCT_ERR_INVALID_PARAM;
+        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_new_order invalid ctx/security_id");
     }
 
     auto* context = ctx;
     if (!context->initialized) {
-        return ACCT_ERR_NOT_INITIALIZED;
+        return api_error(ACCT_ERR_NOT_INITIALIZED, error_code::InvalidState, "acct_new_order called before init");
     }
 
     // 验证参数
     if (side != ACCT_SIDE_BUY && side != ACCT_SIDE_SELL) {
-        return ACCT_ERR_INVALID_PARAM;
+        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_new_order invalid side");
     }
     if (market < ACCT_MARKET_SZ || market > ACCT_MARKET_HK) {
-        return ACCT_ERR_INVALID_PARAM;
+        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_new_order invalid market");
     }
     if (volume == 0) {
-        return ACCT_ERR_INVALID_PARAM;
+        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_new_order zero volume");
     }
 
     // 检查缓存容量
     if (context->cached_orders.size() >= kMaxCachedOrders) {
-        return ACCT_ERR_CACHE_FULL;
+        return api_error(ACCT_ERR_CACHE_FULL, error_code::QueueFull, "acct_new_order cache full");
     }
 
     // 分配订单ID（从共享内存 header 中原子递增）
@@ -217,18 +226,18 @@ ACCT_API acct_error_t acct_new_order(acct_ctx_t ctx, const char* security_id, ui
 
 ACCT_API acct_error_t acct_send_order(acct_ctx_t ctx, uint32_t order_id) {
     if (!ctx) {
-        return ACCT_ERR_INVALID_PARAM;
+        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_send_order ctx is null");
     }
 
     auto* context = ctx;
     if (!context->initialized) {
-        return ACCT_ERR_NOT_INITIALIZED;
+        return api_error(ACCT_ERR_NOT_INITIALIZED, error_code::InvalidState, "acct_send_order called before init");
     }
 
     // 查找缓存的订单
     auto it = context->cached_orders.find(order_id);
     if (it == context->cached_orders.end()) {
-        return ACCT_ERR_ORDER_NOT_FOUND;
+        return api_error(ACCT_ERR_ORDER_NOT_FOUND, error_code::OrderNotFound, "acct_send_order order not cached");
     }
 
     // 更新状态
@@ -237,7 +246,7 @@ ACCT_API acct_error_t acct_send_order(acct_ctx_t ctx, uint32_t order_id) {
     // 推入队列
     bool success = context->shm_ptr->strategy_order_queue.try_push(it->second);
     if (!success) {
-        return ACCT_ERR_QUEUE_FULL;
+        return api_error(ACCT_ERR_QUEUE_FULL, error_code::QueuePushFailed, "acct_send_order queue push failed");
     }
 
     // 从缓存中移除
@@ -249,28 +258,28 @@ ACCT_API acct_error_t acct_send_order(acct_ctx_t ctx, uint32_t order_id) {
 ACCT_API acct_error_t acct_submit_order(acct_ctx_t ctx, const char* security_id, uint8_t side, uint8_t market,
     uint64_t volume, double price, uint32_t valid_sec, uint32_t* out_order_id) {
     if (!out_order_id) {
-        return ACCT_ERR_INVALID_PARAM;
+        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_submit_order out_order_id is null");
     }
     *out_order_id = 0;
 
     if (!ctx || !security_id) {
-        return ACCT_ERR_INVALID_PARAM;
+        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_submit_order invalid ctx/security_id");
     }
 
     auto* context = ctx;
     if (!context->initialized) {
-        return ACCT_ERR_NOT_INITIALIZED;
+        return api_error(ACCT_ERR_NOT_INITIALIZED, error_code::InvalidState, "acct_submit_order called before init");
     }
 
     // 验证参数
     if (side != ACCT_SIDE_BUY && side != ACCT_SIDE_SELL) {
-        return ACCT_ERR_INVALID_PARAM;
+        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_submit_order invalid side");
     }
     if (market < ACCT_MARKET_SZ || market > ACCT_MARKET_HK) {
-        return ACCT_ERR_INVALID_PARAM;
+        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_submit_order invalid market");
     }
     if (volume == 0) {
-        return ACCT_ERR_INVALID_PARAM;
+        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_submit_order zero volume");
     }
 
     // 分配订单ID（从共享内存 header 中原子递增）
@@ -296,7 +305,7 @@ ACCT_API acct_error_t acct_submit_order(acct_ctx_t ctx, const char* security_id,
     // 直接推入队列
     bool success = context->shm_ptr->strategy_order_queue.try_push(request);
     if (!success) {
-        return ACCT_ERR_QUEUE_FULL;
+        return api_error(ACCT_ERR_QUEUE_FULL, error_code::QueuePushFailed, "acct_submit_order queue push failed");
     }
 
     *out_order_id = order_id;
@@ -306,17 +315,17 @@ ACCT_API acct_error_t acct_submit_order(acct_ctx_t ctx, const char* security_id,
 ACCT_API acct_error_t acct_cancel_order(
     acct_ctx_t ctx, uint32_t orig_order_id, uint32_t valid_sec, uint32_t* out_cancel_id) {
     if (!out_cancel_id) {
-        return ACCT_ERR_INVALID_PARAM;
+        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_cancel_order out_cancel_id is null");
     }
     *out_cancel_id = 0;
 
     if (!ctx) {
-        return ACCT_ERR_INVALID_PARAM;
+        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_cancel_order ctx is null");
     }
 
     auto* context = ctx;
     if (!context->initialized) {
-        return ACCT_ERR_NOT_INITIALIZED;
+        return api_error(ACCT_ERR_NOT_INITIALIZED, error_code::InvalidState, "acct_cancel_order called before init");
     }
 
     // 分配撤单请求ID（从共享内存 header 中原子递增）
@@ -337,7 +346,7 @@ ACCT_API acct_error_t acct_cancel_order(
     // 推入队列
     bool success = context->shm_ptr->strategy_order_queue.try_push(request);
     if (!success) {
-        return ACCT_ERR_QUEUE_FULL;
+        return api_error(ACCT_ERR_QUEUE_FULL, error_code::QueuePushFailed, "acct_cancel_order queue push failed");
     }
 
     *out_cancel_id = cancel_id;
@@ -346,17 +355,17 @@ ACCT_API acct_error_t acct_cancel_order(
 
 ACCT_API acct_error_t acct_queue_size(acct_ctx_t ctx, size_t* out_size) {
     if (!out_size) {
-        return ACCT_ERR_INVALID_PARAM;
+        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_queue_size out_size is null");
     }
     *out_size = 0;
 
     if (!ctx) {
-        return ACCT_ERR_INVALID_PARAM;
+        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_queue_size ctx is null");
     }
 
     auto* context = ctx;
     if (!context->initialized || !context->shm_ptr) {
-        return ACCT_ERR_NOT_INITIALIZED;
+        return api_error(ACCT_ERR_NOT_INITIALIZED, error_code::InvalidState, "acct_queue_size called before init");
     }
 
     *out_size = context->shm_ptr->strategy_order_queue.size();
@@ -394,7 +403,7 @@ ACCT_API acct_error_t acct_cleanup_shm(void) {
         if (errno == ENOENT) {
             return ACCT_OK;
         }
-        return ACCT_ERR_SHM_FAILED;
+        return api_error(ACCT_ERR_SHM_FAILED, error_code::ShmOpenFailed, "acct_cleanup_shm failed", errno);
     }
     return ACCT_OK;
 }

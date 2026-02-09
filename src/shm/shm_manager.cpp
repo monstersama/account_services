@@ -6,9 +6,27 @@
 
 #include <cerrno>
 #include <cstring>
-#include <iostream>
+
+#include "common/error.hpp"
+#include "common/log.hpp"
 
 namespace acct_service {
+
+namespace {
+
+bool report_shm_error(error_code code, std::string_view name, std::string_view detail, int err = 0) {
+    error_status status = ACCT_MAKE_ERROR(error_domain::shm, code, "shm_manager", detail, err);
+    if (!name.empty()) {
+        fixed_string<192> msg;
+        std::string text = std::string(detail) + " [" + std::string(name) + "]";
+        status.message.assign(text);
+    }
+    record_error(status);
+    ACCT_LOG_ERROR_STATUS(status);
+    return false;
+}
+
+}  // namespace
 
 // 构造函数
 SHMManager::SHMManager() = default;
@@ -68,7 +86,7 @@ void *SHMManager::open_impl(std::string_view name, std::size_t size, shm_mode mo
         case shm_mode::Create:
             fd_ = shm_open(name_str.c_str(), O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC, 0644);
             if (fd_ < 0) {
-                std::cerr << "shm_open failed for " << name << ": " << strerror(errno) << std::endl;
+                (void)report_shm_error(error_code::ShmOpenFailed, name, "shm_open(create) failed", errno);
                 return nullptr;
             }
             is_new = true;
@@ -76,7 +94,7 @@ void *SHMManager::open_impl(std::string_view name, std::size_t size, shm_mode mo
         case shm_mode::Open:
             fd_ = shm_open(name_str.c_str(), O_RDWR | O_CLOEXEC, 0644);
             if (fd_ < 0) {
-                std::cerr << "shm_open failed for " << name << ": " << strerror(errno) << std::endl;
+                (void)report_shm_error(error_code::ShmOpenFailed, name, "shm_open(open) failed", errno);
                 return nullptr;
             }
             is_new = false;
@@ -87,12 +105,12 @@ void *SHMManager::open_impl(std::string_view name, std::size_t size, shm_mode mo
                 if (errno == EEXIST) {
                     fd_ = shm_open(name_str.c_str(), O_RDWR | O_CLOEXEC, 0644);
                     if (fd_ < 0) {
-                        std::cerr << "shm_open failed for " << name << ": " << strerror(errno) << std::endl;
+                        (void)report_shm_error(error_code::ShmOpenFailed, name, "shm_open(open after exist) failed", errno);
                         return nullptr;
                     }
                     is_new = false;
                 } else {
-                    std::cerr << "shm_open failed for " << name << ": " << strerror(errno) << std::endl;
+                    (void)report_shm_error(error_code::ShmOpenFailed, name, "shm_open(open_or_create) failed", errno);
                     return nullptr;
                 }
             } else {
@@ -103,14 +121,13 @@ void *SHMManager::open_impl(std::string_view name, std::size_t size, shm_mode mo
 
     struct stat st;
     if (fstat(fd_, &st) < 0) {
-        std::cerr << "fstat failed for " << name << ": " << strerror(errno) << std::endl;
+        (void)report_shm_error(error_code::ShmFstatFailed, name, "fstat failed", errno);
         cleanup(is_new);
         return nullptr;
     }
 
     if (!is_new && static_cast<std::size_t>(st.st_size) != size) {
-        std::cerr << "shm size mismatch for " << name << ": expected " << size << ", got "
-                  << static_cast<std::size_t>(st.st_size) << std::endl;
+        (void)report_shm_error(error_code::ShmResizeFailed, name, "shm size mismatch");
         cleanup(false);
         return nullptr;
     }
@@ -118,7 +135,7 @@ void *SHMManager::open_impl(std::string_view name, std::size_t size, shm_mode mo
     // 如果是新创建的，设置大小
     if (is_new) {
         if (ftruncate(fd_, static_cast<off_t>(size)) < 0) {
-            std::cerr << "ftruncate failed for " << name << ": " << strerror(errno) << std::endl;
+            (void)report_shm_error(error_code::ShmResizeFailed, name, "ftruncate failed", errno);
             cleanup(true);
             return nullptr;
         }
@@ -127,7 +144,7 @@ void *SHMManager::open_impl(std::string_view name, std::size_t size, shm_mode mo
     // 映射到进程地址空间
     ptr_ = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd_, 0);
     if (ptr_ == MAP_FAILED) {
-        std::cerr << "mmap failed for " << name << ": " << strerror(errno) << std::endl;
+        (void)report_shm_error(error_code::ShmMmapFailed, name, "mmap failed", errno);
         cleanup(is_new);
         return nullptr;
     }
@@ -151,13 +168,11 @@ void SHMManager::init_header(shm_header *header, account_id_t account_id) {
 // 验证共享内存头部
 bool SHMManager::validate_header(const shm_header *header) {
     if (header->magic != shm_header::kMagic) {
-        std::cerr << "Invalid shm magic: expected 0x" << std::hex << shm_header::kMagic << ", got 0x" << header->magic
-                  << std::dec << std::endl;
+        (void)report_shm_error(error_code::ShmHeaderInvalid, name_, "invalid shm magic");
         return false;
     }
     if (header->version != shm_header::kVersion) {
-        std::cerr << "Invalid shm version: expected " << shm_header::kVersion << ", got " << header->version
-                  << std::endl;
+        (void)report_shm_error(error_code::ShmHeaderInvalid, name_, "invalid shm version");
         return false;
     }
     return true;
@@ -253,35 +268,30 @@ positions_shm_layout *SHMManager::open_positions(std::string_view name, shm_mode
         layout->position_count.store(0, std::memory_order_relaxed);
     } else {
         if (layout->header.magic != positions_header::kMagic) {
-            std::cerr << "Invalid positions shm magic: expected 0x" << std::hex << positions_header::kMagic
-                      << ", got 0x" << layout->header.magic << std::dec << std::endl;
+            (void)report_shm_error(error_code::ShmHeaderInvalid, name, "invalid positions shm magic");
             close();
             return nullptr;
         }
         if (layout->header.version != positions_header::kVersion) {
-            std::cerr << "Invalid positions shm version: expected " << positions_header::kVersion << ", got "
-                      << layout->header.version << std::endl;
+            (void)report_shm_error(error_code::ShmHeaderInvalid, name, "invalid positions shm version");
             close();
             return nullptr;
         }
         const uint32_t expected_header_size = static_cast<uint32_t>(sizeof(positions_header));
         if (layout->header.header_size != expected_header_size) {
-            std::cerr << "Invalid positions shm header size: expected " << expected_header_size << ", got "
-                      << layout->header.header_size << std::endl;
+            (void)report_shm_error(error_code::ShmHeaderInvalid, name, "invalid positions header size");
             close();
             return nullptr;
         }
         const uint32_t expected_total_size = static_cast<uint32_t>(sizeof(positions_shm_layout));
         if (layout->header.total_size != expected_total_size) {
-            std::cerr << "Invalid positions shm total size: expected " << expected_total_size << ", got "
-                      << layout->header.total_size << std::endl;
+            (void)report_shm_error(error_code::ShmHeaderInvalid, name, "invalid positions total size");
             close();
             return nullptr;
         }
         const uint32_t expected_capacity = static_cast<uint32_t>(kMaxPositions);
         if (layout->header.capacity != expected_capacity) {
-            std::cerr << "Invalid positions shm capacity: expected " << expected_capacity << ", got "
-                      << layout->header.capacity << std::endl;
+            (void)report_shm_error(error_code::ShmHeaderInvalid, name, "invalid positions capacity");
             close();
             return nullptr;
         }
@@ -294,7 +304,7 @@ positions_shm_layout *SHMManager::open_positions(std::string_view name, shm_mode
 void SHMManager::close() {
     if (ptr_ && ptr_ != MAP_FAILED) {
         if (munmap(ptr_, size_) < 0) {
-            std::cerr << "munmap failed: " << strerror(errno) << std::endl;
+            (void)report_shm_error(error_code::ShmMmapFailed, name_, "munmap failed", errno);
         }
     }
     if (fd_ >= 0) {
@@ -311,7 +321,7 @@ void SHMManager::close() {
 // 删除共享内存对象
 bool SHMManager::unlink(std::string_view name) {
     if (shm_unlink(std::string(name).c_str()) < 0) {
-        std::cerr << "shm_unlink failed for " << name << ": " << strerror(errno) << std::endl;
+        (void)report_shm_error(error_code::ShmOpenFailed, name, "shm_unlink failed", errno);
         return false;
     }
     return true;

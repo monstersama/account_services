@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <limits>
 
+#include "common/error.hpp"
+#include "common/log.hpp"
+
 namespace acct_service {
 
 namespace {
@@ -69,16 +72,28 @@ order_book::order_book() {
 bool order_book::add_order(const order_entry& entry) {
     const internal_order_id_t order_id = entry.request.internal_order_id;
     if (order_id == 0) {
+        error_status status = ACCT_MAKE_ERROR(
+            error_domain::order, error_code::InvalidOrderId, "order_book", "order id is zero", 0);
+        record_error(status);
+        ACCT_LOG_ERROR_STATUS(status);
         return false;
     }
 
     lock_guard<spinlock> guard(lock_);
 
     if (id_to_index_.find(order_id) != id_to_index_.end()) {
+        error_status status = ACCT_MAKE_ERROR(
+            error_domain::order, error_code::DuplicateOrder, "order_book", "duplicate order id", 0);
+        record_error(status);
+        ACCT_LOG_ERROR_STATUS(status);
         return false;
     }
 
     if (free_slots_.empty()) {
+        error_status status = ACCT_MAKE_ERROR(
+            error_domain::order, error_code::OrderBookFull, "order_book", "order book free slots exhausted", 0);
+        record_error(status);
+        ACCT_LOG_ERROR_STATUS(status);
         return false;
     }
 
@@ -144,6 +159,10 @@ bool order_book::update_status(internal_order_id_t order_id, order_status_t new_
 
     order_entry* entry = find_order_nolock(order_id);
     if (!entry) {
+        error_status status = ACCT_MAKE_ERROR(
+            error_domain::order, error_code::OrderNotFound, "order_book", "update_status order not found", 0);
+        record_error(status);
+        ACCT_LOG_ERROR_STATUS(status);
         return false;
     }
 
@@ -167,6 +186,10 @@ bool order_book::update_trade(internal_order_id_t order_id, volume_t vol, dprice
 
     order_entry* entry = find_order_nolock(order_id);
     if (!entry) {
+        error_status status = ACCT_MAKE_ERROR(
+            error_domain::order, error_code::OrderNotFound, "order_book", "update_trade order not found", 0);
+        record_error(status);
+        ACCT_LOG_ERROR_STATUS(status);
         return false;
     }
 
@@ -215,6 +238,10 @@ bool order_book::archive_order(internal_order_id_t order_id) {
 
     const auto it = id_to_index_.find(order_id);
     if (it == id_to_index_.end()) {
+        error_status status = ACCT_MAKE_ERROR(
+            error_domain::order, error_code::OrderNotFound, "order_book", "archive_order order not found", 0);
+        record_error(status);
+        ACCT_LOG_ERROR_STATUS(status);
         return false;
     }
 
@@ -341,6 +368,10 @@ const order_entry* order_book::find_order_nolock(internal_order_id_t order_id) c
 void order_book::refresh_parent_from_children_nolock(internal_order_id_t parent_id) {
     order_entry* parent = find_order_nolock(parent_id);
     if (!parent) {
+        error_status status = ACCT_MAKE_ERROR(
+            error_domain::order, error_code::OrderInvariantBroken, "order_book", "parent missing while refreshing split state", 0);
+        record_error(status);
+        ACCT_LOG_ERROR_STATUS(status);
         return;
     }
 

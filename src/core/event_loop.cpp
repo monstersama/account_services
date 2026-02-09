@@ -5,6 +5,9 @@
 #include <cstdio>
 #include <thread>
 
+#include "common/error.hpp"
+#include "common/log.hpp"
+
 #if defined(__linux__)
 #include <sched.h>
 #include <unistd.h>
@@ -84,6 +87,9 @@ void event_loop::run() {
 
     while (running_.load(std::memory_order_acquire)) {
         loop_iteration();
+        if (should_stop_service()) {
+            running_.store(false, std::memory_order_release);
+        }
     }
 
     running_.store(false, std::memory_order_release);
@@ -198,6 +204,10 @@ void event_loop::handle_order_request(order_request& request) {
     entry.parent_order_id = 0;
 
     if (!order_book_.add_order(entry)) {
+        error_status status = ACCT_MAKE_ERROR(
+            error_domain::order, error_code::OrderBookFull, "event_loop", "order_book add_order failed", 0);
+        record_error(status);
+        ACCT_LOG_ERROR_STATUS(status);
         return;
     }
 
@@ -223,6 +233,10 @@ void event_loop::handle_order_request(order_request& request) {
     order_entry* active = order_book_.find_order(request.internal_order_id);
     if (!active || !router_.route_order(*active)) {
         order_book_.update_status(request.internal_order_id, order_status_t::TraderError);
+        error_status status = ACCT_MAKE_ERROR(
+            error_domain::order, error_code::RouteFailed, "event_loop", "route_order failed", 0);
+        record_error(status);
+        ACCT_LOG_ERROR_STATUS(status);
     }
 }
 
@@ -243,12 +257,38 @@ void event_loop::handle_trade_response(const trade_response& response) {
                 (response.internal_security_id != 0) ? response.internal_security_id : order->request.internal_security_id;
 
             if (security_id != 0) {
+                if (!positions_.get_position(security_id) && !order->request.security_id.empty()) {
+                    const internal_security_id_t added =
+                        positions_.add_security(order->request.security_id.view(), order->request.security_id.view(), order->request.market);
+                    if (added == 0) {
+                        error_status status = ACCT_MAKE_ERROR(error_domain::portfolio, error_code::PositionUpdateFailed,
+                            "event_loop", "failed to create missing position row", 0);
+                        record_error(status);
+                        ACCT_LOG_ERROR_STATUS(status);
+                    } else if (added != security_id) {
+                        error_status status = ACCT_MAKE_ERROR(error_domain::portfolio, error_code::OrderInvariantBroken,
+                            "event_loop", "security id mismatch while creating position row", 0);
+                        record_error(status);
+                        ACCT_LOG_ERROR_STATUS(status);
+                    }
+                }
+
                 if (response.trade_side == trade_side_t::Buy) {
-                    positions_.add_position(
-                        security_id, response.volume_traded, response.dprice_traded, response.internal_order_id);
+                    if (!positions_.add_position(
+                            security_id, response.volume_traded, response.dprice_traded, response.internal_order_id)) {
+                        error_status status = ACCT_MAKE_ERROR(error_domain::portfolio, error_code::PositionUpdateFailed,
+                            "event_loop", "failed to add position from trade response", 0);
+                        record_error(status);
+                        ACCT_LOG_ERROR_STATUS(status);
+                    }
                 } else if (response.trade_side == trade_side_t::Sell) {
-                    positions_.deduct_position(
-                        security_id, response.volume_traded, response.dvalue_traded, response.internal_order_id);
+                    if (!positions_.deduct_position(
+                            security_id, response.volume_traded, response.dvalue_traded, response.internal_order_id)) {
+                        error_status status = ACCT_MAKE_ERROR(error_domain::portfolio, error_code::PositionUpdateFailed,
+                            "event_loop", "failed to deduct position from trade response", 0);
+                        record_error(status);
+                        ACCT_LOG_ERROR_STATUS(status);
+                    }
                 }
             }
         }

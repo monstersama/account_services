@@ -2,6 +2,8 @@
 #include <cstring>
 #include <string>
 
+#include "common/error.hpp"
+#include "common/log.hpp"
 #include "core/account_service.hpp"
 
 namespace {
@@ -74,12 +76,27 @@ int main(int argc, char* argv[]) {
 
     acct_service::account_service service;
     if (!service.initialize(config_path)) {
-        std::fprintf(stderr, "failed to initialize account_service\n");
+        const acct_service::error_status& status = service.last_error();
+        std::fprintf(stderr,
+            "failed to initialize account_service: severity=%s domain=%s code=%s msg=%s\n",
+            acct_service::to_string(acct_service::classify(status.domain, status.code).severity),
+            acct_service::to_string(status.domain), acct_service::to_string(status.code), status.message.c_str());
         return 1;
     }
 
     const int run_rc = service.run();
     service.print_stats();
+
+    const acct_service::error_severity reason = acct_service::shutdown_reason();
+    if (reason >= acct_service::error_severity::Critical) {
+        (void)acct_service::flush_logger(200);
+        const acct_service::error_status& status = service.last_error();
+        std::fprintf(stderr,
+            "account_service terminated by policy: severity=%s domain=%s code=%s msg=%s\n",
+            acct_service::to_string(acct_service::classify(status.domain, status.code).severity),
+            acct_service::to_string(status.domain), acct_service::to_string(status.code), status.message.c_str());
+        return 1;
+    }
 
     return (run_rc == 0) ? 0 : 1;
 }

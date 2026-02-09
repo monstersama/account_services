@@ -11,6 +11,7 @@
 #include <string>
 
 #include "shm/shm_manager.hpp"
+#include "common/error.hpp"
 
 #define TEST(name) static void test_##name()
 #define RUN_TEST(name)                   \
@@ -101,6 +102,10 @@ TEST(size_mismatch) {
     SHMManager mgr;
     auto* layout = mgr.open_upstream(name, shm_mode::Open, 1);
     assert(layout == nullptr);
+    assert(!acct_service::last_error().ok());
+    assert(acct_service::last_error().code == acct_service::error_code::ShmResizeFailed);
+    assert(acct_service::classify(acct_service::last_error().domain, acct_service::last_error().code).severity ==
+           acct_service::error_severity::Critical);
 
     mgr.close();
     cleanup_shm(name);

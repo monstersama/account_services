@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 
+#include "common/error.hpp"
 #include "core/config_manager.hpp"
 #include "core/event_loop.hpp"
 #include "order/order_book.hpp"
@@ -60,6 +61,9 @@ public:
     // 获取统计信息
     void print_stats() const;
 
+    bool has_fatal_error() const noexcept;
+    const error_status& last_error() const noexcept;
+
 private:
     // 初始化各组件
     bool init_config(const std::string& config_path);
@@ -77,6 +81,11 @@ private:
 
     // 清理资源
     void cleanup();
+    void raise_service_error(const error_status& status);
+    bool should_terminate_due_to_error() const noexcept;
+
+    mutable error_status last_error_{};
+    std::atomic<error_severity> shutdown_reason_{error_severity::Recoverable};
 
     std::atomic<service_state_t> state_{service_state_t::Created};
 

@@ -7,9 +7,19 @@
 #include <fstream>
 #include <string>
 
+#include "common/error.hpp"
+#include "common/log.hpp"
+
 namespace acct_service {
 
 namespace {
+
+bool report_config_error(error_code code, std::string_view message) {
+    error_status status = ACCT_MAKE_ERROR(error_domain::config, code, "config_manager", message, 0);
+    record_error(status);
+    ACCT_LOG_ERROR_STATUS(status);
+    return false;
+}
 
 std::string trim_copy(std::string s) {
     const auto not_space = [](unsigned char c) { return !std::isspace(c); };
@@ -271,7 +281,7 @@ void write_strategy(std::ofstream& out, split_strategy_t strategy) {
 bool config_manager::load_from_file(const std::string& config_path) {
     std::ifstream in(config_path);
     if (!in.is_open()) {
-        return false;
+        return report_config_error(error_code::ConfigParseFailed, "failed to open config file");
     }
 
     config loaded = config_;
@@ -309,7 +319,7 @@ bool config_manager::load_from_file(const std::string& config_path) {
 
         const std::string full_key = section.empty() ? key : section + "." + key;
         if (!apply_value(loaded, full_key, value)) {
-            return false;
+            return report_config_error(error_code::ConfigParseFailed, "failed to parse config key");
         }
     }
 
@@ -337,7 +347,7 @@ bool config_manager::parse_command_line(int argc, char* argv[]) {
         std::string value;
         if (arg == "--config") {
             if (!consume_value(value)) {
-                return false;
+                return report_config_error(error_code::InvalidConfig, "missing value for --config");
             }
             if (!load_from_file(value)) {
                 return false;
@@ -346,7 +356,7 @@ bool config_manager::parse_command_line(int argc, char* argv[]) {
         }
         if (arg == "--account-id") {
             if (!consume_value(value) || !apply_value(config_, "account_id", value)) {
-                return false;
+                return report_config_error(error_code::InvalidConfig, "invalid --account-id");
             }
             continue;
         }
@@ -380,25 +390,25 @@ bool config_manager::parse_command_line(int argc, char* argv[]) {
         }
         if (arg == "--poll-batch") {
             if (!consume_value(value) || !apply_value(config_, "event_loop.poll_batch_size", value)) {
-                return false;
+                return report_config_error(error_code::InvalidConfig, "invalid --poll-batch");
             }
             continue;
         }
         if (arg == "--idle-sleep-us") {
             if (!consume_value(value) || !apply_value(config_, "event_loop.idle_sleep_us", value)) {
-                return false;
+                return report_config_error(error_code::InvalidConfig, "invalid --idle-sleep-us");
             }
             continue;
         }
         if (arg == "--split-strategy") {
             if (!consume_value(value) || !apply_value(config_, "split.strategy", value)) {
-                return false;
+                return report_config_error(error_code::InvalidConfig, "invalid --split-strategy");
             }
             continue;
         }
         if (arg == "--max-child-volume") {
             if (!consume_value(value) || !apply_value(config_, "split.max_child_volume", value)) {
-                return false;
+                return report_config_error(error_code::InvalidConfig, "invalid --max-child-volume");
             }
             continue;
         }
@@ -409,19 +419,23 @@ bool config_manager::parse_command_line(int argc, char* argv[]) {
 
 bool config_manager::validate() const {
     if (config_.account_id == 0) {
+        (void)report_config_error(error_code::ConfigValidateFailed, "account_id must be non-zero");
         return false;
     }
 
     if (config_.shm.upstream_shm_name.empty() || config_.shm.downstream_shm_name.empty() ||
         config_.shm.trades_shm_name.empty() || config_.shm.positions_shm_name.empty()) {
+        (void)report_config_error(error_code::ConfigValidateFailed, "shm names must be non-empty");
         return false;
     }
 
     if (config_.event_loop.poll_batch_size == 0) {
+        (void)report_config_error(error_code::ConfigValidateFailed, "poll_batch_size must be non-zero");
         return false;
     }
 
     if (config_.split.strategy != split_strategy_t::None && config_.split.max_child_count == 0) {
+        (void)report_config_error(error_code::ConfigValidateFailed, "split max_child_count must be non-zero");
         return false;
     }
 
@@ -448,7 +462,7 @@ const db_config& config_manager::db() const noexcept { return config_.db; }
 
 bool config_manager::reload() {
     if (config_path_.empty()) {
-        return false;
+        return report_config_error(error_code::InvalidState, "reload requested before load_from_file");
     }
     return load_from_file(config_path_);
 }
@@ -456,7 +470,7 @@ bool config_manager::reload() {
 bool config_manager::export_to_file(const std::string& path) const {
     std::ofstream out(path);
     if (!out.is_open()) {
-        return false;
+        return report_config_error(error_code::InvalidConfig, "failed to open config export path");
     }
 
     out << "account_id=" << config_.account_id << "\n\n";

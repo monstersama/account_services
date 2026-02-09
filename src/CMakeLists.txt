@@ -6,6 +6,8 @@
 add_library(acct_common STATIC
     common/spinlock.cpp
     common/time_utils.cpp
+    common/error.cpp
+    common/log.cpp
 )
 target_include_directories(acct_common PUBLIC
     ${CMAKE_SOURCE_DIR}/src
