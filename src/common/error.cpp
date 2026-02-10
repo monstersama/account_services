@@ -16,6 +16,10 @@ const error_policy kRecoverablePolicy{error_severity::Recoverable, false, false}
 const error_policy kCriticalPolicy{error_severity::Critical, true, true};
 const error_policy kFatalPolicy{error_severity::Fatal, true, true};
 
+// API 域保留严重级别，但不替调用方做进程级停服/退出。
+const error_policy kApiCriticalPolicy{error_severity::Critical, false, false};
+const error_policy kApiFatalPolicy{error_severity::Fatal, false, false};
+
 }  // namespace
 
 bool error_status::ok() const noexcept { return code == error_code::Ok; }
@@ -46,6 +50,7 @@ const char* to_string(error_code code) noexcept {
     switch (code) {
         case error_code::Ok:
             return "Ok";
+        // Critical: 服务关键路径异常，继续运行可能扩大影响，需要停服并退出主进程。
         case error_code::InvalidConfig:
             return "InvalidConfig";
         case error_code::InvalidParam:
@@ -74,6 +79,7 @@ const char* to_string(error_code code) noexcept {
             return "RouteFailed";
         case error_code::SplitFailed:
             return "SplitFailed";
+        // Fatal: 一致性/状态已不可信，必须最高优先级停服并退出。
         case error_code::PositionUpdateFailed:
             return "PositionUpdateFailed";
         case error_code::OrderInvariantBroken:
@@ -118,8 +124,14 @@ const char* to_string(error_severity severity) noexcept {
     return "Recoverable";
 }
 
-const error_policy& classify(error_domain domain, error_code code) noexcept {
-    (void)domain;
+namespace {
+
+constexpr bool code_in_range(error_code code, uint16_t begin, uint16_t end) noexcept {
+    const uint16_t value = static_cast<uint16_t>(code);
+    return value >= begin && value <= end;
+}
+
+const error_policy& classify_by_code(error_code code) noexcept {
     switch (code) {
         case error_code::Ok:
         case error_code::InvalidOrderId:
@@ -136,44 +148,93 @@ const error_policy& classify(error_domain domain, error_code code) noexcept {
         case error_code::LoggerQueueFull:
             return kRecoverablePolicy;
 
-        // Critical: 服务关键路径异常，继续运行可能扩大影响，需要停服并退出主进程。
         case error_code::InvalidConfig:
-            // 启动配置不合法，服务基础假设不成立。
         case error_code::ConfigParseFailed:
-            // 配置文件解析失败，无法保证后续行为正确。
         case error_code::ConfigValidateFailed:
-            // 配置通过语法但不满足业务约束。
         case error_code::InvalidState:
-            // 关键生命周期状态机异常（如在错误阶段继续 run）。
         case error_code::ComponentUnavailable:
-            // 核心组件缺失，主流程不可用。
         case error_code::ShmOpenFailed:
-            // 共享内存不可用，无法与上下游通信。
         case error_code::ShmFstatFailed:
-            // 共享内存元数据检查失败，安全性不可确认。
         case error_code::ShmResizeFailed:
-            // 共享内存尺寸异常，布局可能不兼容。
         case error_code::ShmMmapFailed:
-            // 地址空间映射失败，核心数据平面不可用。
         case error_code::ShmHeaderInvalid:
-            // 共享内存头非法（但未确认破坏程度），按关键错误处理。
         case error_code::LoggerInitFailed:
-            // 日志不可用会导致“盲飞”，影响排障和风控审计。
         case error_code::LoggerThreadFailed:
             return kCriticalPolicy;
 
-        // Fatal: 一致性/状态已不可信，必须最高优先级停服并退出。
         case error_code::PositionUpdateFailed:
-            // 成交已落但资金/持仓未能同步，账务一致性破坏。
         case error_code::OrderInvariantBroken:
-            // 订单簿内部不变量破坏（索引、父子关系等）。
         case error_code::ShmHeaderCorrupted:
-            // 共享内存头损坏，数据面可信度丧失。
         case error_code::InternalError:
-            // 未分类内部错误默认按最保守策略处理。
             return kFatalPolicy;
     }
     return kRecoverablePolicy;
+}
+
+const error_policy& classify_for_api(error_code code) noexcept {
+    const error_severity severity = classify_by_code(code).severity;
+    switch (severity) {
+        case error_severity::Recoverable:
+            return kRecoverablePolicy;
+        case error_severity::Critical:
+            return kApiCriticalPolicy;
+        case error_severity::Fatal:
+            return kApiFatalPolicy;
+    }
+    return kRecoverablePolicy;
+}
+
+}  // namespace
+
+const error_policy& classify(error_domain domain, error_code code) noexcept {
+    switch (domain) {
+        case error_domain::api:
+            // C API 场景下不替调用方进程做停服/退出决策：
+            // 保留严重级别用于可观测性，但 stop/exit 始终为 false。
+            return classify_for_api(code);
+
+        case error_domain::config:
+            if (code_in_range(code, 2000, 2099)) {
+                // 配置链路错误一旦触发，基础假设已失效，按 Critical 处理。
+                return kCriticalPolicy;
+            }
+            break;
+
+        case error_domain::shm:
+            if (code == error_code::ShmHeaderCorrupted) {
+                return kFatalPolicy;
+            }
+            if (code_in_range(code, 3000, 3099)) {
+                return kCriticalPolicy;
+            }
+            break;
+
+        case error_domain::order:
+            if (code == error_code::OrderInvariantBroken) {
+                return kFatalPolicy;
+            }
+            if (code_in_range(code, 4000, 4099)) {
+                return kRecoverablePolicy;
+            }
+            break;
+
+        case error_domain::portfolio:
+            if (code == error_code::PositionUpdateFailed || code == error_code::ShmHeaderCorrupted) {
+                return kFatalPolicy;
+            }
+            if (code == error_code::ComponentUnavailable || code == error_code::ShmHeaderInvalid) {
+                return kCriticalPolicy;
+            }
+            break;
+
+        case error_domain::none:
+        case error_domain::core:
+        case error_domain::risk:
+            break;
+    }
+
+    // 默认按全局错误码策略兜底。
+    return classify_by_code(code);
 }
 
 error_status make_error_status(error_domain domain, error_code code, std::string_view module, std::string_view file,
@@ -253,7 +314,8 @@ void record_error(const error_status& status) {
         const error_policy& policy = classify(status.domain, status.code);
         if (policy.stop_service || policy.exit_process) {
             // 统一在这里触发 shutdown 闩锁：
-            // Critical/Fatal 都会让 event_loop 停止并由主进程非0退出。
+            // 仅当 policy.stop_service / policy.exit_process 为 true 时才停服退出。
+            // 例如 api 域即便是 Critical/Fatal，也不会替调用方进程做退出决策。
             request_shutdown(policy.severity);
         }
     }

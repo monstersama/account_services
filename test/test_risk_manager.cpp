@@ -70,14 +70,18 @@ TEST(fund_and_duplicate_rules) {
     const risk_check_result first = manager.check_order(small);
     assert(first.passed());
 
-    small.internal_order_id = 3;
     const risk_check_result second = manager.check_order(small);
     assert(!second.passed());
     assert(second.code == risk_result_t::RejectDuplicateOrder);
 
+    order_request same_params_new_id = small;
+    same_params_new_id.internal_order_id = 3;
+    const risk_check_result third = manager.check_order(same_params_new_id);
+    assert(third.passed());
+
     const risk_stats& stats = manager.stats();
-    assert(stats.total_checks == 3);
-    assert(stats.passed == 1);
+    assert(stats.total_checks == 4);
+    assert(stats.passed == 2);
     assert(stats.rejected >= 2);
     assert(stats.rejected_duplicate >= 1);
 }

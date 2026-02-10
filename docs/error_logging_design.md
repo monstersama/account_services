@@ -14,6 +14,9 @@
 
 通过 `classify(error_domain, error_code)` 返回 `error_policy`，并由 `record_error()` 自动触发 shutdown 闩锁。
 
+- 分类采用 `domain + code` 矩阵：先看模块域规则，再由全局码策略兜底。
+- `api` 域保留 `severity` 用于观测，但 `stop_service/exit_process` 恒为 `false`（不替调用方进程做退出决策）。
+
 ## 错误码分段规则
 
 `error_code` 采用“按模块分段”的显式编号，`Ok` 固定为 `0`：

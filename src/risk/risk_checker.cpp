@@ -8,12 +8,7 @@ namespace acct_service {
 namespace {
 
 uint64_t make_order_fingerprint(const order_request& order) {
-    uint64_t key = static_cast<uint64_t>(order.internal_security_id);
-    key = key * 1315423911ULL + static_cast<uint64_t>(order.trade_side);
-    key = key * 1315423911ULL + static_cast<uint64_t>(order.market);
-    key = key * 1315423911ULL + static_cast<uint64_t>(order.volume_entrust);
-    key = key * 1315423911ULL + static_cast<uint64_t>(order.dprice_entrust);
-    return key;
+    return static_cast<uint64_t>(order.internal_order_id);
 }
 
 bool is_new_order(const order_request& order) {
