@@ -15,14 +15,14 @@ namespace acct_service {
 
 // 订单条目（扩展订单信息）
 struct order_entry {
-    order_request request;
-    timestamp_ns_t submit_time_ns;
-    timestamp_ns_t last_update_ns;
-    strategy_id_t strategy_id;
-    risk_result_t risk_result;
-    uint8_t retry_count;
-    bool is_split_child;
-    internal_order_id_t parent_order_id;
+    order_request request;                  // 原始订单请求与可变成交状态
+    timestamp_ns_t submit_time_ns;          // 订单进入订单簿时间
+    timestamp_ns_t last_update_ns;          // 最近一次状态/成交更新时间
+    strategy_id_t strategy_id;              // 来源策略ID
+    risk_result_t risk_result;              // 最近一次风控结果
+    uint8_t retry_count;                    // 路由重试次数
+    bool is_split_child;                    // 是否为拆单子单（含子撤单）
+    internal_order_id_t parent_order_id;    // 父单ID（非子单时为0）
 
     bool is_active() const noexcept;
     bool is_terminal() const noexcept;
@@ -83,17 +83,19 @@ private:
     const order_entry* find_order_nolock(internal_order_id_t order_id) const;
     void refresh_parent_from_children_nolock(internal_order_id_t parent_id);
 
-    std::array<order_entry, kMaxActiveOrders> orders_;
-    std::unordered_map<internal_order_id_t, std::size_t> id_to_index_;
-    std::unordered_map<uint64_t, internal_order_id_t> broker_id_map_;
-    std::unordered_map<internal_security_id_t, std::vector<internal_order_id_t>> security_orders_;
-    std::unordered_map<internal_order_id_t, std::vector<internal_order_id_t>> parent_to_children_;
-    std::unordered_map<internal_order_id_t, internal_order_id_t> child_to_parent_;
-    std::unordered_set<internal_order_id_t> split_parent_error_latched_;
-    std::vector<std::size_t> free_slots_;
-    std::size_t active_count_ = 0;
-    std::atomic<internal_order_id_t> next_order_id_{1};
-    mutable spinlock lock_;
+    std::array<order_entry, kMaxActiveOrders> orders_;  // 固定容量订单存储区
+    std::unordered_map<internal_order_id_t, std::size_t> id_to_index_;  // internal_order_id -> orders_ 下标
+    std::unordered_map<uint64_t, internal_order_id_t> broker_id_map_;  // broker_order_id -> internal_order_id
+    std::unordered_map<internal_security_id_t, std::vector<internal_order_id_t>>
+        security_orders_;  // 证券 -> 该证券下订单ID集合
+    std::unordered_map<internal_order_id_t, std::vector<internal_order_id_t>>
+        parent_to_children_;  // 父单 -> 子单（含子撤单）
+    std::unordered_map<internal_order_id_t, internal_order_id_t> child_to_parent_;  // 子单 -> 父单
+    std::unordered_set<internal_order_id_t> split_parent_error_latched_;  // 拆单父单错误锁存集合
+    std::vector<std::size_t> free_slots_;  // orders_ 空闲槽位栈
+    std::size_t active_count_ = 0;  // 当前活跃订单数量
+    std::atomic<internal_order_id_t> next_order_id_{1};  // 递增内部订单ID生成器
+    mutable spinlock lock_;  // 保护订单簿内部状态
 };
 
 }  // namespace acct_service

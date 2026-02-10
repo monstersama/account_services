@@ -12,19 +12,9 @@ spinlock g_latest_error_lock;
 
 std::atomic<int> g_shutdown_reason{-1};
 
-constexpr std::size_t kErrorCodeSlots = static_cast<std::size_t>(error_code::InternalError) + 1;
-
 const error_policy kRecoverablePolicy{error_severity::Recoverable, false, false};
 const error_policy kCriticalPolicy{error_severity::Critical, true, true};
 const error_policy kFatalPolicy{error_severity::Fatal, true, true};
-
-std::size_t error_code_index(error_code code) {
-    const std::size_t index = static_cast<std::size_t>(code);
-    if (index >= kErrorCodeSlots) {
-        return static_cast<std::size_t>(error_code::InternalError);
-    }
-    return index;
-}
 
 }  // namespace
 
@@ -146,24 +136,41 @@ const error_policy& classify(error_domain domain, error_code code) noexcept {
         case error_code::LoggerQueueFull:
             return kRecoverablePolicy;
 
+        // Critical: 服务关键路径异常，继续运行可能扩大影响，需要停服并退出主进程。
         case error_code::InvalidConfig:
+            // 启动配置不合法，服务基础假设不成立。
         case error_code::ConfigParseFailed:
+            // 配置文件解析失败，无法保证后续行为正确。
         case error_code::ConfigValidateFailed:
+            // 配置通过语法但不满足业务约束。
         case error_code::InvalidState:
+            // 关键生命周期状态机异常（如在错误阶段继续 run）。
         case error_code::ComponentUnavailable:
+            // 核心组件缺失，主流程不可用。
         case error_code::ShmOpenFailed:
+            // 共享内存不可用，无法与上下游通信。
         case error_code::ShmFstatFailed:
+            // 共享内存元数据检查失败，安全性不可确认。
         case error_code::ShmResizeFailed:
+            // 共享内存尺寸异常，布局可能不兼容。
         case error_code::ShmMmapFailed:
+            // 地址空间映射失败，核心数据平面不可用。
         case error_code::ShmHeaderInvalid:
+            // 共享内存头非法（但未确认破坏程度），按关键错误处理。
         case error_code::LoggerInitFailed:
+            // 日志不可用会导致“盲飞”，影响排障和风控审计。
         case error_code::LoggerThreadFailed:
             return kCriticalPolicy;
 
+        // Fatal: 一致性/状态已不可信，必须最高优先级停服并退出。
         case error_code::PositionUpdateFailed:
+            // 成交已落但资金/持仓未能同步，账务一致性破坏。
         case error_code::OrderInvariantBroken:
+            // 订单簿内部不变量破坏（索引、父子关系等）。
         case error_code::ShmHeaderCorrupted:
+            // 共享内存头损坏，数据面可信度丧失。
         case error_code::InternalError:
+            // 未分类内部错误默认按最保守策略处理。
             return kFatalPolicy;
     }
     return kRecoverablePolicy;
@@ -186,7 +193,7 @@ error_status make_error_status(error_domain domain, error_code code, std::string
 void error_registry::record(const error_status& status) {
     lock_guard<spinlock> guard(lock_);
 
-    counters_[error_code_index(status.code)] += 1;
+    ++counters_[status.code];
     history_[history_pos_] = status;
     history_pos_ = (history_pos_ + 1) % kHistoryCapacity;
     if (history_size_ < kHistoryCapacity) {
@@ -196,7 +203,11 @@ void error_registry::record(const error_status& status) {
 
 uint64_t error_registry::count(error_code code) const {
     lock_guard<spinlock> guard(lock_);
-    return counters_[error_code_index(code)];
+    const auto it = counters_.find(code);
+    if (it == counters_.end()) {
+        return 0;
+    }
+    return it->second;
 }
 
 std::vector<error_status> error_registry::recent_errors() const {
@@ -219,7 +230,7 @@ std::vector<error_status> error_registry::recent_errors() const {
 
 void error_registry::reset() {
     lock_guard<spinlock> guard(lock_);
-    counters_.fill(0);
+    counters_.clear();
     history_pos_ = 0;
     history_size_ = 0;
 }
@@ -241,6 +252,8 @@ void record_error(const error_status& status) {
         global_error_registry().record(status);
         const error_policy& policy = classify(status.domain, status.code);
         if (policy.stop_service || policy.exit_process) {
+            // 统一在这里触发 shutdown 闩锁：
+            // Critical/Fatal 都会让 event_loop 停止并由主进程非0退出。
             request_shutdown(policy.severity);
         }
     }
