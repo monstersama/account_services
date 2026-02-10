@@ -140,36 +140,3 @@ bool should_exit_process() noexcept;
 #define ACCT_MAKE_ERROR(domain, code, module, message, sys_errno) \
     ::acct_service::make_error_status(                            \
         (domain), (code), (module), __FILE__, static_cast<uint32_t>(__LINE__), (message), (sys_errno))
-
-#define ACCT_RECORD_ERROR(status) ::acct_service::record_error((status))
-
-#define ACCT_RETURN_ERROR_BOOL(domain, code, module, message, sys_errno)         \
-    do {                                                                         \
-        const ::acct_service::error_status _acct_status =                        \
-            ACCT_MAKE_ERROR((domain), (code), (module), (message), (sys_errno)); \
-        ::acct_service::record_error(_acct_status);                              \
-        return false;                                                            \
-    } while (0)
-
-#define ACCT_RETURN_ERROR_NULLPTR(domain, code, module, message, sys_errno)      \
-    do {                                                                         \
-        const ::acct_service::error_status _acct_status =                        \
-            ACCT_MAKE_ERROR((domain), (code), (module), (message), (sys_errno)); \
-        ::acct_service::record_error(_acct_status);                              \
-        return nullptr;                                                          \
-    } while (0)
-
-#define ACCT_RETURN_ERROR_STATUS(domain, code, module, message, sys_errno)       \
-    do {                                                                         \
-        const ::acct_service::error_status _acct_status =                        \
-            ACCT_MAKE_ERROR((domain), (code), (module), (message), (sys_errno)); \
-        ::acct_service::record_error(_acct_status);                              \
-        return _acct_status;                                                     \
-    } while (0)
-
-#define ACCT_CHECK_OR_RETURN(expr, domain, code, module, message, sys_errno)            \
-    do {                                                                                \
-        if (!(expr)) {                                                                  \
-            ACCT_RETURN_ERROR_BOOL((domain), (code), (module), (message), (sys_errno)); \
-        }                                                                               \
-    } while (0)
