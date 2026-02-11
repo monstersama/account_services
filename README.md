@@ -20,6 +20,8 @@ shmm负责共享内存的创建
 
 order模块负责接收订单，并做拆单，将拆单后的订单发送给交易进程。
 
+gateway模块负责读取 `downstream_shm` 中的订单，调用券商适配器发送委托，并将成交回报写回 `trades_shm`。
+
 ### 流程图
 
 订单处理完整流程图：[docs/order_flowchart.md](docs/order_flowchart.md)
@@ -32,5 +34,11 @@ order模块负责接收订单，并做拆单，将拆单后的订单发送给交
 
 详细说明和Mermaid源代码请查看文档。
 
+## Gateway 与 Broker API
+
+- Gateway 可执行程序：`acct_broker_gateway_main`
+- 设计文档：`gateway/docs/gateway_design.md`
+- 时序图：`gateway/docs/gateway_sequence.mmd`
+- 券商适配接口契约：`docs/broker_api_contract.md`
 
 

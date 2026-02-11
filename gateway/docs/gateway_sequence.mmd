@@ -1,0 +1,29 @@
+sequenceDiagram
+    autonumber
+    participant AS as account_service
+    participant DS as downstream_shm.order_queue
+    participant GW as gateway_loop
+    participant AD as broker_adapter
+    participant TS as trades_shm.response_queue
+
+    AS->>DS: push(order_request)
+    GW->>DS: pop(order_request)
+    GW->>GW: map_order_request_to_broker
+    GW->>AD: submit(broker_order_request)
+    AD-->>GW: send_result
+
+    alt accepted
+        GW->>AD: poll_events()
+        AD-->>GW: broker_event(BrokerAccepted/Trade/Finished)
+        GW->>GW: map_broker_event_to_trade_response
+        GW->>TS: push(trade_response)
+    else retryable error
+        GW->>GW: enqueue retry item
+        GW->>AD: submit(retry)
+    else fatal error
+        GW->>TS: push(trade_response{new_status=TraderError})
+    end
+
+    AS->>TS: pop(trade_response)
+    AS->>AS: update order status and positions
+

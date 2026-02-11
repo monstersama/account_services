@@ -88,6 +88,32 @@ target_link_libraries(acct_core_service PUBLIC
     acct_core_loop
 )
 
+# broker API 共享库
+add_library(acct_broker_api SHARED
+    broker_api/broker_api.cpp
+)
+target_compile_definitions(acct_broker_api PRIVATE ACCT_BROKER_API_EXPORT)
+target_include_directories(acct_broker_api PUBLIC
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_BINARY_DIR}/generated
+)
+set_target_properties(acct_broker_api PROPERTIES
+    VERSION ${ACCT_API_VERSION}
+    SOVERSION ${ACCT_API_VERSION_MAJOR}
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON
+)
+
+install(TARGETS acct_broker_api
+    LIBRARY DESTINATION lib
+)
+
+install(FILES
+    ${CMAKE_SOURCE_DIR}/include/broker_api/broker_api.hpp
+    ${CMAKE_SOURCE_DIR}/include/broker_api/export.h
+    DESTINATION include/broker_api
+)
+
 # 主程序
 add_executable(acct_service_main
     main.cpp

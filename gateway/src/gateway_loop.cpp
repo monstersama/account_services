@@ -1,0 +1,234 @@
+#include "gateway_loop.hpp"
+
+#include <algorithm>
+#include <array>
+#include <chrono>
+#include <cstdio>
+#include <thread>
+
+#include "common/error.hpp"
+#include "common/log.hpp"
+#include "order_mapper.hpp"
+#include "response_mapper.hpp"
+
+namespace acct_service::gateway {
+
+namespace {
+
+constexpr uint32_t kResponsePushAttempts = 3;
+
+}  // namespace
+
+gateway_loop::gateway_loop(const gateway_config& config, downstream_shm_layout* downstream_shm, trades_shm_layout* trades_shm,
+    broker_api::IBrokerAdapter& adapter)
+    : config_(config), downstream_shm_(downstream_shm), trades_shm_(trades_shm), adapter_(adapter) {}
+
+int gateway_loop::run() {
+    if (!downstream_shm_ || !trades_shm_) {
+        error_status status = ACCT_MAKE_ERROR(
+            error_domain::core, error_code::ComponentUnavailable, "gateway_loop", "shared memory not available", 0);
+        record_error(status);
+        ACCT_LOG_ERROR_STATUS(status);
+        return 1;
+    }
+
+    running_.store(true, std::memory_order_release);
+    last_stats_print_ns_ = now_ns();
+
+    while (running_.load(std::memory_order_acquire)) {
+        ++stats_.loop_iterations;
+
+        bool did_work = false;
+        did_work = process_retry_queue() || did_work;
+        did_work = process_orders(config_.poll_batch_size) || did_work;
+        did_work = process_events(config_.poll_batch_size) || did_work;
+
+        if (!did_work) {
+            ++stats_.idle_iterations;
+            if (config_.idle_sleep_us > 0) {
+                std::this_thread::sleep_for(std::chrono::microseconds(config_.idle_sleep_us));
+            }
+        }
+
+        if (config_.stats_interval_ms > 0) {
+            const timestamp_ns_t now = now_ns();
+            const uint64_t interval_ns = static_cast<uint64_t>(config_.stats_interval_ms) * 1000000ULL;
+            if (now >= last_stats_print_ns_ + interval_ns) {
+                print_periodic_stats();
+                last_stats_print_ns_ = now;
+            }
+        }
+    }
+
+    return 0;
+}
+
+void gateway_loop::stop() noexcept { running_.store(false, std::memory_order_release); }
+
+const gateway_stats& gateway_loop::stats() const noexcept { return stats_; }
+
+bool gateway_loop::process_retry_queue() {
+    if (retry_queue_.empty()) {
+        return false;
+    }
+
+    bool did_work = false;
+    const timestamp_ns_t now = now_ns();
+    const std::size_t count = retry_queue_.size();
+
+    for (std::size_t i = 0; i < count; ++i) {
+        retry_item item = retry_queue_.front();
+        retry_queue_.pop_front();
+
+        if (item.next_retry_at_ns > now) {
+            retry_queue_.push_back(item);
+            continue;
+        }
+
+        did_work = true;
+        submit_request(item.request, item.attempts);
+    }
+
+    stats_.retry_queue_size = retry_queue_.size();
+    return did_work;
+}
+
+bool gateway_loop::process_orders(std::size_t batch_limit) {
+    if (batch_limit == 0) {
+        return false;
+    }
+
+    bool did_work = false;
+    std::size_t processed = 0;
+    order_request request;
+
+    while (processed < batch_limit && downstream_shm_->order_queue.try_pop(request)) {
+        ++processed;
+        did_work = true;
+        ++stats_.orders_received;
+        stats_.last_order_time_ns = now_ns();
+
+        broker_api::broker_order_request mapped;
+        if (!map_order_request_to_broker(request, mapped)) {
+            ++stats_.orders_failed;
+            emit_trader_error(request.internal_order_id, request.internal_security_id, request.trade_side);
+            continue;
+        }
+
+        submit_request(mapped, 0);
+    }
+
+    return did_work;
+}
+
+bool gateway_loop::process_events(std::size_t batch_limit) {
+    if (batch_limit == 0) {
+        return false;
+    }
+
+    constexpr std::size_t kMaxEventBatch = 256;
+    std::array<broker_api::broker_event, kMaxEventBatch> events{};
+    const std::size_t max_events = std::min<std::size_t>(batch_limit, events.size());
+    const std::size_t count = adapter_.poll_events(events.data(), max_events);
+    if (count == 0) {
+        return false;
+    }
+
+    stats_.events_received += count;
+
+    for (std::size_t i = 0; i < count; ++i) {
+        trade_response response;
+        if (!map_broker_event_to_trade_response(events[i], response)) {
+            ++stats_.responses_dropped;
+            continue;
+        }
+
+        if (!push_response(response)) {
+            ++stats_.responses_dropped;
+            stop();
+            error_status status = ACCT_MAKE_ERROR(
+                error_domain::order, error_code::QueuePushFailed, "gateway_loop", "failed to push trade response", 0);
+            record_error(status);
+            ACCT_LOG_ERROR_STATUS(status);
+            break;
+        }
+
+        ++stats_.responses_pushed;
+    }
+
+    return true;
+}
+
+void gateway_loop::submit_request(const broker_api::broker_order_request& request, uint32_t attempts) {
+    const broker_api::send_result result = adapter_.submit(request);
+    if (result.accepted) {
+        ++stats_.orders_submitted;
+        return;
+    }
+
+    if (result.retryable && attempts < config_.max_retry_attempts) {
+        retry_item item;
+        item.request = request;
+        item.attempts = attempts + 1;
+        item.next_retry_at_ns = now_ns() + static_cast<uint64_t>(config_.retry_interval_us) * 1000ULL;
+        retry_queue_.push_back(item);
+        ++stats_.retries_scheduled;
+        stats_.retry_queue_size = retry_queue_.size();
+        return;
+    }
+
+    ++stats_.orders_failed;
+    if (attempts > 0) {
+        ++stats_.retries_exhausted;
+    }
+    emit_trader_error(request.internal_order_id, request.internal_security_id, to_order_side(request.trade_side));
+}
+
+bool gateway_loop::push_response(const trade_response& response) {
+    for (uint32_t attempt = 0; attempt < kResponsePushAttempts; ++attempt) {
+        if (trades_shm_->response_queue.try_push(response)) {
+            return true;
+        }
+        if (config_.retry_interval_us > 0) {
+            std::this_thread::sleep_for(std::chrono::microseconds(config_.retry_interval_us));
+        }
+    }
+    return false;
+}
+
+void gateway_loop::emit_trader_error(
+    internal_order_id_t internal_order_id, internal_security_id_t internal_security_id, trade_side_t side_value) {
+    if (internal_order_id == 0) {
+        return;
+    }
+
+    trade_response response{};
+    response.internal_order_id = internal_order_id;
+    response.internal_security_id = internal_security_id;
+    response.trade_side = side_value;
+    response.new_status = order_status_t::TraderError;
+    response.recv_time_ns = now_ns();
+
+    if (push_response(response)) {
+        ++stats_.responses_pushed;
+    } else {
+        ++stats_.responses_dropped;
+    }
+}
+
+void gateway_loop::print_periodic_stats() {
+    std::fprintf(stderr,
+        "[gateway] loops=%llu idle=%llu received=%llu submitted=%llu failed=%llu retry_q=%llu events=%llu responses=%llu dropped=%llu\n",
+        static_cast<unsigned long long>(stats_.loop_iterations),
+        static_cast<unsigned long long>(stats_.idle_iterations),
+        static_cast<unsigned long long>(stats_.orders_received),
+        static_cast<unsigned long long>(stats_.orders_submitted),
+        static_cast<unsigned long long>(stats_.orders_failed),
+        static_cast<unsigned long long>(stats_.retry_queue_size),
+        static_cast<unsigned long long>(stats_.events_received),
+        static_cast<unsigned long long>(stats_.responses_pushed),
+        static_cast<unsigned long long>(stats_.responses_dropped));
+}
+
+}  // namespace acct_service::gateway
+
