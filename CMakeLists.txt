@@ -40,7 +40,7 @@ include_directories(
 
 # ============ 子模块 ============
 add_subdirectory(src)
-add_subdirectory(src/api)
-add_subdirectory(gateway)
-add_subdirectory(test)
+# add_subdirectory(src/api)
+# add_subdirectory(gateway)
+# add_subdirectory(test)
 # add_subdirectory(examples)

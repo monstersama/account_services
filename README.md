@@ -42,3 +42,44 @@ gateway模块负责读取 `downstream_shm` 中的订单，调用券商适配器�
 - 券商适配接口契约：`docs/broker_api_contract.md`
 - 插件模式：`--broker-type plugin --adapter-so <adapter.so>`
 
+## OrbStack 虚拟机下 VSCode 调试（GDB）
+
+在 OrbStack 虚拟机环境中，直接使用 VSCode `cppdbg + gdb` 启动 x86_64 程序，可能出现以下错误：
+
+- `Couldn't get CS register: Input/output error`
+- `Unexpected GDB output from command "-exec-run"`
+
+可使用 `qemu-x86_64-static` + GDB remote 的方式调试。
+
+### 1. 以 Debug 模式构建
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build -j
+```
+
+### 2. 安装 QEMU user static
+
+```bash
+sudo apt update
+sudo apt install -y qemu-user-static
+```
+
+### 3. 用 QEMU 启动程序并打开调试端口
+
+```bash
+qemu-x86_64-static -g 1234 ./build/src/acct_service_main --config ./config/default.yaml
+```
+
+说明：该命令会等待 GDB 连接，不会立即继续执行。
+
+### 4. VSCode 连接调试
+
+项目中已提供配置：`QEMU Remote acct_service_main (:1234)`（见 `.vscode/launch.json`）。
+
+在 VSCode 中：
+- 打开 `Run and Debug`
+- 选择 `QEMU Remote acct_service_main (:1234)`
+- 按 `F5` 连接
+
+连接后即可正常下断点、单步、查看变量。
