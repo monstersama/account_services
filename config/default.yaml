@@ -1,0 +1,47 @@
+# Default account service config.
+account_id: 1001
+
+shm:
+  upstream_shm_name: "/strategy_order_shm"
+  downstream_shm_name: "/downstream_order_shm"
+  trades_shm_name: "/trades_shm"
+  positions_shm_name: "/positions_shm"
+  create_if_not_exist: true
+
+event_loop:
+  busy_polling: true
+  poll_batch_size: 64
+  idle_sleep_us: 0
+  stats_interval_ms: 1000
+  pin_cpu: false
+  cpu_core: -1
+
+risk:
+  max_order_value: 0
+  max_order_volume: 0
+  max_daily_turnover: 0
+  max_orders_per_second: 0
+  enable_price_limit_check: true
+  enable_duplicate_check: true
+  enable_fund_check: true
+  enable_position_check: true
+  duplicate_window_ns: 100000000
+
+split:
+  strategy: "none"
+  max_child_volume: 0
+  min_child_volume: 100
+  max_child_count: 100
+  interval_ms: 0
+  randomize_factor: 0.0
+
+log:
+  log_dir: "./logs"
+  log_level: "info"
+  async_logging: true
+  async_queue_size: 8192
+
+db:
+  db_path: ""
+  enable_persistence: true
+  sync_interval_ms: 1000

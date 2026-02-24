@@ -2,6 +2,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <fstream>
 #include <functional>
 #include <string>
 #include <thread>
@@ -27,6 +28,76 @@ using namespace acct_service;
 std::string unique_shm_name(const char* prefix) {
     return std::string("/") + prefix + "_" + std::to_string(static_cast<unsigned long long>(getpid())) + "_" +
            std::to_string(static_cast<unsigned long long>(now_ns()));
+}
+
+std::string unique_config_path(const char* prefix) {
+    return std::string("/tmp/") + prefix + "_" + std::to_string(static_cast<unsigned long long>(getpid())) + "_" +
+           std::to_string(static_cast<unsigned long long>(now_ns())) + ".yaml";
+}
+
+const char* split_strategy_to_string(split_strategy_t strategy) {
+    switch (strategy) {
+        case split_strategy_t::FixedSize:
+            return "fixed_size";
+        case split_strategy_t::TWAP:
+            return "twap";
+        case split_strategy_t::VWAP:
+            return "vwap";
+        case split_strategy_t::Iceberg:
+            return "iceberg";
+        default:
+            return "none";
+    }
+}
+
+bool write_config_file(const std::string& path, const config& cfg) {
+    std::ofstream out(path);
+    if (!out.is_open()) {
+        return false;
+    }
+
+    out << "account_id: " << cfg.account_id << "\n";
+    out << "shm:\n";
+    out << "  upstream_shm_name: \"" << cfg.shm.upstream_shm_name << "\"\n";
+    out << "  downstream_shm_name: \"" << cfg.shm.downstream_shm_name << "\"\n";
+    out << "  trades_shm_name: \"" << cfg.shm.trades_shm_name << "\"\n";
+    out << "  positions_shm_name: \"" << cfg.shm.positions_shm_name << "\"\n";
+    out << "  create_if_not_exist: " << (cfg.shm.create_if_not_exist ? "true" : "false") << "\n";
+    out << "event_loop:\n";
+    out << "  busy_polling: " << (cfg.event_loop.busy_polling ? "true" : "false") << "\n";
+    out << "  poll_batch_size: " << cfg.event_loop.poll_batch_size << "\n";
+    out << "  idle_sleep_us: " << cfg.event_loop.idle_sleep_us << "\n";
+    out << "  stats_interval_ms: " << cfg.event_loop.stats_interval_ms << "\n";
+    out << "  pin_cpu: " << (cfg.event_loop.pin_cpu ? "true" : "false") << "\n";
+    out << "  cpu_core: " << cfg.event_loop.cpu_core << "\n";
+    out << "risk:\n";
+    out << "  max_order_value: " << cfg.risk.max_order_value << "\n";
+    out << "  max_order_volume: " << cfg.risk.max_order_volume << "\n";
+    out << "  max_daily_turnover: " << cfg.risk.max_daily_turnover << "\n";
+    out << "  max_orders_per_second: " << cfg.risk.max_orders_per_second << "\n";
+    out << "  enable_price_limit_check: " << (cfg.risk.enable_price_limit_check ? "true" : "false") << "\n";
+    out << "  enable_duplicate_check: " << (cfg.risk.enable_duplicate_check ? "true" : "false") << "\n";
+    out << "  enable_fund_check: " << (cfg.risk.enable_fund_check ? "true" : "false") << "\n";
+    out << "  enable_position_check: " << (cfg.risk.enable_position_check ? "true" : "false") << "\n";
+    out << "  duplicate_window_ns: " << cfg.risk.duplicate_window_ns << "\n";
+    out << "split:\n";
+    out << "  strategy: \"" << split_strategy_to_string(cfg.split.strategy) << "\"\n";
+    out << "  max_child_volume: " << cfg.split.max_child_volume << "\n";
+    out << "  min_child_volume: " << cfg.split.min_child_volume << "\n";
+    out << "  max_child_count: " << cfg.split.max_child_count << "\n";
+    out << "  interval_ms: " << cfg.split.interval_ms << "\n";
+    out << "  randomize_factor: " << cfg.split.randomize_factor << "\n";
+    out << "log:\n";
+    out << "  log_dir: \"" << cfg.log.log_dir << "\"\n";
+    out << "  log_level: \"" << cfg.log.log_level << "\"\n";
+    out << "  async_logging: " << (cfg.log.async_logging ? "true" : "false") << "\n";
+    out << "  async_queue_size: " << cfg.log.async_queue_size << "\n";
+    out << "db:\n";
+    out << "  db_path: \"" << cfg.db.db_path << "\"\n";
+    out << "  enable_persistence: " << (cfg.db.enable_persistence ? "true" : "false") << "\n";
+    out << "  sync_interval_ms: " << cfg.db.sync_interval_ms << "\n";
+
+    return true;
 }
 
 bool wait_until(const std::function<bool()>& predicate, int timeout_ms = 1000) {
@@ -65,8 +136,11 @@ TEST(initialize_and_run_processes_orders) {
     cfg.db.enable_persistence = false;
     cfg.db.db_path.clear();
 
+    const std::string config_path = unique_config_path("acct_service_cfg");
+    assert(write_config_file(config_path, cfg));
+
     account_service service;
-    assert(service.initialize(cfg));
+    assert(service.initialize(config_path));
     assert(service.state() == service_state_t::Ready);
 
     SHMManager upstream_manager;
@@ -138,14 +212,19 @@ TEST(initialize_and_run_processes_orders) {
     (void)SHMManager::unlink(cfg.shm.downstream_shm_name);
     (void)SHMManager::unlink(cfg.shm.trades_shm_name);
     (void)SHMManager::unlink(cfg.shm.positions_shm_name);
+    std::remove(config_path.c_str());
 }
 
 TEST(initialize_rejects_invalid_config) {
     config cfg;
     cfg.account_id = 0;
 
+    const std::string config_path = unique_config_path("acct_service_cfg_invalid");
+    assert(write_config_file(config_path, cfg));
+
     account_service service;
-    assert(!service.initialize(cfg));
+    assert(!service.initialize(config_path));
+    std::remove(config_path.c_str());
 }
 
 int main() {

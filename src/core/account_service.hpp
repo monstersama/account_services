@@ -41,7 +41,6 @@ public:
 
     // 初始化服务
     bool initialize(const std::string& config_path);
-    bool initialize(const config& cfg);
 
     // 运行服务（阻塞）
     int run();

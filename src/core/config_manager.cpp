@@ -6,6 +6,9 @@
 #include <cstdint>
 #include <fstream>
 #include <string>
+#include <string_view>
+
+#include <yaml-cpp/yaml.h>
 
 #include "common/error.hpp"
 #include "common/log.hpp"
@@ -117,6 +120,49 @@ bool parse_split_strategy(std::string value, split_strategy_t& out) {
         return true;
     }
     return false;
+}
+
+const char* split_strategy_to_string(split_strategy_t strategy) {
+    switch (strategy) {
+        case split_strategy_t::FixedSize:
+            return "fixed_size";
+        case split_strategy_t::TWAP:
+            return "twap";
+        case split_strategy_t::VWAP:
+            return "vwap";
+        case split_strategy_t::Iceberg:
+            return "iceberg";
+        default:
+            return "none";
+    }
+}
+
+std::string escape_yaml_string(std::string_view value) {
+    std::string out;
+    out.reserve(value.size() + 8);
+    for (char ch : value) {
+        switch (ch) {
+            case '\\':
+                out += "\\\\";
+                break;
+            case '"':
+                out += "\\\"";
+                break;
+            case '\n':
+                out += "\\n";
+                break;
+            case '\r':
+                out += "\\r";
+                break;
+            case '\t':
+                out += "\\t";
+                break;
+            default:
+                out.push_back(ch);
+                break;
+        }
+    }
+    return out;
 }
 
 bool apply_value(config& cfg, const std::string& key, const std::string& raw_value) {
@@ -253,73 +299,196 @@ bool apply_value(config& cfg, const std::string& key, const std::string& raw_val
         return parse_u32(value, cfg.db.sync_interval_ms);
     }
 
+    return false;
+}
+
+bool contains_key(std::string_view key, std::initializer_list<std::string_view> allowed_keys) {
+    for (std::string_view allowed : allowed_keys) {
+        if (key == allowed) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool report_yaml_parse_error(std::string_view path, std::string_view reason) {
+    std::string message;
+    message.reserve(path.size() + reason.size() + 32);
+    message += "invalid config key '";
+    message += path;
+    message += "': ";
+    message += reason;
+    return report_config_error(error_code::ConfigParseFailed, message);
+}
+
+bool read_scalar_string(const YAML::Node& node, std::string_view path, std::string& out) {
+    if (!node.IsScalar()) {
+        return report_yaml_parse_error(path, "value must be scalar");
+    }
+
+    try {
+        out = node.as<std::string>();
+    } catch (const YAML::Exception& ex) {
+        return report_yaml_parse_error(path, ex.what());
+    }
     return true;
 }
 
-void write_strategy(std::ofstream& out, split_strategy_t strategy) {
-    switch (strategy) {
-        case split_strategy_t::FixedSize:
-            out << "fixed_size";
-            break;
-        case split_strategy_t::TWAP:
-            out << "twap";
-            break;
-        case split_strategy_t::VWAP:
-            out << "vwap";
-            break;
-        case split_strategy_t::Iceberg:
-            out << "iceberg";
-            break;
-        default:
-            out << "none";
-            break;
+bool ensure_mapping(const YAML::Node& node, std::string_view section_name) {
+    if (node.IsMap()) {
+        return true;
     }
+
+    std::string message;
+    message.reserve(section_name.size() + 24);
+    message += "section '";
+    message += section_name;
+    message += "' must be a map";
+    return report_config_error(error_code::ConfigParseFailed, message);
+}
+
+bool check_allowed_keys(const YAML::Node& map_node, std::string_view section_name,
+    std::initializer_list<std::string_view> allowed_keys) {
+    for (const auto& entry : map_node) {
+        const YAML::Node key_node = entry.first;
+        if (!key_node.IsScalar()) {
+            if (section_name.empty()) {
+                return report_config_error(error_code::ConfigParseFailed, "non-scalar root key is not allowed");
+            }
+            std::string message;
+            message.reserve(section_name.size() + 32);
+            message += "non-scalar key in section '";
+            message += section_name;
+            message += "' is not allowed";
+            return report_config_error(error_code::ConfigParseFailed, message);
+        }
+
+        std::string key;
+        try {
+            key = key_node.as<std::string>();
+        } catch (const YAML::Exception& ex) {
+            if (section_name.empty()) {
+                return report_config_error(error_code::ConfigParseFailed, ex.what());
+            }
+            return report_yaml_parse_error(section_name, ex.what());
+        }
+
+        if (!contains_key(key, allowed_keys)) {
+            if (section_name.empty()) {
+                return report_yaml_parse_error(key, "unknown key");
+            }
+            std::string path;
+            path.reserve(section_name.size() + key.size() + 1);
+            path += section_name;
+            path += '.';
+            path += key;
+            return report_yaml_parse_error(path, "unknown key");
+        }
+    }
+
+    return true;
+}
+
+bool parse_section(config& cfg, const YAML::Node& root, std::string_view section_name,
+    std::initializer_list<std::string_view> allowed_keys) {
+    const YAML::Node section = root[std::string(section_name)];
+    if (!section) {
+        return true;
+    }
+
+    if (!ensure_mapping(section, section_name)) {
+        return false;
+    }
+
+    if (!check_allowed_keys(section, section_name, allowed_keys)) {
+        return false;
+    }
+
+    for (const auto& entry : section) {
+        const std::string key = entry.first.as<std::string>();
+
+        std::string value;
+        std::string path;
+        path.reserve(section_name.size() + key.size() + 1);
+        path += section_name;
+        path += '.';
+        path += key;
+
+        if (!read_scalar_string(entry.second, path, value)) {
+            return false;
+        }
+
+        if (!apply_value(cfg, path, value)) {
+            return report_yaml_parse_error(path, "invalid value");
+        }
+    }
+
+    return true;
 }
 
 }  // namespace
 
 bool config_manager::load_from_file(const std::string& config_path) {
-    std::ifstream in(config_path);
-    if (!in.is_open()) {
-        return report_config_error(error_code::ConfigParseFailed, "failed to open config file");
-    }
-
     config loaded = config_;
     loaded.config_file = config_path;
 
-    std::string section;
-    std::string line;
-    while (std::getline(in, line)) {
-        const std::size_t comment_pos = line.find_first_of("#;");
-        if (comment_pos != std::string::npos) {
-            line = line.substr(0, comment_pos);
+    YAML::Node root;
+    try {
+        root = YAML::LoadFile(config_path);
+    } catch (const YAML::Exception& ex) {
+        return report_config_error(error_code::ConfigParseFailed, ex.what());
+    }
+
+    if (root && !root.IsNull() && !root.IsMap()) {
+        return report_config_error(error_code::ConfigParseFailed, "root YAML node must be a map");
+    }
+
+    if (root && root.IsMap()) {
+        if (!check_allowed_keys(root, "", {"account_id", "shm", "event_loop", "risk", "split", "log", "db"})) {
+            return false;
         }
 
-        line = trim_copy(std::move(line));
-        if (line.empty()) {
-            continue;
+        const YAML::Node account_id_node = root["account_id"];
+        if (account_id_node) {
+            std::string value;
+            if (!read_scalar_string(account_id_node, "account_id", value)) {
+                return false;
+            }
+            if (!apply_value(loaded, "account_id", value)) {
+                return report_yaml_parse_error("account_id", "invalid value");
+            }
         }
 
-        if (line.front() == static_cast<char>(91) && line.back() == static_cast<char>(93)) {
-            section = trim_copy(line.substr(1, line.size() - 2));
-            continue;
+        if (!parse_section(loaded, root, "shm",
+                {"upstream_shm_name", "downstream_shm_name", "trades_shm_name", "positions_shm_name",
+                    "create_if_not_exist"})) {
+            return false;
         }
 
-        const std::size_t equal_pos = line.find("=");
-        if (equal_pos == std::string::npos) {
-            continue;
+        if (!parse_section(loaded, root, "event_loop",
+                {"busy_polling", "poll_batch_size", "idle_sleep_us", "stats_interval_ms", "pin_cpu", "cpu_core"})) {
+            return false;
         }
 
-        std::string key = trim_copy(line.substr(0, equal_pos));
-        std::string value = trim_copy(line.substr(equal_pos + 1));
-
-        if (value.size() >= 2 && value.front() == static_cast<char>(34) && value.back() == static_cast<char>(34)) {
-            value = value.substr(1, value.size() - 2);
+        if (!parse_section(loaded, root, "risk",
+                {"max_order_value", "max_order_volume", "max_daily_turnover", "max_orders_per_second",
+                    "enable_price_limit_check", "enable_duplicate_check", "enable_fund_check",
+                    "enable_position_check", "duplicate_window_ns"})) {
+            return false;
         }
 
-        const std::string full_key = section.empty() ? key : section + "." + key;
-        if (!apply_value(loaded, full_key, value)) {
-            return report_config_error(error_code::ConfigParseFailed, "failed to parse config key");
+        if (!parse_section(loaded, root, "split",
+                {"strategy", "max_child_volume", "min_child_volume", "max_child_count", "interval_ms",
+                    "randomize_factor"})) {
+            return false;
+        }
+
+        if (!parse_section(loaded, root, "log", {"log_dir", "log_level", "async_logging", "async_queue_size"})) {
+            return false;
+        }
+
+        if (!parse_section(loaded, root, "db", {"db_path", "enable_persistence", "sync_interval_ms"})) {
+            return false;
         }
     }
 
@@ -473,54 +642,52 @@ bool config_manager::export_to_file(const std::string& path) const {
         return report_config_error(error_code::InvalidConfig, "failed to open config export path");
     }
 
-    out << "account_id=" << config_.account_id << "\n\n";
+    out << "account_id: " << config_.account_id << "\n\n";
 
-    out << "[shm]\n";
-    out << "upstream_shm_name=\"" << config_.shm.upstream_shm_name << "\"\n";
-    out << "downstream_shm_name=\"" << config_.shm.downstream_shm_name << "\"\n";
-    out << "trades_shm_name=\"" << config_.shm.trades_shm_name << "\"\n";
-    out << "positions_shm_name=\"" << config_.shm.positions_shm_name << "\"\n";
-    out << "create_if_not_exist=" << (config_.shm.create_if_not_exist ? "true" : "false") << "\n\n";
+    out << "shm:\n";
+    out << "  upstream_shm_name: \"" << escape_yaml_string(config_.shm.upstream_shm_name) << "\"\n";
+    out << "  downstream_shm_name: \"" << escape_yaml_string(config_.shm.downstream_shm_name) << "\"\n";
+    out << "  trades_shm_name: \"" << escape_yaml_string(config_.shm.trades_shm_name) << "\"\n";
+    out << "  positions_shm_name: \"" << escape_yaml_string(config_.shm.positions_shm_name) << "\"\n";
+    out << "  create_if_not_exist: " << (config_.shm.create_if_not_exist ? "true" : "false") << "\n\n";
 
-    out << "[event_loop]\n";
-    out << "busy_polling=" << (config_.event_loop.busy_polling ? "true" : "false") << "\n";
-    out << "poll_batch_size=" << config_.event_loop.poll_batch_size << "\n";
-    out << "idle_sleep_us=" << config_.event_loop.idle_sleep_us << "\n";
-    out << "stats_interval_ms=" << config_.event_loop.stats_interval_ms << "\n";
-    out << "pin_cpu=" << (config_.event_loop.pin_cpu ? "true" : "false") << "\n";
-    out << "cpu_core=" << config_.event_loop.cpu_core << "\n\n";
+    out << "event_loop:\n";
+    out << "  busy_polling: " << (config_.event_loop.busy_polling ? "true" : "false") << "\n";
+    out << "  poll_batch_size: " << config_.event_loop.poll_batch_size << "\n";
+    out << "  idle_sleep_us: " << config_.event_loop.idle_sleep_us << "\n";
+    out << "  stats_interval_ms: " << config_.event_loop.stats_interval_ms << "\n";
+    out << "  pin_cpu: " << (config_.event_loop.pin_cpu ? "true" : "false") << "\n";
+    out << "  cpu_core: " << config_.event_loop.cpu_core << "\n\n";
 
-    out << "[risk]\n";
-    out << "max_order_value=" << config_.risk.max_order_value << "\n";
-    out << "max_order_volume=" << config_.risk.max_order_volume << "\n";
-    out << "max_daily_turnover=" << config_.risk.max_daily_turnover << "\n";
-    out << "max_orders_per_second=" << config_.risk.max_orders_per_second << "\n";
-    out << "enable_price_limit_check=" << (config_.risk.enable_price_limit_check ? "true" : "false") << "\n";
-    out << "enable_duplicate_check=" << (config_.risk.enable_duplicate_check ? "true" : "false") << "\n";
-    out << "enable_fund_check=" << (config_.risk.enable_fund_check ? "true" : "false") << "\n";
-    out << "enable_position_check=" << (config_.risk.enable_position_check ? "true" : "false") << "\n";
-    out << "duplicate_window_ns=" << config_.risk.duplicate_window_ns << "\n\n";
+    out << "risk:\n";
+    out << "  max_order_value: " << config_.risk.max_order_value << "\n";
+    out << "  max_order_volume: " << config_.risk.max_order_volume << "\n";
+    out << "  max_daily_turnover: " << config_.risk.max_daily_turnover << "\n";
+    out << "  max_orders_per_second: " << config_.risk.max_orders_per_second << "\n";
+    out << "  enable_price_limit_check: " << (config_.risk.enable_price_limit_check ? "true" : "false") << "\n";
+    out << "  enable_duplicate_check: " << (config_.risk.enable_duplicate_check ? "true" : "false") << "\n";
+    out << "  enable_fund_check: " << (config_.risk.enable_fund_check ? "true" : "false") << "\n";
+    out << "  enable_position_check: " << (config_.risk.enable_position_check ? "true" : "false") << "\n";
+    out << "  duplicate_window_ns: " << config_.risk.duplicate_window_ns << "\n\n";
 
-    out << "[split]\n";
-    out << "strategy=\"";
-    write_strategy(out, config_.split.strategy);
-    out << "\"\n";
-    out << "max_child_volume=" << config_.split.max_child_volume << "\n";
-    out << "min_child_volume=" << config_.split.min_child_volume << "\n";
-    out << "max_child_count=" << config_.split.max_child_count << "\n";
-    out << "interval_ms=" << config_.split.interval_ms << "\n";
-    out << "randomize_factor=" << config_.split.randomize_factor << "\n\n";
+    out << "split:\n";
+    out << "  strategy: \"" << split_strategy_to_string(config_.split.strategy) << "\"\n";
+    out << "  max_child_volume: " << config_.split.max_child_volume << "\n";
+    out << "  min_child_volume: " << config_.split.min_child_volume << "\n";
+    out << "  max_child_count: " << config_.split.max_child_count << "\n";
+    out << "  interval_ms: " << config_.split.interval_ms << "\n";
+    out << "  randomize_factor: " << config_.split.randomize_factor << "\n\n";
 
-    out << "[log]\n";
-    out << "log_dir=\"" << config_.log.log_dir << "\"\n";
-    out << "log_level=\"" << config_.log.log_level << "\"\n";
-    out << "async_logging=" << (config_.log.async_logging ? "true" : "false") << "\n";
-    out << "async_queue_size=" << config_.log.async_queue_size << "\n\n";
+    out << "log:\n";
+    out << "  log_dir: \"" << escape_yaml_string(config_.log.log_dir) << "\"\n";
+    out << "  log_level: \"" << escape_yaml_string(config_.log.log_level) << "\"\n";
+    out << "  async_logging: " << (config_.log.async_logging ? "true" : "false") << "\n";
+    out << "  async_queue_size: " << config_.log.async_queue_size << "\n\n";
 
-    out << "[db]\n";
-    out << "db_path=\"" << config_.db.db_path << "\"\n";
-    out << "enable_persistence=" << (config_.db.enable_persistence ? "true" : "false") << "\n";
-    out << "sync_interval_ms=" << config_.db.sync_interval_ms << "\n";
+    out << "db:\n";
+    out << "  db_path: \"" << escape_yaml_string(config_.db.db_path) << "\"\n";
+    out << "  enable_persistence: " << (config_.db.enable_persistence ? "true" : "false") << "\n";
+    out << "  sync_interval_ms: " << config_.db.sync_interval_ms << "\n";
 
     return true;
 }

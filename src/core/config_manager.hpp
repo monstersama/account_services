@@ -61,7 +61,7 @@ public:
     config_manager() = default;
     ~config_manager() = default;
 
-    // 从TOML文件加载配置
+    // 从YAML文件加载配置
     bool load_from_file(const std::string& config_path);
 
     // 从命令行参数解析

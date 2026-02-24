@@ -1,10 +1,6 @@
-# 订单处理流程图 - Mermaid源代码
-
-## 1. 主流程图：订单完整生命周期
-
-```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'background': '#ffffff', 'textColor': '#111827', 'lineColor': '#374151', 'fontSize': '18px', 'fontFamily': '"Microsoft YaHei","PingFang SC","Noto Sans SC",sans-serif', 'edgeLabelBackground': '#ffffff'}}}%%
+%% 订单处理流程图 - 主流程图
 graph TD
-    %% 主流程图：订单生命周期
     Start[策略触发订单] --> StrategySubmit[策略提交订单]
 
     StrategySubmit --> SHM1[写入上游共享内存<br/>order_queue]
@@ -55,7 +51,7 @@ graph TD
 
     UpdateOrder --> PositionUpdate[更新持仓管理器]
 
-    PositionUpdate --> CompleteCheck{订单完成?<br/>(volume_traded >= volume_entrust)}
+    PositionUpdate --> CompleteCheck{"订单完成?<br/>(volume_traded >= volume_entrust)"}
 
     CompleteCheck -->|是| OrderFinished[订单完成<br/>状态更新为Finished<br/>归档]
     CompleteCheck -->|否| WaitMore[等待更多成交]
@@ -64,189 +60,14 @@ graph TD
 
     OrderFinished --> End[订单生命周期结束]
 
-    %% 样式定义
-    classDef normal fill:#e1f5e1,stroke:#2e7d32,stroke-width:2px
-    classDef decision fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-    classDef reject fill:#ffebee,stroke:#c62828,stroke-width:2px
-    classDef external fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    classDef normal fill:#e1f5e1,stroke:#2e7d32,stroke-width:2px,color:#111827,font-size:16px
+    classDef decision fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#111827,font-size:16px
+    classDef reject fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#111827,font-size:16px
+    classDef external fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#111827,font-size:16px
+
+    linkStyle default stroke:#374151,stroke-width:2px
 
     class Start,StrategySubmit,SHM1,EventLoop,OrderBook,RiskAccepted,Splitter,Router,SHM2,TraderProcess,MarketAccepted,Matching,TradeResponse,SHM3,EventLoop2,UpdateOrder,PositionUpdate,OrderFinished,End normal
     class RiskCheck,SplitCheck,BrokerCheck,MarketCheck,CompleteCheck decision
     class RiskRejected,EndReject,BrokerReject,EndReject2,MarketReject,EndReject3 reject
     class SHM1,SHM2,SHM3 external
-```
-
-## 2. 状态转换图：订单状态机
-
-```mermaid
-stateDiagram-v2
-    [*] --> StrategySubmitted: 策略提交订单
-    StrategySubmitted --> RiskControllerPending: 进入风控队列
-
-    state RiskControllerPending {
-        [*] --> Checking
-        Checking --> Accepted: 风控通过
-        Checking --> Rejected: 风控拒绝
-    }
-
-    RiskControllerPending --> RiskControllerAccepted: 风控通过
-    RiskControllerPending --> RiskControllerRejected: 风控拒绝
-
-    RiskControllerAccepted --> TraderPending: 进入交易队列
-    TraderPending --> TraderSubmitted: 发送到交易进程
-
-    state TraderSubmitted {
-        [*] --> Waiting
-        Waiting --> BrokerAccepted: 柜台接受
-        Waiting --> BrokerRejected: 柜台拒绝
-        Waiting --> TraderError: 交易进程错误
-    }
-
-    TraderSubmitted --> BrokerAccepted: 柜台接受
-    TraderSubmitted --> BrokerRejected: 柜台拒绝
-    TraderSubmitted --> TraderError: 交易进程错误
-
-    BrokerAccepted --> MarketAccepted: 市场接受
-    BrokerAccepted --> MarketRejected: 市场拒绝
-
-    MarketAccepted --> Finished: 订单完成
-
-    RiskControllerRejected --> [*]: 订单终止
-    BrokerRejected --> [*]: 订单终止
-    MarketRejected --> [*]: 订单终止
-    TraderError --> [*]: 订单终止
-    Finished --> [*]: 订单生命周期结束
-
-    note right of RiskControllerRejected
-        风控拒绝原因：
-        - 资金不足
-        - 持仓不足
-        - 超过单笔限额
-        - 超过日限额
-        - 价格超出范围
-        - 证券不允许
-        - 账户冻结
-        - 重复订单
-    end note
-
-    note right of MarketAccepted
-        市场接受后：
-        - 进入撮合队列
-        - 等待成交回报
-        - 可能部分成交或全部成交
-    end note
-```
-
-## 3. 组件交互图：系统架构
-
-```mermaid
-graph TB
-    %% 外部系统
-    Strategy[策略进程] --> UpstreamSHM[上游共享内存<br/>SPSC队列]
-
-    UpstreamSHM --> AccountService[账户服务]
-
-    %% 账户服务内部组件
-    subgraph "账户服务 (Account Service)"
-        EventLoop[事件循环<br/>event_loop]
-        OrderBook[订单簿<br/>order_book]
-        RiskManager[风控管理器<br/>risk_manager]
-        OrderSplitter[拆单器<br/>order_splitter]
-        OrderRouter[订单路由器<br/>order_router]
-        PositionManager[持仓管理器<br/>position_manager]
-
-        EventLoop --> OrderBook
-        OrderBook --> RiskManager
-        RiskManager --> OrderSplitter
-        OrderSplitter --> OrderRouter
-        OrderRouter --> DownstreamSHM
-        PositionManager --> RiskManager
-        PositionManager --> OrderBook
-    end
-
-    AccountService --> DownstreamSHM[下游共享内存<br/>订单队列+响应队列]
-
-    DownstreamSHM --> Trader[交易进程<br/>Trader Process]
-
-    Trader --> Broker[券商柜台<br/>Broker API]
-
-    Broker --> Exchange[交易所<br/>Exchange]
-
-    Exchange --> TradeResponse[成交回报<br/>Trade Response]
-
-    TradeResponse --> DownstreamSHM
-
-    DownstreamSHM --> AccountService
-
-    %% 数据存储和监控
-    AccountService --> PositionSHM[持仓共享内存<br/>监控可见]
-
-    PositionSHM --> Monitor[监控系统<br/>Monitoring]
-
-    AccountService --> Database[(数据库<br/>PostgreSQL/MySQL)]
-
-    Database --> AccountService
-
-    %% 样式定义
-    classDef external fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    classDef service fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
-    classDef component fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
-    classDef storage fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-
-    class Strategy,Trader,Broker,Exchange,Monitor external
-    class AccountService service
-    class EventLoop,OrderBook,RiskManager,OrderSplitter,OrderRouter,PositionManager component
-    class UpstreamSHM,DownstreamSHM,PositionSHM,Database storage
-```
-
-## 4. 错误处理流程图
-
-```mermaid
-graph LR
-    Error[错误发生] --> ErrorType{错误类型}
-
-    ErrorType -->|风控拒绝| RiskReject[更新状态为<br/>RiskControllerRejected]
-    ErrorType -->|交易进程拒绝| TraderReject[更新状态为<br/>TraderRejected]
-    ErrorType -->|交易进程错误| TraderError[更新状态为<br/>TraderError]
-    ErrorType -->|柜台拒绝| BrokerReject[更新状态为<br/>BrokerRejected]
-    ErrorType -->|市场拒绝| MarketReject[更新状态为<br/>MarketRejected]
-
-    RiskReject --> Log1[记录错误日志<br/>包含拒绝原因]
-    TraderReject --> Log2[记录错误日志<br/>包含错误代码]
-    TraderError --> Log3[记录错误日志<br/>包含异常信息]
-    BrokerReject --> Log4[记录错误日志<br/>包含柜台错误码]
-    MarketReject --> Log5[记录错误日志<br/>包含市场错误码]
-
-    Log1 --> Notify1[通知上游策略<br/>通过共享内存]
-    Log2 --> Notify2[通知上游策略<br/>通过共享内存]
-    Log3 --> Notify3[通知上游策略<br/>通过共享内存]
-    Log4 --> Notify4[通知上游策略<br/>通过共享内存]
-    Log5 --> Notify5[通知上游策略<br/>通过共享内存]
-
-    Notify1 --> Cleanup1[清理资源<br/>解冻资金/持仓]
-    Notify2 --> Cleanup2[清理资源<br/>解冻资金/持仓]
-    Notify3 --> Cleanup3[清理资源<br/>解冻资金/持仓]
-    Notify4 --> Cleanup4[清理资源<br/>解冻资金/持仓]
-    Notify5 --> Cleanup5[清理资源<br/>解冻资金/持仓]
-
-    Cleanup1 --> Archive1[订单归档<br/>保存到数据库]
-    Cleanup2 --> Archive2[订单归档<br/>保存到数据库]
-    Cleanup3 --> Archive3[订单归档<br/>保存到数据库]
-    Cleanup4 --> Archive4[订单归档<br/>保存到数据库]
-    Cleanup5 --> Archive5[订单归档<br/>保存到数据库]
-
-    Archive1 --> Done1[处理完成]
-    Archive2 --> Done2[处理完成]
-    Archive3 --> Done3[处理完成]
-    Archive4 --> Done4[处理完成]
-    Archive5 --> Done5[处理完成]
-
-    %% 样式定义
-    classDef error fill:#ffebee,stroke:#c62828,stroke-width:2px
-    classDef process fill:#e1f5e1,stroke:#2e7d32,stroke-width:2px
-    classDef decision fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-
-    class ErrorType decision
-    class RiskReject,TraderReject,TraderError,BrokerReject,MarketReject error
-    class Log1,Log2,Log3,Log4,Log5,Notify1,Notify2,Notify3,Notify4,Notify5,Cleanup1,Cleanup2,Cleanup3,Cleanup4,Cleanup5,Archive1,Archive2,Archive3,Archive4,Archive5,Done1,Done2,Done3,Done4,Done5 process
-```

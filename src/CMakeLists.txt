@@ -1,5 +1,11 @@
 # src/CMakeLists.txt
 
+find_package(yaml-cpp REQUIRED)
+set(ACCT_YAMLCPP_TARGET yaml-cpp)
+if(TARGET yaml-cpp::yaml-cpp)
+    set(ACCT_YAMLCPP_TARGET yaml-cpp::yaml-cpp)
+endif()
+
 # ============ 核心库 ============
 
 # common 库 (spinlock, time_utils)
@@ -86,6 +92,7 @@ target_link_libraries(acct_core_service PUBLIC
     acct_order_core
     acct_risk
     acct_core_loop
+    ${ACCT_YAMLCPP_TARGET}
 )
 
 # broker API 共享库

@@ -27,25 +27,25 @@ std::string unique_path(const char* stem, const char* ext) {
 }  // namespace
 
 TEST(load_and_export_roundtrip) {
-    const std::string in_path = unique_path("config_mgr_in", ".toml");
-    const std::string out_path = unique_path("config_mgr_out", ".toml");
+    const std::string in_path = unique_path("config_mgr_in", ".yaml");
+    const std::string out_path = unique_path("config_mgr_out", ".yaml");
 
     {
         std::ofstream out(in_path);
         assert(out.is_open());
-        out << "account_id=7\n";
-        out << "\n[shm]\n";
-        out << "upstream_shm_name=\"/u_test\"\n";
-        out << "downstream_shm_name=\"/d_test\"\n";
-        out << "trades_shm_name=\"/t_test\"\n";
-        out << "positions_shm_name=\"/p_test\"\n";
-        out << "create_if_not_exist=true\n";
-        out << "\n[event_loop]\n";
-        out << "poll_batch_size=32\n";
-        out << "idle_sleep_us=10\n";
-        out << "\n[split]\n";
-        out << "strategy=\"fixed_size\"\n";
-        out << "max_child_volume=500\n";
+        out << "account_id: 7\n";
+        out << "shm:\n";
+        out << "  upstream_shm_name: \"/u_test\"\n";
+        out << "  downstream_shm_name: \"/d_test\"\n";
+        out << "  trades_shm_name: \"/t_test\"\n";
+        out << "  positions_shm_name: \"/p_test\"\n";
+        out << "  create_if_not_exist: true\n";
+        out << "event_loop:\n";
+        out << "  poll_batch_size: 32\n";
+        out << "  idle_sleep_us: 10\n";
+        out << "split:\n";
+        out << "  strategy: \"fixed_size\"\n";
+        out << "  max_child_volume: 500\n";
     }
 
     config_manager manager;
@@ -68,6 +68,28 @@ TEST(load_and_export_roundtrip) {
 
     std::remove(in_path.c_str());
     std::remove(out_path.c_str());
+}
+
+TEST(load_rejects_unknown_key) {
+    const std::string in_path = unique_path("config_mgr_unknown", ".yaml");
+
+    {
+        std::ofstream out(in_path);
+        assert(out.is_open());
+        out << "account_id: 7\n";
+        out << "shm:\n";
+        out << "  upstream_shm_name: \"/u_test\"\n";
+        out << "  downstream_shm_name: \"/d_test\"\n";
+        out << "  trades_shm_name: \"/t_test\"\n";
+        out << "  positions_shm_name: \"/p_test\"\n";
+        out << "  create_if_not_exist: true\n";
+        out << "  unknown_field: 1\n";
+    }
+
+    config_manager manager;
+    assert(!manager.load_from_file(in_path));
+
+    std::remove(in_path.c_str());
 }
 
 TEST(parse_command_line_and_validate) {
@@ -100,6 +122,7 @@ int main() {
     printf("=== Config Manager Test Suite ===\n\n");
 
     RUN_TEST(load_and_export_roundtrip);
+    RUN_TEST(load_rejects_unknown_key);
     RUN_TEST(parse_command_line_and_validate);
 
     printf("\n=== All tests passed! ===\n");

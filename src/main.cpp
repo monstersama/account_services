@@ -8,6 +8,8 @@
 
 namespace {
 
+constexpr const char* kDefaultConfigPath = "config/default.yaml";
+
 enum class parse_result_t {
     Ok,
     Help,
@@ -17,7 +19,7 @@ enum class parse_result_t {
 void print_usage(const char* program) {
     std::fprintf(stderr,
         "Usage: %s [--config <path>] [config_path]\n"
-        "  --config <path>   指定配置文件路径\n"
+        "  --config <path>   指定配置文件路径 (默认: config/default.yaml)\n"
         "  -h, --help        显示帮助\n",
         program ? program : "account_service");
 }
@@ -74,11 +76,16 @@ int main(int argc, char* argv[]) {
         return 2;
     }
 
+    if (config_path.empty()) {
+        config_path = kDefaultConfigPath;
+    }
+
     acct_service::account_service service;
     if (!service.initialize(config_path)) {
         const acct_service::error_status& status = service.last_error();
         std::fprintf(stderr,
-            "failed to initialize account_service: severity=%s domain=%s code=%s msg=%s\n",
+            "failed to initialize account_service with config '%s': severity=%s domain=%s code=%s msg=%s\n",
+            config_path.c_str(),
             acct_service::to_string(acct_service::classify(status.domain, status.code).severity),
             acct_service::to_string(status.domain), acct_service::to_string(status.code), status.message.c_str());
         return 1;

@@ -1,0 +1,57 @@
+%%{init: {'theme': 'base', 'themeVariables': {'background': '#ffffff', 'textColor': '#111827', 'lineColor': '#374151', 'fontSize': '18px', 'fontFamily': '"Microsoft YaHei","PingFang SC","Noto Sans SC",sans-serif', 'edgeLabelBackground': '#ffffff'}}}%%
+%% 组件交互图 - 系统架构
+graph TB
+    Strategy[策略进程] --> UpstreamSHM[上游共享内存<br/>SPSC队列]
+
+    UpstreamSHM --> AccountService[账户服务]
+
+    subgraph "账户服务 (Account Service)"
+        EventLoop[事件循环<br/>event_loop]
+        OrderBook[订单簿<br/>order_book]
+        RiskManager[风控管理器<br/>risk_manager]
+        OrderSplitter[拆单器<br/>order_splitter]
+        OrderRouter[订单路由器<br/>order_router]
+        PositionManager[持仓管理器<br/>position_manager]
+
+        EventLoop --> OrderBook
+        OrderBook --> RiskManager
+        RiskManager --> OrderSplitter
+        OrderSplitter --> OrderRouter
+        OrderRouter --> DownstreamSHM
+        PositionManager --> RiskManager
+        PositionManager --> OrderBook
+    end
+
+    AccountService --> DownstreamSHM[下游共享内存<br/>订单队列+响应队列]
+
+    DownstreamSHM --> Trader[交易进程<br/>Trader Process]
+
+    Trader --> Broker[券商柜台<br/>Broker API]
+
+    Broker --> Exchange[交易所<br/>Exchange]
+
+    Exchange --> TradeResponse[成交回报<br/>Trade Response]
+
+    TradeResponse --> DownstreamSHM
+
+    DownstreamSHM --> AccountService
+
+    AccountService --> PositionSHM[持仓共享内存<br/>监控可见]
+
+    PositionSHM --> Monitor[监控系统<br/>Monitoring]
+
+    AccountService --> Database[(数据库<br/>PostgreSQL/MySQL)]
+
+    Database --> AccountService
+
+    classDef external fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#111827,font-size:16px
+    classDef service fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px,color:#111827,font-size:16px
+    classDef component fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#111827,font-size:16px
+    classDef storage fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#111827,font-size:16px
+
+    linkStyle default stroke:#374151,stroke-width:2px
+
+    class Strategy,Trader,Broker,Exchange,Monitor external
+    class AccountService service
+    class EventLoop,OrderBook,RiskManager,OrderSplitter,OrderRouter,PositionManager component
+    class UpstreamSHM,DownstreamSHM,PositionSHM,Database storage

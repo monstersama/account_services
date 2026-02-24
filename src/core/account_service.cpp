@@ -24,6 +24,7 @@ account_service::~account_service() {
     state_.store(service_state_t::Stopped, std::memory_order_release);
 }
 
+// 使用配置文件初始化
 bool account_service::initialize(const std::string& config_path) {
     clear_shutdown_reason();
     clear_last_error();
@@ -38,46 +39,6 @@ bool account_service::initialize(const std::string& config_path) {
     cleanup();
 
     if (!init_config(config_path)) {
-        state_.store(service_state_t::Error, std::memory_order_release);
-        cleanup();
-        return false;
-    }
-
-    if (!init_logger(config_manager_.log(), config_manager_.account_id())) {
-        raise_service_error(make_service_error(error_code::LoggerInitFailed, "failed to initialize logger"));
-        state_.store(service_state_t::Error, std::memory_order_release);
-        cleanup();
-        return false;
-    }
-
-    if (!init_shared_memory() || !init_portfolio() || !init_risk_manager() || !init_order_components() ||
-        !init_event_loop()) {
-        state_.store(service_state_t::Error, std::memory_order_release);
-        flush_logger(200);
-        cleanup();
-        return false;
-    }
-
-    state_.store(service_state_t::Ready, std::memory_order_release);
-    return true;
-}
-
-bool account_service::initialize(const acct_service::config& cfg) {
-    clear_shutdown_reason();
-    clear_last_error();
-
-    const service_state_t current = state();
-    if (current == service_state_t::Initializing || current == service_state_t::Running) {
-        raise_service_error(make_service_error(error_code::InvalidState, "initialize(config) called in invalid state"));
-        return false;
-    }
-
-    state_.store(service_state_t::Initializing, std::memory_order_release);
-    cleanup();
-
-    config_manager_.get() = cfg;
-    if (!config_manager_.validate()) {
-        raise_service_error(make_service_error(error_code::ConfigValidateFailed, "config validation failed"));
         state_.store(service_state_t::Error, std::memory_order_release);
         cleanup();
         return false;
@@ -191,18 +152,16 @@ void account_service::print_stats() const {
 }
 
 bool account_service::init_config(const std::string& config_path) {
-    if (!config_path.empty()) {
-        if (!config_manager_.load_from_file(config_path)) {
-            raise_service_error(make_service_error(error_code::ConfigParseFailed, "failed to load config file"));
-            return false;
-        }
-        return true;
-    }
-
-    if (!config_manager_.validate()) {
-        raise_service_error(make_service_error(error_code::ConfigValidateFailed, "default config validation failed"));
+    if (config_path.empty()) {
+        raise_service_error(make_service_error(error_code::InvalidConfig, "config path must not be empty"));
         return false;
     }
+
+    if (!config_manager_.load_from_file(config_path)) {
+        raise_service_error(make_service_error(error_code::ConfigParseFailed, "failed to load config file"));
+        return false;
+    }
+
     return true;
 }
 
@@ -389,6 +348,7 @@ void account_service::cleanup() {
     trades_shm_ = nullptr;
     positions_shm_ = nullptr;
 
+    // 共享内存不删除只关闭映射
     upstream_shm_manager_.close();
     downstream_shm_manager_.close();
     trades_shm_manager_.close();

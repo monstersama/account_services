@@ -1,0 +1,58 @@
+%%{init: {'theme': 'base', 'themeVariables': {'background': '#ffffff', 'textColor': '#111827', 'lineColor': '#374151', 'fontSize': '18px', 'fontFamily': '"Microsoft YaHei","PingFang SC","Noto Sans SC",sans-serif', 'edgeLabelBackground': '#ffffff', 'noteBkgColor': '#fef3c7', 'noteBorderColor': '#b45309', 'noteTextColor': '#111827'}}}%%
+%% 订单状态机
+stateDiagram-v2
+    [*] --> StrategySubmitted: 策略提交订单
+    StrategySubmitted --> RiskControllerPending: 进入风控队列
+
+    state RiskControllerPending {
+        [*] --> Checking
+        Checking --> Accepted: 风控通过
+        Checking --> Rejected: 风控拒绝
+    }
+
+    RiskControllerPending --> RiskControllerAccepted: 风控通过
+    RiskControllerPending --> RiskControllerRejected: 风控拒绝
+
+    RiskControllerAccepted --> TraderPending: 进入交易队列
+    TraderPending --> TraderSubmitted: 发送到交易进程
+
+    state TraderSubmitted {
+        [*] --> Waiting
+        Waiting --> BrokerAccepted: 柜台接受
+        Waiting --> BrokerRejected: 柜台拒绝
+        Waiting --> TraderError: 交易进程错误
+    }
+
+    TraderSubmitted --> BrokerAccepted: 柜台接受
+    TraderSubmitted --> BrokerRejected: 柜台拒绝
+    TraderSubmitted --> TraderError: 交易进程错误
+
+    BrokerAccepted --> MarketAccepted: 市场接受
+    BrokerAccepted --> MarketRejected: 市场拒绝
+
+    MarketAccepted --> Finished: 订单完成
+
+    RiskControllerRejected --> [*]: 订单终止
+    BrokerRejected --> [*]: 订单终止
+    MarketRejected --> [*]: 订单终止
+    TraderError --> [*]: 订单终止
+    Finished --> [*]: 订单生命周期结束
+
+    note right of RiskControllerRejected
+        风控拒绝原因：
+        - 资金不足
+        - 持仓不足
+        - 超过单笔限额
+        - 超过日限额
+        - 价格超出范围
+        - 证券不允许
+        - 账户冻结
+        - 重复订单
+    end note
+
+    note right of MarketAccepted
+        市场接受后：
+        - 进入撮合队列
+        - 等待成交回报
+        - 可能部分成交或全部成交
+    end note
