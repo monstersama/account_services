@@ -4,6 +4,7 @@
 #include <string>
 
 #include "common/error.hpp"
+#include "adapter_loader.hpp"
 #include "gateway_config.hpp"
 #include "gateway_loop.hpp"
 #include "shm/shm_manager.hpp"
@@ -11,8 +12,10 @@
 
 namespace {
 
+// 供信号处理函数访问的全局 loop 指针。
 std::atomic<acct_service::gateway::gateway_loop*> g_gateway_loop{nullptr};
 
+// 收到退出信号后请求主循环停止。
 void handle_signal(int) {
     acct_service::gateway::gateway_loop* loop = g_gateway_loop.load(std::memory_order_acquire);
     if (loop) {
@@ -20,6 +23,7 @@ void handle_signal(int) {
     }
 }
 
+// 注册常见退出信号。
 void install_signal_handler() {
     std::signal(SIGINT, handle_signal);
     std::signal(SIGTERM, handle_signal);
@@ -44,11 +48,7 @@ int main(int argc, char* argv[]) {
         return 2;
     }
 
-    if (config.broker_type != "sim") {
-        std::fprintf(stderr, "unsupported --broker-type: %s\n", config.broker_type.c_str());
-        return 2;
-    }
-
+    // 打开共享内存：读取下游订单，写入成交回报。
     SHMManager downstream_manager;
     SHMManager trades_manager;
     const shm_mode mode = config.create_if_not_exist ? shm_mode::OpenOrCreate : shm_mode::Open;
@@ -72,27 +72,48 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    gateway::sim_broker_adapter adapter;
+    broker_api::IBrokerAdapter* adapter_ptr = nullptr;
+    gateway::sim_broker_adapter sim_adapter;
+    gateway::loaded_adapter plugin_adapter;
+
+    // 支持两种适配器模式：内置 sim 或外部插件。
+    if (config.broker_type == "sim") {
+        adapter_ptr = &sim_adapter;
+    } else if (config.broker_type == "plugin") {
+        std::string error_message;
+        if (!gateway::load_adapter_plugin(config.adapter_plugin_so, plugin_adapter, error_message)) {
+            std::fprintf(stderr, "failed to load adapter plugin: %s\n", error_message.c_str());
+            return 1;
+        }
+        adapter_ptr = plugin_adapter.get();
+    } else {
+        std::fprintf(stderr, "unsupported --broker-type: %s\n", config.broker_type.c_str());
+        return 2;
+    }
+
     broker_api::broker_runtime_config runtime_config;
     runtime_config.account_id = config.account_id;
     runtime_config.auto_fill = true;
 
-    if (!adapter.initialize(runtime_config)) {
+    if (!adapter_ptr || !adapter_ptr->initialize(runtime_config)) {
         std::fprintf(stderr, "failed to initialize broker adapter\n");
         return 1;
     }
 
-    gateway::gateway_loop loop(config, downstream, trades, adapter);
+    gateway::gateway_loop loop(config, downstream, trades, *adapter_ptr);
     g_gateway_loop.store(&loop, std::memory_order_release);
     install_signal_handler();
 
+    // 进入主循环，直到信号或内部停止。
     const int run_rc = loop.run();
 
     g_gateway_loop.store(nullptr, std::memory_order_release);
-    adapter.shutdown();
+    if (adapter_ptr) {
+        adapter_ptr->shutdown();
+    }
+    plugin_adapter.reset();
     downstream_manager.close();
     trades_manager.close();
 
     return run_rc;
 }
-

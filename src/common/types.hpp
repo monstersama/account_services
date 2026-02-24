@@ -17,7 +17,7 @@ using seconds_t = uint32_t;  // 时间（秒），非具体时间点
 using account_id_t = uint32_t;
 using strategy_id_t = uint16_t;
 using sequence_t = uint64_t;
-using timestamp_ns_t = uint64_t;  // 纳秒时间戳
+using timestamp_ns_t = uint64_t;  // Unix Epoch 纳秒时间戳
 
 // ========== 枚举类型 ==========
 
@@ -73,8 +73,15 @@ enum class position_change_t : uint8_t {
 
 // ========== 工具函数 ==========
 
-// 获取当前纳秒时间戳
+// 获取当前 Unix Epoch 纳秒时间戳
 inline timestamp_ns_t now_ns() {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return static_cast<timestamp_ns_t>(ts.tv_sec) * 1'000'000'000ULL + ts.tv_nsec;
+}
+
+// 获取当前单调时钟纳秒值（适合做耗时统计/超时判断）
+inline timestamp_ns_t now_monotonic_ns() {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return static_cast<timestamp_ns_t>(ts.tv_sec) * 1'000'000'000ULL + ts.tv_nsec;

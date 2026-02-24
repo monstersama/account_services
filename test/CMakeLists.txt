@@ -93,6 +93,28 @@ add_executable(test_gateway_loop
 
 target_link_libraries(test_gateway_loop PRIVATE acct_gateway_core)
 
+# ============ gateway plugin 模式端到端测试 ==========
+add_executable(test_gateway_plugin_mode
+    test_gateway_plugin_mode.cpp
+)
+
+target_link_libraries(test_gateway_plugin_mode PRIVATE acct_gateway_core)
+target_compile_definitions(test_gateway_plugin_mode PRIVATE
+    TEST_ADAPTER_PLUGIN_PATH="$<TARGET_FILE:acct_gateway_sim_plugin>"
+)
+add_dependencies(test_gateway_plugin_mode acct_gateway_sim_plugin)
+
+# ============ adapter_loader 插件加载测试 ==========
+add_executable(test_adapter_loader
+    test_adapter_loader.cpp
+)
+
+target_link_libraries(test_adapter_loader PRIVATE acct_gateway_core)
+target_compile_definitions(test_adapter_loader PRIVATE
+    TEST_ADAPTER_PLUGIN_PATH="$<TARGET_FILE:acct_gateway_sim_plugin>"
+)
+add_dependencies(test_adapter_loader acct_gateway_sim_plugin)
+
 # 注册到 CTest
 enable_testing()
 add_test(NAME test_order_api COMMAND test_order_api)
@@ -109,3 +131,5 @@ add_test(NAME test_config_manager COMMAND test_config_manager)
 add_test(NAME test_account_service COMMAND test_account_service)
 add_test(NAME test_gateway_mapper COMMAND test_gateway_mapper)
 add_test(NAME test_gateway_loop COMMAND test_gateway_loop)
+add_test(NAME test_gateway_plugin_mode COMMAND test_gateway_plugin_mode)
+add_test(NAME test_adapter_loader COMMAND test_adapter_loader)

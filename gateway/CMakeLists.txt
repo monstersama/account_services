@@ -1,4 +1,5 @@
 add_library(acct_gateway_core STATIC
+    src/adapter_loader.cpp
     src/gateway_config.cpp
     src/order_mapper.cpp
     src/response_mapper.cpp
@@ -17,6 +18,7 @@ target_link_libraries(acct_gateway_core PUBLIC
     acct_common
     acct_shm
     acct_broker_api
+    dl
 )
 
 add_executable(acct_broker_gateway_main
@@ -25,3 +27,8 @@ add_executable(acct_broker_gateway_main
 
 target_link_libraries(acct_broker_gateway_main PRIVATE acct_gateway_core)
 
+add_library(acct_gateway_sim_plugin SHARED
+    src/sim_broker_plugin.cpp
+)
+
+target_link_libraries(acct_gateway_sim_plugin PRIVATE acct_gateway_core)

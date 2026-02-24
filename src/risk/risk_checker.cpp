@@ -138,7 +138,7 @@ risk_check_result duplicate_order_rule::check(const order_request& order, const 
         return risk_check_result::pass();
     }
 
-    const timestamp_ns_t now = now_ns();
+    const timestamp_ns_t now = now_monotonic_ns();
     const uint64_t key = make_order_fingerprint(order);
 
     const auto it = recent_orders_.find(key);
@@ -150,7 +150,9 @@ risk_check_result duplicate_order_rule::check(const order_request& order, const 
     return risk_check_result::pass();
 }
 
-void duplicate_order_rule::record_order(const order_request& order) { recent_orders_[make_order_fingerprint(order)] = now_ns(); }
+void duplicate_order_rule::record_order(const order_request& order) {
+    recent_orders_[make_order_fingerprint(order)] = now_monotonic_ns();
+}
 
 void duplicate_order_rule::clear_history() { recent_orders_.clear(); }
 
@@ -167,7 +169,7 @@ risk_check_result rate_limit_rule::check(const order_request& order, const posit
     }
 
     constexpr timestamp_ns_t kSecondNs = 1000000000ULL;
-    const timestamp_ns_t now = now_ns();
+    const timestamp_ns_t now = now_monotonic_ns();
     const timestamp_ns_t window_start = current_second_start_.load(std::memory_order_relaxed);
 
     if (window_start == 0 || now < window_start || (now - window_start) >= kSecondNs) {

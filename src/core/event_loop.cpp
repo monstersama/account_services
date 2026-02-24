@@ -83,7 +83,7 @@ void event_loop::run() {
     g_active_loop.store(this, std::memory_order_release);
 
     stats_.start_time = now_ns();
-    last_stats_time_ = stats_.start_time;
+    last_stats_time_ = now_monotonic_ns();
 
     while (running_.load(std::memory_order_acquire)) {
         loop_iteration();
@@ -119,7 +119,7 @@ void event_loop::setup_signal_handlers() {
 void event_loop::set_trades_shm(trades_shm_layout* trades_shm) noexcept { trades_shm_ = trades_shm; }
 
 void event_loop::loop_iteration() {
-    const timestamp_ns_t start = now_ns();
+    const timestamp_ns_t start = now_monotonic_ns();
     ++stats_.total_iterations;
 
     const std::size_t orders = process_upstream_orders();
@@ -132,7 +132,7 @@ void event_loop::loop_iteration() {
         }
     }
 
-    const timestamp_ns_t now = now_ns();
+    const timestamp_ns_t now = now_monotonic_ns();
     if (config_.stats_interval_ms > 0) {
         const timestamp_ns_t interval_ns = static_cast<timestamp_ns_t>(config_.stats_interval_ms) * 1000000ULL;
         if (now >= last_stats_time_ && now - last_stats_time_ >= interval_ns) {

@@ -18,6 +18,7 @@ namespace {
 
 using namespace acct_service;
 
+// 验证新单字段映射是否完整正确。
 TEST(map_new_order_request) {
     order_request request;
     request.init_new("600000", static_cast<internal_security_id_t>(42), static_cast<internal_order_id_t>(1001),
@@ -38,6 +39,7 @@ TEST(map_new_order_request) {
     assert(std::string(mapped.security_id) == "600000");
 }
 
+// 验证撤单映射保留原订单关联关系。
 TEST(map_cancel_order_request) {
     order_request request;
     request.init_cancel(static_cast<internal_order_id_t>(2001), 93100000, static_cast<internal_order_id_t>(1001));
@@ -50,6 +52,7 @@ TEST(map_cancel_order_request) {
     assert(mapped.type == broker_api::request_type::Cancel);
 }
 
+// 验证成交事件映射到 trade_response 的状态与数值字段。
 TEST(map_trade_event_response) {
     broker_api::broker_event event;
     event.kind = broker_api::event_kind::Trade;

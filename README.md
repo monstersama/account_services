@@ -40,5 +40,5 @@ gateway模块负责读取 `downstream_shm` 中的订单，调用券商适配器�
 - 设计文档：`gateway/docs/gateway_design.md`
 - 时序图：`gateway/docs/gateway_sequence.mmd`
 - 券商适配接口契约：`docs/broker_api_contract.md`
-
+- 插件模式：`--broker-type plugin --adapter-so <adapter.so>`
 

@@ -6,6 +6,7 @@ namespace acct_service::gateway {
 
 namespace {
 
+// broker_event 类型与 order_status 的映射关系。
 order_status_t map_event_kind_to_status(broker_api::event_kind kind) noexcept {
     switch (kind) {
         case broker_api::event_kind::BrokerAccepted:
@@ -27,6 +28,7 @@ order_status_t map_event_kind_to_status(broker_api::event_kind kind) noexcept {
 
 bool map_broker_event_to_trade_response(
     const broker_api::broker_event& event, trade_response& out_response) noexcept {
+    // internal_order_id 是上游关联主键，不能为空。
     if (event.internal_order_id == 0) {
         return false;
     }
@@ -36,6 +38,7 @@ bool map_broker_event_to_trade_response(
         return false;
     }
 
+    // 字段逐项映射，保持结构体协议不变。
     out_response = trade_response{};
     out_response.internal_order_id = event.internal_order_id;
     out_response.broker_order_id = event.broker_order_id;
@@ -53,4 +56,3 @@ bool map_broker_event_to_trade_response(
 }
 
 }  // namespace acct_service::gateway
-

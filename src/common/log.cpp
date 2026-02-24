@@ -234,11 +234,11 @@ bool async_logger::flush(uint32_t timeout_ms) {
     }
 
     const uint64_t target = impl_->enqueued.load(std::memory_order_acquire);
-    const timestamp_ns_t start = now_ns();
+    const timestamp_ns_t start = now_monotonic_ns();
     const timestamp_ns_t timeout_ns = static_cast<timestamp_ns_t>(timeout_ms) * 1000000ULL;
 
     while (impl_->written.load(std::memory_order_acquire) < target) {
-        if (now_ns() - start > timeout_ns) {
+        if (now_monotonic_ns() - start > timeout_ns) {
             return false;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));

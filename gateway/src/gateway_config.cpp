@@ -9,6 +9,7 @@ namespace acct_service::gateway {
 
 namespace {
 
+// 解析 uint32 参数。
 bool parse_u32(const std::string& text, uint32_t& out) {
     try {
         const unsigned long long value = std::stoull(text);
@@ -22,6 +23,7 @@ bool parse_u32(const std::string& text, uint32_t& out) {
     }
 }
 
+// 解析布尔参数（支持常见文本形式）。
 bool parse_bool(std::string text, bool& out) {
     std::transform(text.begin(), text.end(), text.begin(), [](unsigned char ch) {
         return static_cast<char>(std::tolower(ch));
@@ -38,6 +40,7 @@ bool parse_bool(std::string text, bool& out) {
     return false;
 }
 
+// 读取 option 对应值（例如 --foo <value>）。
 bool require_value(int argc, int i, char* argv[], std::string& value, std::string& error_message) {
     if (i + 1 >= argc || argv[i + 1] == nullptr) {
         error_message = std::string("missing value for ") + (argv[i] ? argv[i] : "option");
@@ -55,7 +58,8 @@ void print_usage(const char* program) {
         "  --account-id <id>            account id\n"
         "  --downstream-shm <name>      downstream order shm name\n"
         "  --trades-shm <name>          trades response shm name\n"
-        "  --broker-type <sim>          broker adapter type\n"
+        "  --broker-type <sim|plugin>   broker adapter type\n"
+        "  --adapter-so <path>          adapter plugin .so path (required when broker-type=plugin)\n"
         "  --create-if-not-exist <bool> open or create shm (default false)\n"
         "  --poll-batch-size <n>        max orders/events per loop (default 64)\n"
         "  --idle-sleep-us <n>          sleep in idle loop (default 50)\n"
@@ -67,6 +71,7 @@ void print_usage(const char* program) {
 }
 
 parse_result_t parse_args(int argc, char* argv[], gateway_config& config, std::string& error_message) {
+    // 逐项扫描命令行参数，解析到 config。
     for (int i = 1; i < argc; ++i) {
         const char* arg = argv[i];
         if (!arg) {
@@ -117,6 +122,15 @@ parse_result_t parse_args(int argc, char* argv[], gateway_config& config, std::s
                 return parse_result_t::Error;
             }
             config.broker_type = value;
+            ++i;
+            continue;
+        }
+
+        if (std::string(arg) == "--adapter-so") {
+            if (!require_value(argc, i, argv, value, error_message)) {
+                return parse_result_t::Error;
+            }
+            config.adapter_plugin_so = value;
             ++i;
             continue;
         }
@@ -204,8 +218,19 @@ parse_result_t parse_args(int argc, char* argv[], gateway_config& config, std::s
         return parse_result_t::Error;
     }
 
+    // 共享内存名称是必须项。
     if (config.downstream_shm_name.empty() || config.trades_shm_name.empty()) {
         error_message = "shared memory names must be non-empty";
+        return parse_result_t::Error;
+    }
+
+    if (config.broker_type != "sim" && config.broker_type != "plugin") {
+        error_message = "--broker-type must be sim or plugin";
+        return parse_result_t::Error;
+    }
+
+    if (config.broker_type == "plugin" && config.adapter_plugin_so.empty()) {
+        error_message = "--adapter-so is required when --broker-type=plugin";
         return parse_result_t::Error;
     }
 
@@ -213,4 +238,3 @@ parse_result_t parse_args(int argc, char* argv[], gateway_config& config, std::s
 }
 
 }  // namespace acct_service::gateway
-

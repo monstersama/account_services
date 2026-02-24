@@ -24,6 +24,7 @@ namespace {
 
 using namespace acct_service;
 
+// 初始化共享内存头，模拟可用队列环境。
 void init_header(shm_header& header) {
     header.magic = shm_header::kMagic;
     header.version = shm_header::kVersion;
@@ -32,6 +33,7 @@ void init_header(shm_header& header) {
     header.next_order_id.store(1, std::memory_order_relaxed);
 }
 
+// 构造仅包含订单队列的下游共享内存。
 std::unique_ptr<downstream_shm_layout> make_downstream_shm() {
     auto shm = std::make_unique<downstream_shm_layout>();
     init_header(shm->header);
@@ -39,6 +41,7 @@ std::unique_ptr<downstream_shm_layout> make_downstream_shm() {
     return shm;
 }
 
+// 构造仅包含回报队列的成交共享内存。
 std::unique_ptr<trades_shm_layout> make_trades_shm() {
     auto shm = std::make_unique<trades_shm_layout>();
     init_header(shm->header);
@@ -46,6 +49,7 @@ std::unique_ptr<trades_shm_layout> make_trades_shm() {
     return shm;
 }
 
+// 在超时时间内等待条件成立。
 bool wait_until(const std::function<bool()>& predicate, int timeout_ms = 1000) {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
     while (std::chrono::steady_clock::now() < deadline) {
@@ -57,6 +61,7 @@ bool wait_until(const std::function<bool()>& predicate, int timeout_ms = 1000) {
     return false;
 }
 
+// 收集某个 internal_order_id 对应的回报状态序列。
 std::vector<order_status_t> collect_statuses_for_order(
     trades_shm_layout* trades, internal_order_id_t order_id, std::size_t expected_count) {
     std::vector<order_status_t> statuses;
@@ -75,6 +80,7 @@ std::vector<order_status_t> collect_statuses_for_order(
     return statuses;
 }
 
+// 辅助判断状态是否出现在回报序列中。
 bool has_status(const std::vector<order_status_t>& statuses, order_status_t target) {
     for (order_status_t value : statuses) {
         if (value == target) {
@@ -84,6 +90,7 @@ bool has_status(const std::vector<order_status_t>& statuses, order_status_t targ
     return false;
 }
 
+// 生成测试用 gateway 配置。
 gateway::gateway_config make_config() {
     gateway::gateway_config config;
     config.poll_batch_size = 32;
@@ -96,6 +103,7 @@ gateway::gateway_config make_config() {
 
 }  // namespace
 
+// 验证新单在 gateway 中可完成“受理->成交->完成”闭环。
 TEST(process_new_order_end_to_end) {
     auto downstream = make_downstream_shm();
     auto trades = make_trades_shm();
@@ -129,6 +137,7 @@ TEST(process_new_order_end_to_end) {
     assert(loop.stats().responses_pushed >= 3);
 }
 
+// 验证撤单在 gateway 中可完成“受理->完成”闭环。
 TEST(process_cancel_order_end_to_end) {
     auto downstream = make_downstream_shm();
     auto trades = make_trades_shm();

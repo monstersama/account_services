@@ -12,9 +12,11 @@
 ## 目录结构
 
 - `gateway/src/gateway_config.*`：运行参数解析
+- `gateway/src/adapter_loader.*`：插件适配器动态加载
 - `gateway/src/order_mapper.*`：订单请求映射
 - `gateway/src/response_mapper.*`：事件回报映射
 - `gateway/src/sim_broker_adapter.*`：MVP 模拟券商
+- `gateway/src/sim_broker_plugin.cpp`：模拟插件导出符号
 - `gateway/src/gateway_loop.*`：单线程事件循环
 - `gateway/src/main.cpp`：进程入口
 
@@ -79,7 +81,8 @@ sequenceDiagram
 - `--account-id`
 - `--downstream-shm`
 - `--trades-shm`
-- `--broker-type`（当前仅 `sim`）
+- `--broker-type`（`sim` 或 `plugin`）
+- `--adapter-so`（`plugin` 模式必填）
 - `--create-if-not-exist`
 - `--poll-batch-size`
 - `--idle-sleep-us`
@@ -87,9 +90,19 @@ sequenceDiagram
 - `--max-retries`
 - `--retry-interval-us`
 
+## 适配器加载模式
+
+- `sim`：使用内置模拟适配器。
+- `plugin`：通过 `dlopen` 加载 `--adapter-so` 指定的插件。
+
+插件需导出 3 个 C 符号（见 `broker_api.hpp`）：
+
+- `acct_broker_plugin_abi_version`
+- `acct_create_broker_adapter`
+- `acct_destroy_broker_adapter`
+
 ## MVP 已知限制
 
 - 当前仅实现 `sim` 适配器。
 - `broker_event` 未包含 `exec_id/reject_reason` 等扩展字段。
-- 采用编译期链接模式，未启用动态插件加载。
-
+- 插件 ABI 目前只做版本号检查，未做更细粒度能力协商。

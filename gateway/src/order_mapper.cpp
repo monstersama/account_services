@@ -7,6 +7,7 @@ namespace acct_service::gateway {
 
 namespace {
 
+// 订单类型映射到 broker_api 类型。
 broker_api::request_type to_broker_request_type(order_type_t type_value) noexcept {
     switch (type_value) {
         case order_type_t::New:
@@ -18,6 +19,7 @@ broker_api::request_type to_broker_request_type(order_type_t type_value) noexcep
     }
 }
 
+// 市场枚举映射到 broker_api 市场。
 broker_api::market to_broker_market(market_t market_value) noexcept {
     switch (market_value) {
         case market_t::SZ:
@@ -33,6 +35,7 @@ broker_api::market to_broker_market(market_t market_value) noexcept {
     }
 }
 
+// 拷贝证券代码到定长 C 字符串。
 void copy_security_id(const fixed_string<SECURITY_ID_SIZE>& source, char* destination, std::size_t capacity) {
     if (capacity == 0) {
         return;
@@ -72,6 +75,7 @@ trade_side_t to_order_side(broker_api::side side_value) noexcept {
 
 bool map_order_request_to_broker(
     const order_request& request, broker_api::broker_order_request& out_request) noexcept {
+    // 基本合法性检查。
     if (request.internal_order_id == 0) {
         return false;
     }
@@ -92,6 +96,7 @@ bool map_order_request_to_broker(
     out_request.price = request.dprice_entrust;
     out_request.md_time = (request.md_time_entrust != 0) ? request.md_time_entrust : request.md_time_driven;
 
+    // 新单需要检查关键下单字段。
     if (out_request.type == broker_api::request_type::New) {
         if (out_request.trade_side == broker_api::side::Unknown || out_request.order_market == broker_api::market::Unknown ||
             out_request.volume == 0 || out_request.price == 0) {
@@ -107,4 +112,3 @@ bool map_order_request_to_broker(
 }
 
 }  // namespace acct_service::gateway
-

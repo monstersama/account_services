@@ -8,6 +8,7 @@ namespace acct_service::gateway {
 
 namespace {
 
+// 生成回报事件的通用字段，避免重复填充。
 broker_api::broker_event make_base_event(
     broker_api::event_kind kind, const broker_api::broker_order_request& request, uint32_t broker_order_id) {
     broker_api::broker_event event;
@@ -23,6 +24,7 @@ broker_api::broker_event make_base_event(
 
 }  // namespace
 
+// 初始化模拟适配器运行状态。
 bool sim_broker_adapter::initialize(const broker_api::broker_runtime_config& config) {
     runtime_config_ = config;
     initialized_ = true;
@@ -31,6 +33,9 @@ bool sim_broker_adapter::initialize(const broker_api::broker_runtime_config& con
     return true;
 }
 
+// 模拟 submit 行为：
+// - New: 受理，按配置可自动产生成交+完成回报
+// - Cancel: 受理并完成
 broker_api::send_result sim_broker_adapter::submit(const broker_api::broker_order_request& request) {
     if (!initialized_) {
         return broker_api::send_result::fatal_error(-100);
@@ -75,6 +80,7 @@ broker_api::send_result sim_broker_adapter::submit(const broker_api::broker_orde
     return broker_api::send_result::fatal_error(-104);
 }
 
+// 批量拉取回报事件给 gateway。
 std::size_t sim_broker_adapter::poll_events(broker_api::broker_event* out_events, std::size_t max_events) {
     if (!initialized_ || !out_events || max_events == 0) {
         return 0;
@@ -88,11 +94,13 @@ std::size_t sim_broker_adapter::poll_events(broker_api::broker_event* out_events
     return count;
 }
 
+// 关闭适配器并清理缓存事件。
 void sim_broker_adapter::shutdown() noexcept {
     pending_events_.clear();
     initialized_ = false;
 }
 
+// 简化的成交金额计算。
 uint64_t sim_broker_adapter::calc_trade_value(uint64_t volume, uint64_t price) noexcept {
     if (volume == 0 || price == 0) {
         return 0;
@@ -100,6 +108,7 @@ uint64_t sim_broker_adapter::calc_trade_value(uint64_t volume, uint64_t price) n
     return volume * price;
 }
 
+// 简化的手续费模型，保证有成交时费用至少为 1。
 uint64_t sim_broker_adapter::calc_fee(uint64_t traded_value) noexcept {
     if (traded_value == 0) {
         return 0;
@@ -108,4 +117,3 @@ uint64_t sim_broker_adapter::calc_fee(uint64_t traded_value) noexcept {
 }
 
 }  // namespace acct_service::gateway
-

@@ -25,6 +25,20 @@
 - `poll_events(broker_event* out_events, std::size_t max_events)`
 - `shutdown()`
 
+### 插件导出接口（C 符号）
+
+当网关使用 `--broker-type plugin` 时，适配器插件需导出以下符号：
+
+- `acct_broker_plugin_abi_version()`
+- `acct_create_broker_adapter()`
+- `acct_destroy_broker_adapter(IBrokerAdapter*)`
+
+符号名常量定义在 `broker_api.hpp`：
+
+- `kPluginAbiSymbol`
+- `kPluginCreateSymbol`
+- `kPluginDestroySymbol`
+
 `submit` 的行为约束：
 
 - `accepted=true`：网关认为请求已被适配器受理，后续状态通过 `poll_events` 返回。
@@ -62,3 +76,4 @@
 - 链接库：`libacct_broker_api.so`
 - 适配器实现可独立仓库维护，网关侧只依赖 ABI，不依赖外部源码。
 
+插件模式下，外部仓库需额外产出 `adapter.so`，并保证上述 3 个导出符号可被 `dlsym` 解析。
