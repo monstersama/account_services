@@ -4,6 +4,7 @@
 #include <cstdio>
 
 #include "common/log.hpp"
+#include "shm/orders_shm.hpp"
 
 namespace acct_service {
 
@@ -167,6 +168,7 @@ bool account_service::init_config(const std::string& config_path) {
 
 bool account_service::init_shared_memory() {
     const shm_config& shm_cfg = config_manager_.shm();
+    const acct_service::config& cfg = config_manager_.get();
     const account_id_t account_id = config_manager_.account_id();
     const shm_mode mode = shm_cfg.create_if_not_exist ? shm_mode::OpenOrCreate : shm_mode::Open;
 
@@ -185,6 +187,13 @@ bool account_service::init_shared_memory() {
     trades_shm_ = trades_shm_manager_.open_trades(shm_cfg.trades_shm_name, mode, account_id);
     if (!trades_shm_) {
         raise_service_error(make_service_error(error_code::ShmOpenFailed, "failed to open trades shm"));
+        return false;
+    }
+
+    const std::string dated_orders_name = make_orders_shm_name(shm_cfg.orders_shm_name, cfg.trading_day);
+    orders_shm_ = orders_shm_manager_.open_orders(dated_orders_name, mode, account_id);
+    if (!orders_shm_) {
+        raise_service_error(make_service_error(error_code::ShmOpenFailed, "failed to open orders shm"));
         return false;
     }
 
@@ -226,13 +235,13 @@ bool account_service::init_risk_manager() {
 }
 
 bool account_service::init_order_components() {
-    if (!downstream_shm_) {
-        raise_service_error(make_service_error(error_code::ComponentUnavailable, "downstream shm unavailable"));
+    if (!downstream_shm_ || !orders_shm_) {
+        raise_service_error(make_service_error(error_code::ComponentUnavailable, "downstream/orders shm unavailable"));
         return false;
     }
 
     order_book_ = std::make_unique<order_book>();
-    order_router_ = std::make_unique<order_router>(*order_book_, downstream_shm_, config_manager_.split());
+    order_router_ = std::make_unique<order_router>(*order_book_, downstream_shm_, orders_shm_, config_manager_.split());
     if (!order_book_ || !order_router_) {
         raise_service_error(
             make_service_error(error_code::ComponentUnavailable, "failed to initialize order components"));
@@ -242,18 +251,15 @@ bool account_service::init_order_components() {
 }
 
 bool account_service::init_event_loop() {
-    if (!upstream_shm_ || !downstream_shm_ || !trades_shm_ || !order_book_ || !order_router_ || !position_manager_ ||
-        !risk_manager_) {
+    if (!upstream_shm_ || !downstream_shm_ || !trades_shm_ || !orders_shm_ || !order_book_ || !order_router_ ||
+        !position_manager_ || !risk_manager_) {
         raise_service_error(
             make_service_error(error_code::ComponentUnavailable, "event loop dependencies unavailable"));
         return false;
     }
 
-    event_loop_ = std::make_unique<event_loop>(config_manager_.event_loop(), upstream_shm_, downstream_shm_,
-        *order_book_, *order_router_, *position_manager_, *risk_manager_);
-    if (event_loop_) {
-        event_loop_->set_trades_shm(trades_shm_);
-    }
+    event_loop_ = std::make_unique<event_loop>(config_manager_.event_loop(), upstream_shm_, downstream_shm_, trades_shm_,
+        orders_shm_, *order_book_, *order_router_, *position_manager_, *risk_manager_);
     if (!event_loop_) {
         raise_service_error(make_service_error(error_code::ComponentUnavailable, "failed to initialize event loop"));
         return false;
@@ -346,12 +352,14 @@ void account_service::cleanup() {
     upstream_shm_ = nullptr;
     downstream_shm_ = nullptr;
     trades_shm_ = nullptr;
+    orders_shm_ = nullptr;
     positions_shm_ = nullptr;
 
     // 共享内存不删除只关闭映射
     upstream_shm_manager_.close();
     downstream_shm_manager_.close();
     trades_shm_manager_.close();
+    orders_shm_manager_.close();
     positions_shm_manager_.close();
 }
 

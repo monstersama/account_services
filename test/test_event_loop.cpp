@@ -1,5 +1,6 @@
 #include <cassert>
 #include <chrono>
+#include <cstring>
 #include <cstdio>
 #include <functional>
 #include <memory>
@@ -10,6 +11,7 @@
 #include "order/order_router.hpp"
 #include "portfolio/position_manager.hpp"
 #include "risk/risk_manager.hpp"
+#include "shm/orders_shm.hpp"
 
 #define TEST(name) static void test_##name()
 #define RUN_TEST(name)                   \
@@ -49,6 +51,22 @@ std::unique_ptr<trades_shm_layout> make_trades_shm() {
     auto shm = std::make_unique<trades_shm_layout>();
     init_header(shm->header);
     shm->response_queue.init();
+    return shm;
+}
+
+std::unique_ptr<orders_shm_layout> make_orders_shm() {
+    auto shm = std::make_unique<orders_shm_layout>();
+    shm->header.magic = orders_header::kMagic;
+    shm->header.version = orders_header::kVersion;
+    shm->header.header_size = static_cast<uint32_t>(sizeof(orders_header));
+    shm->header.total_size = static_cast<uint32_t>(sizeof(orders_shm_layout));
+    shm->header.capacity = static_cast<uint32_t>(kDailyOrderPoolCapacity);
+    shm->header.init_state = 1;
+    shm->header.create_time = now_ns();
+    shm->header.last_update = shm->header.create_time;
+    shm->header.next_index.store(0, std::memory_order_relaxed);
+    shm->header.full_reject_count.store(0, std::memory_order_relaxed);
+    std::memcpy(shm->header.trading_day, "19700101", 9);
     return shm;
 }
 
@@ -93,6 +111,7 @@ TEST(process_order_and_trade_response) {
     auto upstream = make_upstream_shm();
     auto downstream = make_downstream_shm();
     auto trades = make_trades_shm();
+    auto orders_shm = make_orders_shm();
     auto positions_shm = make_positions_shm();
 
     position_manager positions(positions_shm.get());
@@ -111,28 +130,32 @@ TEST(process_order_and_trade_response) {
     auto book = std::make_unique<order_book>();
     split_config split_cfg;
     split_cfg.strategy = split_strategy_t::None;
-    order_router router(*book, downstream.get(), split_cfg);
+    order_router router(*book, downstream.get(), orders_shm.get(), split_cfg);
 
     event_loop_config loop_cfg;
     loop_cfg.busy_polling = false;
     loop_cfg.idle_sleep_us = 50;
     loop_cfg.poll_batch_size = 32;
     loop_cfg.stats_interval_ms = 0;
-    event_loop loop(loop_cfg, upstream.get(), downstream.get(), *book, router, positions, risk);
-    loop.set_trades_shm(trades.get());
+    event_loop loop(loop_cfg, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router, positions, risk);
 
     std::thread worker([&loop]() { loop.run(); });
 
     const internal_order_id_t order_id = 500;
     order_request req = make_order(order_id, 100);
-    assert(upstream->strategy_order_queue.try_push(req));
+    order_index_t order_index = kInvalidOrderIndex;
+    assert(orders_shm_append(
+        orders_shm.get(), req, order_slot_stage_t::UpstreamQueued, order_slot_source_t::Strategy, now_ns(), order_index));
+    assert(upstream->strategy_order_queue.try_push(order_index));
 
     assert(wait_until([&downstream]() { return downstream->order_queue.size() > 0; }));
 
-    order_request sent;
-    assert(downstream->order_queue.try_pop(sent));
-    assert(sent.internal_order_id == order_id);
-    assert(sent.order_type == order_type_t::New);
+    order_index_t downstream_index = kInvalidOrderIndex;
+    assert(downstream->order_queue.try_pop(downstream_index));
+    order_slot_snapshot sent_snapshot;
+    assert(orders_shm_read_snapshot(orders_shm.get(), downstream_index, sent_snapshot));
+    assert(sent_snapshot.request.internal_order_id == order_id);
+    assert(sent_snapshot.request.order_type == order_type_t::New);
 
     trade_response rsp{};
     rsp.internal_order_id = order_id;

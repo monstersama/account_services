@@ -85,6 +85,28 @@ TEST(open_or_create_no_reinit) {
     cleanup_shm(name);
 }
 
+TEST(open_orders_with_dated_name) {
+    using namespace acct_service;
+
+    const std::string name = unique_shm_name("shm_mgr_orders") + "_20260225";
+    cleanup_shm(name);
+
+    SHMManager creator;
+    auto* orders = creator.open_orders(name, shm_mode::Create, 1);
+    assert(orders != nullptr);
+    assert(std::string(orders->header.trading_day) == "20260225");
+    assert(orders->header.capacity == kDailyOrderPoolCapacity);
+
+    SHMManager opener;
+    auto* opened = opener.open_orders(name, shm_mode::Open, 1);
+    assert(opened != nullptr);
+    assert(std::string(opened->header.trading_day) == "20260225");
+
+    creator.close();
+    opener.close();
+    cleanup_shm(name);
+}
+
 TEST(size_mismatch) {
     using namespace acct_service;
 
@@ -116,6 +138,7 @@ int main() {
 
     RUN_TEST(create_and_open);
     RUN_TEST(open_or_create_no_reinit);
+    RUN_TEST(open_orders_with_dated_name);
     RUN_TEST(size_mismatch);
 
     printf("\n=== All tests passed! ===\n");

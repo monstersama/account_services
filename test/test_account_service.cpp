@@ -11,6 +11,7 @@
 
 #include "core/account_service.hpp"
 #include "order/order_request.hpp"
+#include "shm/orders_shm.hpp"
 #include "shm/shm_manager.hpp"
 
 #define TEST(name) static void test_##name()
@@ -57,10 +58,12 @@ bool write_config_file(const std::string& path, const config& cfg) {
     }
 
     out << "account_id: " << cfg.account_id << "\n";
+    out << "trading_day: \"" << cfg.trading_day << "\"\n";
     out << "shm:\n";
     out << "  upstream_shm_name: \"" << cfg.shm.upstream_shm_name << "\"\n";
     out << "  downstream_shm_name: \"" << cfg.shm.downstream_shm_name << "\"\n";
     out << "  trades_shm_name: \"" << cfg.shm.trades_shm_name << "\"\n";
+    out << "  orders_shm_name: \"" << cfg.shm.orders_shm_name << "\"\n";
     out << "  positions_shm_name: \"" << cfg.shm.positions_shm_name << "\"\n";
     out << "  create_if_not_exist: " << (cfg.shm.create_if_not_exist ? "true" : "false") << "\n";
     out << "event_loop:\n";
@@ -119,8 +122,10 @@ TEST(initialize_and_run_processes_orders) {
     cfg.shm.upstream_shm_name = unique_shm_name("acct_upstream");
     cfg.shm.downstream_shm_name = unique_shm_name("acct_downstream");
     cfg.shm.trades_shm_name = unique_shm_name("acct_trades");
+    cfg.shm.orders_shm_name = unique_shm_name("acct_orders");
     cfg.shm.positions_shm_name = unique_shm_name("acct_positions");
     cfg.shm.create_if_not_exist = true;
+    cfg.trading_day = "20260225";
 
     cfg.event_loop.busy_polling = false;
     cfg.event_loop.idle_sleep_us = 50;
@@ -146,16 +151,20 @@ TEST(initialize_and_run_processes_orders) {
     SHMManager upstream_manager;
     SHMManager downstream_manager;
     SHMManager trades_manager;
+    SHMManager orders_manager;
 
     upstream_shm_layout* upstream =
         upstream_manager.open_upstream(cfg.shm.upstream_shm_name, shm_mode::Open, cfg.account_id);
     downstream_shm_layout* downstream =
         downstream_manager.open_downstream(cfg.shm.downstream_shm_name, shm_mode::Open, cfg.account_id);
     trades_shm_layout* trades = trades_manager.open_trades(cfg.shm.trades_shm_name, shm_mode::Open, cfg.account_id);
+    const std::string dated_orders_name = make_orders_shm_name(cfg.shm.orders_shm_name, cfg.trading_day);
+    orders_shm_layout* orders = orders_manager.open_orders(dated_orders_name, shm_mode::Open, cfg.account_id);
 
     assert(upstream != nullptr);
     assert(downstream != nullptr);
     assert(trades != nullptr);
+    assert(orders != nullptr);
 
     int run_rc = -1;
     std::thread worker([&service, &run_rc]() { run_rc = service.run(); });
@@ -165,14 +174,19 @@ TEST(initialize_and_run_processes_orders) {
         trade_side_t::Buy, market_t::SZ, static_cast<volume_t>(100), static_cast<dprice_t>(1000), 93000000);
     req.order_status.store(order_status_t::StrategySubmitted, std::memory_order_relaxed);
 
-    assert(upstream->strategy_order_queue.try_push(req));
+    order_index_t upstream_index = kInvalidOrderIndex;
+    assert(orders_shm_append(
+        orders, req, order_slot_stage_t::UpstreamQueued, order_slot_source_t::Strategy, now_ns(), upstream_index));
+    assert(upstream->strategy_order_queue.try_push(upstream_index));
 
     assert(wait_until([downstream]() { return downstream->order_queue.size() > 0; }));
 
-    order_request sent;
-    assert(downstream->order_queue.try_pop(sent));
-    assert(sent.order_type == order_type_t::New);
-    assert(sent.security_id.view() == "000001");
+    order_index_t downstream_index = kInvalidOrderIndex;
+    assert(downstream->order_queue.try_pop(downstream_index));
+    order_slot_snapshot sent_snapshot;
+    assert(orders_shm_read_snapshot(orders, downstream_index, sent_snapshot));
+    assert(sent_snapshot.request.order_type == order_type_t::New);
+    assert(sent_snapshot.request.security_id.view() == "000001");
 
     trade_response rsp{};
     rsp.internal_order_id = static_cast<internal_order_id_t>(5001);
@@ -207,10 +221,12 @@ TEST(initialize_and_run_processes_orders) {
     upstream_manager.close();
     downstream_manager.close();
     trades_manager.close();
+    orders_manager.close();
 
     (void)SHMManager::unlink(cfg.shm.upstream_shm_name);
     (void)SHMManager::unlink(cfg.shm.downstream_shm_name);
     (void)SHMManager::unlink(cfg.shm.trades_shm_name);
+    (void)SHMManager::unlink(dated_orders_name);
     (void)SHMManager::unlink(cfg.shm.positions_shm_name);
     std::remove(config_path.c_str());
 }

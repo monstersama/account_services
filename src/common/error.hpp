@@ -59,6 +59,7 @@ enum class error_code : uint16_t {
     RouteFailed = 4007,         // 路由失败
     SplitFailed = 4008,         // 拆单失败
     OrderInvariantBroken = 4009,  // 订单簿关键不变量破坏（高风险）
+    OrderPoolFull = 4010,       // 订单池容量耗尽
 
     // [6000, 6099] 资金/持仓相关错误码
     PositionUpdateFailed = 6000,  // 持仓/资金更新失败（高风险）

@@ -38,6 +38,9 @@ public:
     // 创建/打开成交回报共享内存
     trades_shm_layout* open_trades(std::string_view name, shm_mode mode, account_id_t account_id);
 
+    // 创建/打开订单池共享内存
+    orders_shm_layout* open_orders(std::string_view name, shm_mode mode, account_id_t account_id);
+
     // 创建/打开持仓共享内存
     positions_shm_layout* open_positions(std::string_view name, shm_mode mode, account_id_t account_id);
 

@@ -4,3 +4,9 @@ add_executable(basic_usage
 )
 
 target_link_libraries(basic_usage PRIVATE acct_order rt)
+
+add_executable(order_monitor_usage
+    order_monitor_usage.cpp
+)
+
+target_link_libraries(order_monitor_usage PRIVATE acct_order_monitor rt)

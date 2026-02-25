@@ -10,6 +10,7 @@
 #include "common/log.hpp"
 #include "order_mapper.hpp"
 #include "response_mapper.hpp"
+#include "shm/orders_shm.hpp"
 
 namespace acct_service::gateway {
 
@@ -21,12 +22,16 @@ constexpr uint32_t kResponsePushAttempts = 3;
 }  // namespace
 
 gateway_loop::gateway_loop(const gateway_config& config, downstream_shm_layout* downstream_shm, trades_shm_layout* trades_shm,
-    broker_api::IBrokerAdapter& adapter)
-    : config_(config), downstream_shm_(downstream_shm), trades_shm_(trades_shm), adapter_(adapter) {}
+    orders_shm_layout* orders_shm, broker_api::IBrokerAdapter& adapter)
+    : config_(config),
+      downstream_shm_(downstream_shm),
+      trades_shm_(trades_shm),
+      orders_shm_(orders_shm),
+      adapter_(adapter) {}
 
 int gateway_loop::run() {
     // 启动前先校验共享内存依赖。
-    if (!downstream_shm_ || !trades_shm_) {
+    if (!downstream_shm_ || !trades_shm_ || !orders_shm_) {
         error_status status = ACCT_MAKE_ERROR(
             error_domain::core, error_code::ComponentUnavailable, "gateway_loop", "shared memory not available", 0);
         record_error(status);
@@ -104,14 +109,27 @@ bool gateway_loop::process_orders(std::size_t batch_limit) {
 
     bool did_work = false;
     std::size_t processed = 0;
-    order_request request;
+    order_index_t index = kInvalidOrderIndex;
 
     // 批量消费下游订单，减少每轮函数调用开销。
-    while (processed < batch_limit && downstream_shm_->order_queue.try_pop(request)) {
+    while (processed < batch_limit && downstream_shm_->order_queue.try_pop(index)) {
         ++processed;
         did_work = true;
         ++stats_.orders_received;
         stats_.last_order_time_ns = now_ns();
+
+        order_slot_snapshot snapshot;
+        if (!orders_shm_read_snapshot(orders_shm_, index, snapshot)) {
+            ++stats_.orders_failed;
+            error_status status = ACCT_MAKE_ERROR(error_domain::order, error_code::OrderNotFound, "gateway_loop",
+                "failed to read downstream order slot", 0);
+            record_error(status);
+            ACCT_LOG_ERROR_STATUS(status);
+            continue;
+        }
+
+        (void)orders_shm_update_stage(orders_shm_, index, order_slot_stage_t::DownstreamDequeued, now_ns());
+        const order_request& request = snapshot.request;
 
         broker_api::broker_order_request mapped;
         if (!map_order_request_to_broker(request, mapped)) {

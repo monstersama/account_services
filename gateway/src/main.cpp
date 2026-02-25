@@ -8,6 +8,7 @@
 #include "gateway_config.hpp"
 #include "gateway_loop.hpp"
 #include "shm/shm_manager.hpp"
+#include "shm/orders_shm.hpp"
 #include "sim_broker_adapter.hpp"
 
 namespace {
@@ -51,6 +52,7 @@ int main(int argc, char* argv[]) {
     // 打开共享内存：读取下游订单，写入成交回报。
     SHMManager downstream_manager;
     SHMManager trades_manager;
+    SHMManager orders_manager;
     const shm_mode mode = config.create_if_not_exist ? shm_mode::OpenOrCreate : shm_mode::Open;
 
     downstream_shm_layout* downstream =
@@ -68,6 +70,16 @@ int main(int argc, char* argv[]) {
         const error_status& status = latest_error();
         std::fprintf(stderr,
             "failed to open trades shm: domain=%s code=%s msg=%s\n",
+            to_string(status.domain), to_string(status.code), status.message.c_str());
+        return 1;
+    }
+
+    const std::string dated_orders_name = make_orders_shm_name(config.orders_shm_name, config.trading_day);
+    orders_shm_layout* orders = orders_manager.open_orders(dated_orders_name, mode, config.account_id);
+    if (!orders) {
+        const error_status& status = latest_error();
+        std::fprintf(stderr,
+            "failed to open orders shm: domain=%s code=%s msg=%s\n",
             to_string(status.domain), to_string(status.code), status.message.c_str());
         return 1;
     }
@@ -100,7 +112,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    gateway::gateway_loop loop(config, downstream, trades, *adapter_ptr);
+    gateway::gateway_loop loop(config, downstream, trades, orders, *adapter_ptr);
     g_gateway_loop.store(&loop, std::memory_order_release);
     install_signal_handler();
 
@@ -114,6 +126,7 @@ int main(int argc, char* argv[]) {
     plugin_adapter.reset();
     downstream_manager.close();
     trades_manager.close();
+    orders_manager.close();
 
     return run_rc;
 }

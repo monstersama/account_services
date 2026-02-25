@@ -7,6 +7,7 @@
 
 #include "common/error.hpp"
 #include "common/log.hpp"
+#include "shm/orders_shm.hpp"
 
 #if defined(__linux__)
 #include <sched.h>
@@ -52,18 +53,25 @@ double event_loop_stats::avg_latency_ns() const {
 }
 
 event_loop::event_loop(const event_loop_config& config, upstream_shm_layout* upstream_shm,
-    downstream_shm_layout* downstream_shm, order_book& order_book, order_router& router, position_manager& positions,
-    risk_manager& risk)
+    downstream_shm_layout* downstream_shm, trades_shm_layout* trades_shm, orders_shm_layout* orders_shm,
+    order_book& order_book, order_router& router, position_manager& positions, risk_manager& risk)
     : config_(config),
       upstream_shm_(upstream_shm),
       downstream_shm_(downstream_shm),
+      trades_shm_(trades_shm),
+      orders_shm_(orders_shm),
       order_book_(order_book),
       router_(router),
       positions_(positions),
-      risk_(risk) {}
+      risk_(risk) {
+    order_book_.set_change_callback([this](const order_entry& entry, order_book_event_t event) {
+        on_order_book_changed(entry, event);
+    });
+}
 
 event_loop::~event_loop() {
     stop();
+    order_book_.set_change_callback({});
 
     event_loop* expected = this;
     g_active_loop.compare_exchange_strong(expected, nullptr, std::memory_order_release, std::memory_order_relaxed);
@@ -116,8 +124,6 @@ void event_loop::setup_signal_handlers() {
     sigaction(SIGTERM, &sa, nullptr);
 }
 
-void event_loop::set_trades_shm(trades_shm_layout* trades_shm) noexcept { trades_shm_ = trades_shm; }
-
 void event_loop::loop_iteration() {
     const timestamp_ns_t start = now_monotonic_ns();
     ++stats_.total_iterations;
@@ -145,16 +151,26 @@ void event_loop::loop_iteration() {
 }
 
 std::size_t event_loop::process_upstream_orders() {
-    if (!upstream_shm_) {
+    if (!upstream_shm_ || !orders_shm_) {
         return 0;
     }
 
     const std::size_t batch_limit = (config_.poll_batch_size == 0) ? 1 : config_.poll_batch_size;
     std::size_t processed = 0;
 
-    order_request request;
-    while (processed < batch_limit && upstream_shm_->strategy_order_queue.try_pop(request)) {
-        handle_order_request(request);
+    order_index_t order_index = kInvalidOrderIndex;
+    while (processed < batch_limit && upstream_shm_->strategy_order_queue.try_pop(order_index)) {
+        order_slot_snapshot snapshot;
+        if (!orders_shm_read_snapshot(orders_shm_, order_index, snapshot)) {
+            error_status status = ACCT_MAKE_ERROR(error_domain::order, error_code::OrderNotFound, "event_loop",
+                "failed to read order slot from upstream index", 0);
+            record_error(status);
+            ACCT_LOG_ERROR_STATUS(status);
+            continue;
+        }
+
+        (void)orders_shm_update_stage(orders_shm_, order_index, order_slot_stage_t::UpstreamDequeued, now_ns());
+        handle_order_request(order_index, snapshot.request);
         ++processed;
     }
 
@@ -188,9 +204,10 @@ std::size_t event_loop::process_downstream_responses() {
     return processed;
 }
 
-void event_loop::handle_order_request(order_request& request) {
+void event_loop::handle_order_request(order_index_t index, order_request& request) {
     if (request.internal_order_id == 0) {
         request.internal_order_id = order_book_.next_order_id();
+        (void)orders_shm_sync_order(orders_shm_, index, request, now_ns());
     }
 
     order_entry entry{};
@@ -202,8 +219,10 @@ void event_loop::handle_order_request(order_request& request) {
     entry.retry_count = 0;
     entry.is_split_child = false;
     entry.parent_order_id = 0;
+    entry.shm_order_index = index;
 
     if (!order_book_.add_order(entry)) {
+        (void)orders_shm_update_stage(orders_shm_, index, order_slot_stage_t::QueuePushFailed, now_ns());
         error_status status = ACCT_MAKE_ERROR(
             error_domain::order, error_code::OrderBookFull, "event_loop", "order_book add_order failed", 0);
         record_error(status);
@@ -222,6 +241,7 @@ void event_loop::handle_order_request(order_request& request) {
 
         if (!risk_result.passed()) {
             order_book_.update_status(request.internal_order_id, order_status_t::RiskControllerRejected);
+            (void)orders_shm_update_stage(orders_shm_, index, order_slot_stage_t::RiskRejected, now_ns());
             return;
         }
 
@@ -233,10 +253,38 @@ void event_loop::handle_order_request(order_request& request) {
     order_entry* active = order_book_.find_order(request.internal_order_id);
     if (!active || !router_.route_order(*active)) {
         order_book_.update_status(request.internal_order_id, order_status_t::TraderError);
+        (void)orders_shm_update_stage(orders_shm_, index, order_slot_stage_t::QueuePushFailed, now_ns());
         error_status status = ACCT_MAKE_ERROR(
             error_domain::order, error_code::RouteFailed, "event_loop", "route_order failed", 0);
         record_error(status);
         ACCT_LOG_ERROR_STATUS(status);
+    }
+}
+
+void event_loop::on_order_book_changed(const order_entry& entry, order_book_event_t event) {
+    if (!orders_shm_ || entry.shm_order_index == kInvalidOrderIndex) {
+        return;
+    }
+
+    const order_status_t status = entry.request.order_status.load(std::memory_order_acquire);
+    const timestamp_ns_t update_ns = now_ns();
+
+    bool synced = false;
+    if (event == order_book_event_t::Archived || is_terminal_status(status)) {
+        synced = orders_shm_write_order(orders_shm_, entry.shm_order_index, entry.request, order_slot_stage_t::Terminal,
+            order_slot_source_t::AccountInternal, update_ns);
+    } else if (status == order_status_t::RiskControllerRejected) {
+        synced = orders_shm_write_order(orders_shm_, entry.shm_order_index, entry.request, order_slot_stage_t::RiskRejected,
+            order_slot_source_t::AccountInternal, update_ns);
+    } else {
+        synced = orders_shm_sync_order(orders_shm_, entry.shm_order_index, entry.request, update_ns);
+    }
+
+    if (!synced) {
+        error_status status_err = ACCT_MAKE_ERROR(
+            error_domain::order, error_code::OrderNotFound, "event_loop", "failed to sync order book snapshot to orders shm", 0);
+        record_error(status_err);
+        ACCT_LOG_ERROR_STATUS(status_err);
     }
 }
 

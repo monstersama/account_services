@@ -2,6 +2,7 @@
 
 #include <array>
 #include <atomic>
+#include <functional>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -10,6 +11,7 @@
 #include "common/spinlock.hpp"
 #include "common/types.hpp"
 #include "order/order_request.hpp"
+#include "shm/shm_layout.hpp"
 
 namespace acct_service {
 
@@ -23,10 +25,21 @@ struct order_entry {
     uint8_t retry_count;                    // 路由重试次数
     bool is_split_child;                    // 是否为拆单子单（含子撤单）
     internal_order_id_t parent_order_id;    // 父单ID（非子单时为0）
+    order_index_t shm_order_index{kInvalidOrderIndex};  // 对应 orders_shm 槽位索引
 
     bool is_active() const noexcept;
     bool is_terminal() const noexcept;
 };
+
+enum class order_book_event_t : uint8_t {
+    Added = 1,
+    StatusUpdated = 2,
+    TradeUpdated = 3,
+    Archived = 4,
+    ParentRefreshed = 5,
+};
+
+using order_change_callback_t = std::function<void(const order_entry&, order_book_event_t)>;
 
 // 订单簿管理器
 class order_book {
@@ -78,6 +91,9 @@ public:
     // 清空所有订单（仅用于初始化）
     void clear();
 
+    // 设置订单变更回调（用于镜像同步）
+    void set_change_callback(order_change_callback_t callback);
+
 private:
     order_entry* find_order_nolock(internal_order_id_t order_id);
     const order_entry* find_order_nolock(internal_order_id_t order_id) const;
@@ -96,6 +112,7 @@ private:
     std::size_t active_count_ = 0;  // 当前活跃订单数量
     std::atomic<internal_order_id_t> next_order_id_{1};  // 递增内部订单ID生成器
     mutable spinlock lock_;  // 保护订单簿内部状态
+    order_change_callback_t change_callback_;
 };
 
 }  // namespace acct_service

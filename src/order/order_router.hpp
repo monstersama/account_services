@@ -22,7 +22,8 @@ struct router_stats {
 // 订单路由器
 class order_router {
 public:
-    order_router(order_book& book, downstream_shm_layout* shm, const split_config& config);
+    order_router(order_book& book, downstream_shm_layout* downstream_shm, orders_shm_layout* orders_shm,
+        const split_config& config);
     ~order_router() = default;
 
     // 禁止拷贝
@@ -45,11 +46,14 @@ public:
     void reset_stats() noexcept;
 
 private:
-    bool send_to_downstream(const order_request& request);
+    bool send_to_downstream(order_index_t index);
     bool handle_split_order(order_entry& parent);
+    bool create_internal_order_slot(
+        const order_request& request, order_slot_stage_t stage, order_index_t& out_index, order_slot_source_t source);
 
     order_book& order_book_;
     downstream_shm_layout* downstream_shm_;
+    orders_shm_layout* orders_shm_;
     order_splitter splitter_;
     router_stats stats_;
 };

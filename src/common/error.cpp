@@ -84,6 +84,8 @@ const char* to_string(error_code code) noexcept {
             return "PositionUpdateFailed";
         case error_code::OrderInvariantBroken:
             return "OrderInvariantBroken";
+        case error_code::OrderPoolFull:
+            return "OrderPoolFull";
         case error_code::ComponentUnavailable:
             return "ComponentUnavailable";
         case error_code::ShmOpenFailed:
@@ -144,6 +146,7 @@ const error_policy& classify_by_code(error_code code) noexcept {
         case error_code::QueuePopFailed:
         case error_code::RouteFailed:
         case error_code::SplitFailed:
+        case error_code::OrderPoolFull:
         case error_code::HealthCheckFailed:
         case error_code::LoggerQueueFull:
             return kRecoverablePolicy;

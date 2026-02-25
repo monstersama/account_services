@@ -137,6 +137,19 @@ const char* split_strategy_to_string(split_strategy_t strategy) {
     }
 }
 
+bool is_valid_trading_day_value(std::string_view trading_day) {
+    if (trading_day.size() != 8) {
+        return false;
+    }
+
+    for (char ch : trading_day) {
+        if (!std::isdigit(static_cast<unsigned char>(ch))) {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::string escape_yaml_string(std::string_view value) {
     std::string out;
     out.reserve(value.size() + 8);
@@ -176,6 +189,13 @@ bool apply_value(config& cfg, const std::string& key, const std::string& raw_val
         cfg.account_id = static_cast<account_id_t>(parsed);
         return true;
     }
+    if (key == "trading_day") {
+        if (!is_valid_trading_day_value(value)) {
+            return false;
+        }
+        cfg.trading_day = value;
+        return true;
+    }
 
     if (key == "shm.upstream_shm_name") {
         cfg.shm.upstream_shm_name = value;
@@ -187,6 +207,10 @@ bool apply_value(config& cfg, const std::string& key, const std::string& raw_val
     }
     if (key == "shm.trades_shm_name") {
         cfg.shm.trades_shm_name = value;
+        return true;
+    }
+    if (key == "shm.orders_shm_name") {
+        cfg.shm.orders_shm_name = value;
         return true;
     }
     if (key == "shm.positions_shm_name") {
@@ -444,7 +468,7 @@ bool config_manager::load_from_file(const std::string& config_path) {
     }
 
     if (root && root.IsMap()) {
-        if (!check_allowed_keys(root, "", {"account_id", "shm", "event_loop", "risk", "split", "log", "db"})) {
+        if (!check_allowed_keys(root, "", {"account_id", "trading_day", "shm", "event_loop", "risk", "split", "log", "db"})) {
             return false;
         }
 
@@ -459,8 +483,19 @@ bool config_manager::load_from_file(const std::string& config_path) {
             }
         }
 
+        const YAML::Node trading_day_node = root["trading_day"];
+        if (trading_day_node) {
+            std::string value;
+            if (!read_scalar_string(trading_day_node, "trading_day", value)) {
+                return false;
+            }
+            if (!apply_value(loaded, "trading_day", value)) {
+                return report_yaml_parse_error("trading_day", "invalid value");
+            }
+        }
+
         if (!parse_section(loaded, root, "shm",
-                {"upstream_shm_name", "downstream_shm_name", "trades_shm_name", "positions_shm_name",
+                {"upstream_shm_name", "downstream_shm_name", "trades_shm_name", "orders_shm_name", "positions_shm_name",
                     "create_if_not_exist"})) {
             return false;
         }
@@ -529,6 +564,12 @@ bool config_manager::parse_command_line(int argc, char* argv[]) {
             }
             continue;
         }
+        if (arg == "--trading-day") {
+            if (!consume_value(value) || !apply_value(config_, "trading_day", value)) {
+                return report_config_error(error_code::InvalidConfig, "invalid --trading-day");
+            }
+            continue;
+        }
         if (arg == "--upstream-shm") {
             if (!consume_value(value)) {
                 return false;
@@ -555,6 +596,13 @@ bool config_manager::parse_command_line(int argc, char* argv[]) {
                 return false;
             }
             config_.shm.trades_shm_name = value;
+            continue;
+        }
+        if (arg == "--orders-shm") {
+            if (!consume_value(value)) {
+                return false;
+            }
+            config_.shm.orders_shm_name = value;
             continue;
         }
         if (arg == "--poll-batch") {
@@ -592,8 +640,14 @@ bool config_manager::validate() const {
         return false;
     }
 
+    if (!is_valid_trading_day_value(config_.trading_day)) {
+        (void)report_config_error(error_code::ConfigValidateFailed, "trading_day must be YYYYMMDD");
+        return false;
+    }
+
     if (config_.shm.upstream_shm_name.empty() || config_.shm.downstream_shm_name.empty() ||
-        config_.shm.trades_shm_name.empty() || config_.shm.positions_shm_name.empty()) {
+        config_.shm.trades_shm_name.empty() || config_.shm.orders_shm_name.empty() ||
+        config_.shm.positions_shm_name.empty()) {
         (void)report_config_error(error_code::ConfigValidateFailed, "shm names must be non-empty");
         return false;
     }
@@ -643,11 +697,13 @@ bool config_manager::export_to_file(const std::string& path) const {
     }
 
     out << "account_id: " << config_.account_id << "\n\n";
+    out << "trading_day: \"" << escape_yaml_string(config_.trading_day) << "\"\n\n";
 
     out << "shm:\n";
     out << "  upstream_shm_name: \"" << escape_yaml_string(config_.shm.upstream_shm_name) << "\"\n";
     out << "  downstream_shm_name: \"" << escape_yaml_string(config_.shm.downstream_shm_name) << "\"\n";
     out << "  trades_shm_name: \"" << escape_yaml_string(config_.shm.trades_shm_name) << "\"\n";
+    out << "  orders_shm_name: \"" << escape_yaml_string(config_.shm.orders_shm_name) << "\"\n";
     out << "  positions_shm_name: \"" << escape_yaml_string(config_.shm.positions_shm_name) << "\"\n";
     out << "  create_if_not_exist: " << (config_.shm.create_if_not_exist ? "true" : "false") << "\n\n";
 

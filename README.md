@@ -18,9 +18,9 @@ risk模块负责账户风控管理，账户风控检查，账户风控更新。
 
 shmm负责共享内存的创建
 
-order模块负责接收订单，并做拆单，将拆单后的订单发送给交易进程。
+order模块负责接收订单，并做拆单，将订单写入 `orders_shm` 后把索引发送给交易进程。
 
-gateway模块负责读取 `downstream_shm` 中的订单，调用券商适配器发送委托，并将成交回报写回 `trades_shm`。
+gateway模块负责读取 `downstream_shm` 中的索引，从 `orders_shm` 读取订单快照，调用券商适配器发送委托，并将成交回报写回 `trades_shm`。
 
 ### 流程图
 
@@ -41,6 +41,11 @@ gateway模块负责读取 `downstream_shm` 中的订单，调用券商适配器�
 - 时序图：`gateway/docs/gateway_sequence.mmd`
 - 券商适配接口契约：`docs/broker_api_contract.md`
 - 插件模式：`--broker-type plugin --adapter-so <adapter.so>`
+
+## 监控 SDK
+
+- 监控 SDK 文档：`docs/order_monitor_sdk.md`
+- 监控示例程序：`examples/order_monitor_usage.cpp`
 
 ## OrbStack 虚拟机下 VSCode 调试（GDB）
 

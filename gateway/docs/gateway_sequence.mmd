@@ -2,12 +2,15 @@ sequenceDiagram
     autonumber
     participant AS as account_service
     participant DS as downstream_shm.order_queue
+    participant OP as orders_shm.slots
     participant GW as gateway_loop
     participant AD as broker_adapter
     participant TS as trades_shm.response_queue
 
-    AS->>DS: push(order_request)
-    GW->>DS: pop(order_request)
+    AS->>OP: write(order_slot)
+    AS->>DS: push(order_index)
+    GW->>DS: pop(order_index)
+    GW->>OP: read(order_slot)
     GW->>GW: map_order_request_to_broker
     GW->>AD: submit(broker_order_request)
     AD-->>GW: send_result
@@ -26,4 +29,3 @@ sequenceDiagram
 
     AS->>TS: pop(trade_response)
     AS->>AS: update order status and positions
-

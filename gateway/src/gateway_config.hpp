@@ -11,6 +11,8 @@ struct gateway_config {
     account_id_t account_id = 1;
     std::string downstream_shm_name = "/downstream_order_shm";
     std::string trades_shm_name = "/trades_shm";
+    std::string orders_shm_name = "/orders_shm";
+    std::string trading_day = "19700101";
     std::string broker_type = "sim";
     std::string adapter_plugin_so;
     bool create_if_not_exist = false;

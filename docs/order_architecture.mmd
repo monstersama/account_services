@@ -1,7 +1,8 @@
 %%{init: {'theme': 'base', 'themeVariables': {'background': '#ffffff', 'textColor': '#111827', 'lineColor': '#374151', 'fontSize': '18px', 'fontFamily': '"Microsoft YaHei","PingFang SC","Noto Sans SC",sans-serif', 'edgeLabelBackground': '#ffffff'}}}%%
 %% 组件交互图 - 系统架构
 graph TB
-    Strategy[策略进程] --> UpstreamSHM[上游共享内存<br/>SPSC队列]
+    Strategy[策略进程] --> UpstreamSHM[上游共享内存<br/>SPSC索引队列]
+    Strategy --> OrdersSHM[订单池共享内存<br/>orders_shm]
 
     UpstreamSHM --> AccountService[账户服务]
 
@@ -22,9 +23,10 @@ graph TB
         PositionManager --> OrderBook
     end
 
-    AccountService --> DownstreamSHM[下游共享内存<br/>订单队列+响应队列]
+    AccountService --> DownstreamSHM[下游共享内存<br/>SPSC索引队列]
 
     DownstreamSHM --> Trader[交易进程<br/>Trader Process]
+    Trader --> OrdersSHM
 
     Trader --> Broker[券商柜台<br/>Broker API]
 
@@ -36,8 +38,10 @@ graph TB
 
     DownstreamSHM --> AccountService
 
+    AccountService --> OrdersSHM
     AccountService --> PositionSHM[持仓共享内存<br/>监控可见]
 
+    OrdersSHM --> Monitor[监控系统<br/>Monitoring]
     PositionSHM --> Monitor[监控系统<br/>Monitoring]
 
     AccountService --> Database[(数据库<br/>PostgreSQL/MySQL)]
@@ -54,4 +58,4 @@ graph TB
     class Strategy,Trader,Broker,Exchange,Monitor external
     class AccountService service
     class EventLoop,OrderBook,RiskManager,OrderSplitter,OrderRouter,PositionManager component
-    class UpstreamSHM,DownstreamSHM,PositionSHM,Database storage
+    class UpstreamSHM,DownstreamSHM,OrdersSHM,PositionSHM,Database storage

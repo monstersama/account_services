@@ -9,6 +9,7 @@
 
 #include "common/error.hpp"
 #include "common/log.hpp"
+#include "shm/orders_shm.hpp"
 
 namespace acct_service {
 
@@ -236,6 +237,76 @@ trades_shm_layout *SHMManager::open_trades(std::string_view name, shm_mode mode,
         init_header(&layout->header, account_id);
     } else {
         if (!validate_header(&layout->header)) {
+            close();
+            return nullptr;
+        }
+    }
+
+    return layout;
+}
+
+// 创建/打开订单池共享内存
+orders_shm_layout* SHMManager::open_orders(std::string_view name, shm_mode mode, account_id_t account_id) {
+    (void)account_id;
+    constexpr std::size_t size = sizeof(orders_shm_layout);
+    void* ptr = open_impl(name, size, mode);
+    if (!ptr) {
+        return nullptr;
+    }
+
+    auto* layout = static_cast<orders_shm_layout*>(ptr);
+
+    char expected_trading_day[9] = "00000000";
+    if (!extract_trading_day_from_name(name, expected_trading_day)) {
+        std::memcpy(expected_trading_day, "00000000", 9);
+    }
+
+    if (last_open_is_new_) {
+        layout->header.magic = orders_header::kMagic;
+        layout->header.version = orders_header::kVersion;
+        layout->header.header_size = static_cast<uint32_t>(sizeof(orders_header));
+        layout->header.total_size = static_cast<uint32_t>(sizeof(orders_shm_layout));
+        layout->header.capacity = static_cast<uint32_t>(kDailyOrderPoolCapacity);
+        layout->header.init_state = 0;
+        layout->header.create_time = now_ns();
+        layout->header.last_update = layout->header.create_time;
+        layout->header.next_index.store(0, std::memory_order_relaxed);
+        layout->header.full_reject_count.store(0, std::memory_order_relaxed);
+        std::memcpy(layout->header.trading_day, expected_trading_day, 9);
+        layout->header.init_state = 1;
+    } else {
+        if (layout->header.magic != orders_header::kMagic) {
+            (void)report_shm_error(error_code::ShmHeaderInvalid, name, "invalid orders shm magic");
+            close();
+            return nullptr;
+        }
+        if (layout->header.version != orders_header::kVersion) {
+            (void)report_shm_error(error_code::ShmHeaderInvalid, name, "invalid orders shm version");
+            close();
+            return nullptr;
+        }
+        if (layout->header.header_size != static_cast<uint32_t>(sizeof(orders_header))) {
+            (void)report_shm_error(error_code::ShmHeaderInvalid, name, "invalid orders shm header size");
+            close();
+            return nullptr;
+        }
+        if (layout->header.total_size != static_cast<uint32_t>(sizeof(orders_shm_layout))) {
+            (void)report_shm_error(error_code::ShmHeaderInvalid, name, "invalid orders shm total size");
+            close();
+            return nullptr;
+        }
+        if (layout->header.capacity != static_cast<uint32_t>(kDailyOrderPoolCapacity)) {
+            (void)report_shm_error(error_code::ShmHeaderInvalid, name, "invalid orders shm capacity");
+            close();
+            return nullptr;
+        }
+        if (layout->header.init_state != 1) {
+            (void)report_shm_error(error_code::ShmHeaderInvalid, name, "orders shm not initialized");
+            close();
+            return nullptr;
+        }
+        if (std::memcmp(layout->header.trading_day, expected_trading_day, 8) != 0) {
+            (void)report_shm_error(error_code::ShmHeaderInvalid, name, "orders shm trading day mismatch");
             close();
             return nullptr;
         }

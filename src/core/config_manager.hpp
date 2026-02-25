@@ -13,6 +13,7 @@ struct shm_config {
     std::string upstream_shm_name = "/strategy_order_shm";
     std::string downstream_shm_name = "/downstream_order_shm";
     std::string trades_shm_name = "/trades_shm";
+    std::string orders_shm_name = "/orders_shm";
     std::string positions_shm_name = "/positions_shm";
     bool create_if_not_exist = true;
 };
@@ -45,6 +46,7 @@ struct db_config {
 // 完整配置
 struct config {
     account_id_t account_id = 1;
+    std::string trading_day = "19700101";
     std::string config_file;
 
     shm_config shm;

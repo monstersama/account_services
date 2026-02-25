@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <limits>
 
 #include "common/constants.hpp"
 #include "common/types.hpp"
@@ -63,6 +64,64 @@ struct alignas(64) trade_response {
 
 static_assert(sizeof(trade_response) == 64, "trade_response must be 64 bytes");
 
+using order_index_t = uint32_t;
+inline constexpr order_index_t kInvalidOrderIndex = std::numeric_limits<order_index_t>::max();
+
+enum class order_slot_stage_t : uint8_t {
+    Empty = 0,
+    Reserved = 1,
+    UpstreamQueued = 2,
+    UpstreamDequeued = 3,
+    RiskRejected = 4,
+    DownstreamQueued = 5,
+    DownstreamDequeued = 6,
+    Terminal = 7,
+    QueuePushFailed = 8,
+};
+
+enum class order_slot_source_t : uint8_t {
+    Unknown = 0,
+    Strategy = 1,
+    AccountInternal = 2,
+};
+
+// 订单池共享内存头部（订单镜像+索引队列协议）
+struct alignas(64) orders_header {
+    uint32_t magic;
+    uint32_t version;
+    uint32_t header_size;
+    uint32_t total_size;
+    uint32_t capacity;
+    uint32_t init_state;  // 0=未完成初始化，1=可读
+    timestamp_ns_t create_time;
+    timestamp_ns_t last_update;
+    std::atomic<order_index_t> next_index{0};  // 当日已发布槽位上界（不复用）
+    std::atomic<uint64_t> full_reject_count{0};
+    char trading_day[9]{};
+    uint8_t reserved0[7]{};
+    uint64_t reserved[3]{};
+
+    static constexpr uint32_t kMagic = 0x4143534F;  // "ACSO"
+    static constexpr uint32_t kVersion = 1;
+};
+
+static_assert(alignof(orders_header) == 64, "orders_header must be 64-byte aligned");
+static_assert(sizeof(orders_header) == 128, "orders_header must be 128 bytes");
+
+// 订单槽位（seqlock 协议）
+struct alignas(64) order_slot {
+    std::atomic<uint64_t> seq{0};  // 偶数=稳定，奇数=写入中
+    timestamp_ns_t last_update_ns{0};
+    order_slot_stage_t stage{order_slot_stage_t::Empty};
+    order_slot_source_t source{order_slot_source_t::Unknown};
+    uint16_t reserved0{0};
+    uint32_t reserved1{0};
+    order_request request{};
+};
+
+static_assert(alignof(order_slot) == 64, "order_slot must be 64-byte aligned");
+static_assert(sizeof(order_slot) % 64 == 0, "order_slot must be cache-line aligned");
+
 // 成交回报共享内存（交易进程→账户服务）
 struct trades_shm_layout {
     shm_header header;
@@ -74,7 +133,7 @@ struct trades_shm_layout {
 // 上游共享内存（策略→账户服务）
 struct upstream_shm_layout {
     shm_header header;
-    spsc_queue<order_request, kStrategyOrderQueueCapacity> strategy_order_queue;
+    spsc_queue<order_index_t, kStrategyOrderQueueCapacity> strategy_order_queue;
 
     static constexpr std::size_t total_size() { return sizeof(upstream_shm_layout); }
 };
@@ -82,10 +141,17 @@ struct upstream_shm_layout {
 // 下游共享内存（账户服务→交易进程）
 struct downstream_shm_layout {
     shm_header header;
-    spsc_queue<order_request, kDownstreamQueueCapacity> order_queue;
-    // response_queue 已移到 trades_shm_layout，实现职责分离
+    spsc_queue<order_index_t, kDownstreamQueueCapacity> order_queue;
 
     static constexpr std::size_t total_size() { return sizeof(downstream_shm_layout); }
+};
+
+// 订单池共享内存（可被外部监控读取）
+struct orders_shm_layout {
+    orders_header header;
+    alignas(64) order_slot slots[kDailyOrderPoolCapacity];
+
+    static constexpr std::size_t total_size() { return sizeof(orders_shm_layout); }
 };
 
 // 持仓共享内存（可被外部监控读取）

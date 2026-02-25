@@ -34,10 +34,12 @@ TEST(load_and_export_roundtrip) {
         std::ofstream out(in_path);
         assert(out.is_open());
         out << "account_id: 7\n";
+        out << "trading_day: \"20260225\"\n";
         out << "shm:\n";
         out << "  upstream_shm_name: \"/u_test\"\n";
         out << "  downstream_shm_name: \"/d_test\"\n";
         out << "  trades_shm_name: \"/t_test\"\n";
+        out << "  orders_shm_name: \"/o_test\"\n";
         out << "  positions_shm_name: \"/p_test\"\n";
         out << "  create_if_not_exist: true\n";
         out << "event_loop:\n";
@@ -51,8 +53,10 @@ TEST(load_and_export_roundtrip) {
     config_manager manager;
     assert(manager.load_from_file(in_path));
     assert(manager.account_id() == 7);
+    assert(manager.get().trading_day == "20260225");
     assert(manager.shm().upstream_shm_name == "/u_test");
     assert(manager.shm().trades_shm_name == "/t_test");
+    assert(manager.shm().orders_shm_name == "/o_test");
     assert(manager.event_loop().poll_batch_size == 32);
     assert(manager.split().strategy == split_strategy_t::FixedSize);
     assert(manager.split().max_child_volume == 500);
@@ -62,6 +66,7 @@ TEST(load_and_export_roundtrip) {
     config_manager reloaded;
     assert(reloaded.load_from_file(out_path));
     assert(reloaded.account_id() == 7);
+    assert(reloaded.get().trading_day == "20260225");
     assert(reloaded.shm().downstream_shm_name == "/d_test");
     assert(reloaded.shm().trades_shm_name == "/t_test");
     assert(reloaded.event_loop().idle_sleep_us == 10);
@@ -77,10 +82,12 @@ TEST(load_rejects_unknown_key) {
         std::ofstream out(in_path);
         assert(out.is_open());
         out << "account_id: 7\n";
+        out << "trading_day: \"20260225\"\n";
         out << "shm:\n";
         out << "  upstream_shm_name: \"/u_test\"\n";
         out << "  downstream_shm_name: \"/d_test\"\n";
         out << "  trades_shm_name: \"/t_test\"\n";
+        out << "  orders_shm_name: \"/o_test\"\n";
         out << "  positions_shm_name: \"/p_test\"\n";
         out << "  create_if_not_exist: true\n";
         out << "  unknown_field: 1\n";
@@ -104,14 +111,20 @@ TEST(parse_command_line_and_validate) {
     char arg6[] = "iceberg";
     char arg7[] = "--trades-shm";
     char arg8[] = "/trades_cli";
+    char arg9[] = "--orders-shm";
+    char arg10[] = "/orders_cli";
+    char arg11[] = "--trading-day";
+    char arg12[] = "20260225";
 
-    char* argv[] = {arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8};
+    char* argv[] = {arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12};
     assert(manager.parse_command_line(static_cast<int>(sizeof(argv) / sizeof(argv[0])), argv));
 
     assert(manager.account_id() == 9);
     assert(manager.event_loop().poll_batch_size == 128);
     assert(manager.split().strategy == split_strategy_t::Iceberg);
     assert(manager.shm().trades_shm_name == "/trades_cli");
+    assert(manager.shm().orders_shm_name == "/orders_cli");
+    assert(manager.get().trading_day == "20260225");
     assert(manager.validate());
 
     manager.get().account_id = 0;

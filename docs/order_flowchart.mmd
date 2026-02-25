@@ -3,7 +3,8 @@
 graph TD
     Start[策略触发订单] --> StrategySubmit[策略提交订单]
 
-    StrategySubmit --> SHM1[写入上游共享内存<br/>order_queue]
+    StrategySubmit --> SHM0[写入订单池共享内存<br/>orders_shm]
+    SHM0 --> SHM1[写入上游共享内存<br/>index_queue]
 
     SHM1 --> EventLoop[事件循环处理]
 
@@ -23,7 +24,7 @@ graph TD
 
     Splitter --> Router
 
-    Router --> SHM2[写入下游共享内存<br/>发送到交易进程]
+    Router --> SHM2[写入下游共享内存<br/>index_queue]
 
     SHM2 --> TraderProcess[交易进程处理]
 
@@ -67,7 +68,7 @@ graph TD
 
     linkStyle default stroke:#374151,stroke-width:2px
 
-    class Start,StrategySubmit,SHM1,EventLoop,OrderBook,RiskAccepted,Splitter,Router,SHM2,TraderProcess,MarketAccepted,Matching,TradeResponse,SHM3,EventLoop2,UpdateOrder,PositionUpdate,OrderFinished,End normal
+    class Start,StrategySubmit,SHM0,SHM1,EventLoop,OrderBook,RiskAccepted,Splitter,Router,SHM2,TraderProcess,MarketAccepted,Matching,TradeResponse,SHM3,EventLoop2,UpdateOrder,PositionUpdate,OrderFinished,End normal
     class RiskCheck,SplitCheck,BrokerCheck,MarketCheck,CompleteCheck decision
     class RiskRejected,EndReject,BrokerReject,EndReject2,MarketReject,EndReject3 reject
-    class SHM1,SHM2,SHM3 external
+    class SHM0,SHM1,SHM2,SHM3 external

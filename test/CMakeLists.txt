@@ -5,6 +5,12 @@ add_executable(test_order_api
 
 target_link_libraries(test_order_api PRIVATE acct_order)
 
+add_executable(test_order_monitor_api
+    test_order_monitor_api.cpp
+)
+
+target_link_libraries(test_order_monitor_api PRIVATE acct_order acct_order_monitor)
+
 # ============ shm_manager 测试 ============
 add_executable(test_shm_manager
     test_shm_manager.cpp
@@ -118,6 +124,7 @@ add_dependencies(test_adapter_loader acct_gateway_sim_plugin)
 # 注册到 CTest
 enable_testing()
 add_test(NAME test_order_api COMMAND test_order_api)
+add_test(NAME test_order_monitor_api COMMAND test_order_monitor_api)
 add_test(NAME test_shm_manager COMMAND test_shm_manager)
 add_test(NAME test_error_registry COMMAND test_error_registry)
 add_test(NAME test_logger_async COMMAND test_logger_async)

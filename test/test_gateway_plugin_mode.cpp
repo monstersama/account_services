@@ -1,5 +1,6 @@
 #include <cassert>
 #include <chrono>
+#include <cstring>
 #include <cstdio>
 #include <functional>
 #include <memory>
@@ -10,6 +11,7 @@
 #include "gateway_config.hpp"
 #include "gateway_loop.hpp"
 #include "order/order_request.hpp"
+#include "shm/orders_shm.hpp"
 #include "shm/shm_layout.hpp"
 
 #define TEST(name) static void test_##name()
@@ -50,6 +52,22 @@ std::unique_ptr<trades_shm_layout> make_trades_shm() {
     return shm;
 }
 
+std::unique_ptr<orders_shm_layout> make_orders_shm() {
+    auto shm = std::make_unique<orders_shm_layout>();
+    shm->header.magic = orders_header::kMagic;
+    shm->header.version = orders_header::kVersion;
+    shm->header.header_size = static_cast<uint32_t>(sizeof(orders_header));
+    shm->header.total_size = static_cast<uint32_t>(sizeof(orders_shm_layout));
+    shm->header.capacity = static_cast<uint32_t>(kDailyOrderPoolCapacity);
+    shm->header.init_state = 1;
+    shm->header.create_time = now_ns();
+    shm->header.last_update = shm->header.create_time;
+    shm->header.next_index.store(0, std::memory_order_relaxed);
+    shm->header.full_reject_count.store(0, std::memory_order_relaxed);
+    std::memcpy(shm->header.trading_day, "19700101", 9);
+    return shm;
+}
+
 bool wait_until(const std::function<bool()>& predicate, int timeout_ms = 1500) {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
     while (std::chrono::steady_clock::now() < deadline) {
@@ -87,6 +105,7 @@ gateway::gateway_config make_config() {
 TEST(process_new_order_with_plugin_adapter) {
     auto downstream = make_downstream_shm();
     auto trades = make_trades_shm();
+    auto orders = make_orders_shm();
 
     gateway::loaded_adapter loaded;
     std::string error_message;
@@ -101,7 +120,7 @@ TEST(process_new_order_with_plugin_adapter) {
     runtime_config.auto_fill = true;
     assert(adapter->initialize(runtime_config));
 
-    gateway::gateway_loop loop(make_config(), downstream.get(), trades.get(), *adapter);
+    gateway::gateway_loop loop(make_config(), downstream.get(), trades.get(), orders.get(), *adapter);
     std::thread worker([&loop]() { (void)loop.run(); });
 
     order_request request;
@@ -109,7 +128,10 @@ TEST(process_new_order_with_plugin_adapter) {
         trade_side_t::Buy, market_t::SZ, static_cast<volume_t>(120), static_cast<dprice_t>(1000), 93000000);
     request.order_status.store(order_status_t::TraderSubmitted, std::memory_order_relaxed);
 
-    assert(downstream->order_queue.try_push(request));
+    order_index_t request_index = kInvalidOrderIndex;
+    assert(orders_shm_append(
+        orders.get(), request, order_slot_stage_t::DownstreamQueued, order_slot_source_t::AccountInternal, now_ns(), request_index));
+    assert(downstream->order_queue.try_push(request_index));
 
     std::vector<order_status_t> statuses;
     const bool got_all = wait_until([&]() {
@@ -142,4 +164,3 @@ int main() {
     printf("\n=== All tests passed! ===\n");
     return 0;
 }
-

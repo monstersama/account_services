@@ -4,6 +4,7 @@
 #include <cctype>
 #include <climits>
 #include <cstdio>
+#include <string_view>
 
 namespace acct_service::gateway {
 
@@ -40,6 +41,15 @@ bool parse_bool(std::string text, bool& out) {
     return false;
 }
 
+bool is_valid_trading_day(std::string_view trading_day) {
+    if (trading_day.size() != 8) {
+        return false;
+    }
+    return std::all_of(trading_day.begin(), trading_day.end(), [](unsigned char ch) {
+        return std::isdigit(ch) != 0;
+    });
+}
+
 // 读取 option 对应值（例如 --foo <value>）。
 bool require_value(int argc, int i, char* argv[], std::string& value, std::string& error_message) {
     if (i + 1 >= argc || argv[i + 1] == nullptr) {
@@ -58,6 +68,8 @@ void print_usage(const char* program) {
         "  --account-id <id>            account id\n"
         "  --downstream-shm <name>      downstream order shm name\n"
         "  --trades-shm <name>          trades response shm name\n"
+        "  --orders-shm <name>          shared order pool shm base name\n"
+        "  --trading-day <YYYYMMDD>     trading day used for dated order shm name\n"
         "  --broker-type <sim|plugin>   broker adapter type\n"
         "  --adapter-so <path>          adapter plugin .so path (required when broker-type=plugin)\n"
         "  --create-if-not-exist <bool> open or create shm (default false)\n"
@@ -113,6 +125,28 @@ parse_result_t parse_args(int argc, char* argv[], gateway_config& config, std::s
                 return parse_result_t::Error;
             }
             config.trades_shm_name = value;
+            ++i;
+            continue;
+        }
+
+        if (std::string(arg) == "--orders-shm") {
+            if (!require_value(argc, i, argv, value, error_message)) {
+                return parse_result_t::Error;
+            }
+            config.orders_shm_name = value;
+            ++i;
+            continue;
+        }
+
+        if (std::string(arg) == "--trading-day") {
+            if (!require_value(argc, i, argv, value, error_message)) {
+                return parse_result_t::Error;
+            }
+            if (!is_valid_trading_day(value)) {
+                error_message = "invalid --trading-day";
+                return parse_result_t::Error;
+            }
+            config.trading_day = value;
             ++i;
             continue;
         }
@@ -219,8 +253,12 @@ parse_result_t parse_args(int argc, char* argv[], gateway_config& config, std::s
     }
 
     // 共享内存名称是必须项。
-    if (config.downstream_shm_name.empty() || config.trades_shm_name.empty()) {
+    if (config.downstream_shm_name.empty() || config.trades_shm_name.empty() || config.orders_shm_name.empty()) {
         error_message = "shared memory names must be non-empty";
+        return parse_result_t::Error;
+    }
+    if (!is_valid_trading_day(config.trading_day)) {
+        error_message = "trading_day must be YYYYMMDD";
         return parse_result_t::Error;
     }
 

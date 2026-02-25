@@ -30,7 +30,7 @@ struct gateway_stats {
 class gateway_loop {
 public:
     gateway_loop(const gateway_config& config, downstream_shm_layout* downstream_shm, trades_shm_layout* trades_shm,
-        broker_api::IBrokerAdapter& adapter);
+        orders_shm_layout* orders_shm, broker_api::IBrokerAdapter& adapter);
 
     int run();
     void stop() noexcept;
@@ -65,6 +65,7 @@ private:
     gateway_config config_;
     downstream_shm_layout* downstream_shm_ = nullptr;
     trades_shm_layout* trades_shm_ = nullptr;
+    orders_shm_layout* orders_shm_ = nullptr;
     broker_api::IBrokerAdapter& adapter_;
     std::atomic<bool> running_{false};
     std::deque<retry_item> retry_queue_;

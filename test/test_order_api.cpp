@@ -27,6 +27,7 @@ TEST(strerror) {
     assert(strcmp(acct_strerror(ACCT_ERR_SHM_FAILED), "Shared memory operation failed") == 0);
     assert(strcmp(acct_strerror(ACCT_ERR_ORDER_NOT_FOUND), "Order not found") == 0);
     assert(strcmp(acct_strerror(ACCT_ERR_CACHE_FULL), "Order cache is full") == 0);
+    assert(strcmp(acct_strerror(ACCT_ERR_ORDER_POOL_FULL), "Order pool is full") == 0);
     assert(strcmp(acct_strerror(ACCT_ERR_INTERNAL), "Internal error") == 0);
 }
 
@@ -73,6 +74,20 @@ TEST(init_with_auto_create) {
     assert(err == ACCT_OK);
 }
 
+TEST(init_ex_with_custom_options) {
+    acct_ctx_t ctx = nullptr;
+    acct_init_options_t opts{};
+    opts.upstream_shm_name = "/strategy_order_shm";
+    opts.orders_shm_name = "/orders_shm";
+    opts.trading_day = "20260225";
+    opts.create_if_not_exist = 1;
+
+    acct_error_t err = acct_init_ex(&opts, &ctx);
+    assert(err == ACCT_OK);
+    assert(ctx != nullptr);
+    assert(acct_destroy(ctx) == ACCT_OK);
+}
+
 TEST(invalid_params) {
     // 注意: ctx 为 nullptr 时会返回 INVALID_PARAM
     // 实际参数验证（如 side、market、volume）需要有效的 ctx
@@ -85,6 +100,7 @@ int main() {
     RUN_TEST(strerror);
     RUN_TEST(null_ctx_operations);
     RUN_TEST(init_with_auto_create);
+    RUN_TEST(init_ex_with_custom_options);
     RUN_TEST(invalid_params);
 
     printf("\n=== All tests passed! ===\n");

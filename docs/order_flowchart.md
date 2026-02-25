@@ -21,7 +21,8 @@ graph TD
     %% 主流程图：订单生命周期
     Start[策略触发订单] --> StrategySubmit[策略提交订单]
 
-    StrategySubmit --> SHM1[写入上游共享内存<br/>order_queue]
+    StrategySubmit --> SHM0[写入订单池共享内存<br/>orders_shm]
+    SHM0 --> SHM1[写入上游共享内存<br/>index_queue]
 
     SHM1 --> EventLoop[事件循环处理]
 
@@ -41,7 +42,7 @@ graph TD
 
     Splitter --> Router
 
-    Router --> SHM2[写入下游共享内存<br/>发送到交易进程]
+    Router --> SHM2[写入下游共享内存<br/>index_queue]
 
     SHM2 --> TraderProcess[交易进程处理]
 
@@ -80,11 +81,11 @@ graph TD
 ```
 
 ### 流程说明
-1. **订单接收**：策略通过上游共享内存SPSC队列发送订单
+1. **订单接收**：策略先写订单池共享内存，再通过上游SPSC索引队列发送订单索引
 2. **风控检查**：多层次风控规则检查，包括资金、持仓、价格限制等
 3. **资金/持仓冻结**：风控通过后冻结相应资金或持仓
 4. **拆单处理**：根据配置决定是否拆单（固定大小、冰山、TWAP、VWAP等策略）
-5. **路由发送**：通过下游共享内存发送到交易进程
+5. **路由发送**：通过下游共享内存索引队列发送到交易进程
 6. **交易处理**：交易进程与券商柜台交互，提交订单到交易所
 7. **成交回报**：处理市场成交回报，更新订单状态和成交信息
 8. **持仓更新**：根据成交结果更新账户持仓和资金
@@ -158,7 +159,8 @@ stateDiagram-v2
 ```mermaid
 graph TB
     %% 外部系统
-    Strategy[策略进程] --> UpstreamSHM[上游共享内存<br/>SPSC队列]
+    Strategy[策略进程] --> UpstreamSHM[上游共享内存<br/>SPSC索引队列]
+    Strategy --> OrdersSHM[订单池共享内存<br/>orders_shm]
 
     UpstreamSHM --> AccountService[账户服务]
 
@@ -180,7 +182,8 @@ graph TB
         PositionManager --> OrderBook
     end
 
-    AccountService --> DownstreamSHM[下游共享内存<br/>订单队列+响应队列]
+    AccountService --> DownstreamSHM[下游共享内存<br/>SPSC索引队列]
+    AccountService --> OrdersSHM
 
     DownstreamSHM --> Trader[交易进程<br/>Trader Process]
 
@@ -195,6 +198,7 @@ graph TB
     DownstreamSHM --> AccountService
 
     %% 数据存储和监控
+    OrdersSHM --> Monitor[监控系统<br/>Monitoring]
     AccountService --> PositionSHM[持仓共享内存<br/>监控可见]
 
     PositionSHM --> Monitor[监控系统<br/>Monitoring]
@@ -205,9 +209,9 @@ graph TB
 ```
 
 ### 架构说明
-- **上游通信**：策略进程通过共享内存SPSC队列发送订单，实现低延迟通信
+- **上游通信**：策略进程通过“订单池 + SPSC索引队列”发送订单，实现低延迟与可监控
 - **内部处理**：事件循环协调各模块，订单依次经过订单簿、风控、拆单器、路由器
-- **下游通信**：通过共享内存将订单发送到交易进程，并接收成交回报
+- **下游通信**：通过共享内存索引队列将订单发送到交易进程，并通过回报队列接收成交
 - **外部集成**：与券商柜台、交易所交互，支持数据库持久化和监控系统
 
 ## 4. 错误处理流程图
@@ -270,8 +274,10 @@ graph LR
 - 定义在 [include/order/order_request.hpp](../include/order/order_request.hpp)
 
 ### 共享内存布局 (`shm_layout`)
-- **上游共享内存**：策略→账户服务（订单队列）
-- **下游共享内存**：账户服务→交易进程（订单队列+响应队列）
+- **订单池共享内存**：订单镜像数组（可被外部监控读取）
+- **上游共享内存**：策略→账户服务（索引队列）
+- **下游共享内存**：账户服务→交易进程（索引队列）
+- **成交回报共享内存**：交易进程→账户服务（回报队列）
 - **持仓共享内存**：持仓信息（可被外部监控读取）
 - 定义在 [include/shm/shm_layout.hpp](../include/shm/shm_layout.hpp)
 
@@ -288,9 +294,9 @@ graph LR
    - 并行风控检查
 
 3. **系统容量**：
-   - 最大活跃订单数：65,536
+   - 日内订单池容量：1,048,576
    - 最大持仓数量：8,192
-   - 队列容量：4,096-8,192
+   - 索引队列容量：65,536（上游/下游）
 
 ## 使用说明
 

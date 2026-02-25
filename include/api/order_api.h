@@ -32,6 +32,7 @@ typedef enum {
     ACCT_ERR_SHM_FAILED = -4,
     ACCT_ERR_ORDER_NOT_FOUND = -5,
     ACCT_ERR_CACHE_FULL = -6,  // 订单缓存已满
+    ACCT_ERR_ORDER_POOL_FULL = -7,  // 订单池容量耗尽
     ACCT_ERR_INTERNAL = -99,
 } acct_error_t;
 
@@ -52,6 +53,16 @@ typedef enum {
 // ============ 上下文句柄 ============
 typedef struct acct_context* acct_ctx_t;
 
+#define ACCT_TRADING_DAY_LEN 8
+
+// ============ 初始化选项 ============
+typedef struct acct_init_options {
+    const char* upstream_shm_name;  // 默认 "/strategy_order_shm"
+    const char* orders_shm_name;    // 默认 "/orders_shm"
+    const char* trading_day;        // 必须为 YYYYMMDD
+    uint8_t create_if_not_exist;    // 0=仅打开，非0=可创建
+} acct_init_options_t;
+
 // ============ 初始化/销毁 ============
 
 /**
@@ -60,6 +71,14 @@ typedef struct acct_context* acct_ctx_t;
  * @return 错误码，ACCT_OK 表示成功
  */
 ACCT_API acct_error_t acct_init(acct_ctx_t* out_ctx);
+
+/**
+ * @brief 使用扩展参数初始化订单 API 上下文
+ * @param options 初始化选项，允许传 NULL 使用默认值
+ * @param out_ctx 输出参数：上下文句柄指针
+ * @return 错误码，ACCT_OK 表示成功
+ */
+ACCT_API acct_error_t acct_init_ex(const acct_init_options_t* options, acct_ctx_t* out_ctx);
 
 /**
  * @brief 销毁上下文并释放资源

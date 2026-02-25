@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <utility>
 
 #include "common/error.hpp"
 #include "common/log.hpp"
@@ -79,58 +80,68 @@ bool order_book::add_order(const order_entry& entry) {
         return false;
     }
 
-    lock_guard<spinlock> guard(lock_);
+    order_change_callback_t callback;
+    order_entry snapshot{};
+    {
+        lock_guard<spinlock> guard(lock_);
 
-    if (id_to_index_.find(order_id) != id_to_index_.end()) {
-        error_status status = ACCT_MAKE_ERROR(
-            error_domain::order, error_code::DuplicateOrder, "order_book", "duplicate order id", 0);
-        record_error(status);
-        ACCT_LOG_ERROR_STATUS(status);
-        return false;
+        if (id_to_index_.find(order_id) != id_to_index_.end()) {
+            error_status status = ACCT_MAKE_ERROR(
+                error_domain::order, error_code::DuplicateOrder, "order_book", "duplicate order id", 0);
+            record_error(status);
+            ACCT_LOG_ERROR_STATUS(status);
+            return false;
+        }
+
+        if (free_slots_.empty()) {
+            error_status status = ACCT_MAKE_ERROR(
+                error_domain::order, error_code::OrderBookFull, "order_book", "order book free slots exhausted", 0);
+            record_error(status);
+            ACCT_LOG_ERROR_STATUS(status);
+            return false;
+        }
+
+        const std::size_t index = free_slots_.back();
+        free_slots_.pop_back();
+
+        order_entry stored = entry;
+        if (stored.submit_time_ns == 0) {
+            stored.submit_time_ns = now_ns();
+        }
+        if (stored.last_update_ns == 0) {
+            stored.last_update_ns = stored.submit_time_ns;
+        }
+
+        if (stored.request.order_type == order_type_t::New && stored.request.volume_remain == 0 &&
+            stored.request.volume_entrust >= stored.request.volume_traded) {
+            stored.request.volume_remain = stored.request.volume_entrust - stored.request.volume_traded;
+        }
+
+        orders_[index] = stored;
+        id_to_index_[order_id] = index;
+
+        if (stored.request.broker_order_id.as_uint != 0) {
+            broker_id_map_[stored.request.broker_order_id.as_uint] = order_id;
+        }
+
+        if (stored.request.internal_security_id != 0) {
+            security_orders_[stored.request.internal_security_id].push_back(order_id);
+        }
+
+        if (stored.is_split_child && stored.parent_order_id != 0) {
+            parent_to_children_[stored.parent_order_id].push_back(order_id);
+            child_to_parent_[order_id] = stored.parent_order_id;
+            refresh_parent_from_children_nolock(stored.parent_order_id);
+        }
+
+        ++active_count_;
+        snapshot = orders_[index];
+        callback = change_callback_;
     }
 
-    if (free_slots_.empty()) {
-        error_status status = ACCT_MAKE_ERROR(
-            error_domain::order, error_code::OrderBookFull, "order_book", "order book free slots exhausted", 0);
-        record_error(status);
-        ACCT_LOG_ERROR_STATUS(status);
-        return false;
+    if (callback) {
+        callback(snapshot, order_book_event_t::Added);
     }
-
-    const std::size_t index = free_slots_.back();
-    free_slots_.pop_back();
-
-    order_entry stored = entry;
-    if (stored.submit_time_ns == 0) {
-        stored.submit_time_ns = now_ns();
-    }
-    if (stored.last_update_ns == 0) {
-        stored.last_update_ns = stored.submit_time_ns;
-    }
-
-    if (stored.request.order_type == order_type_t::New && stored.request.volume_remain == 0 &&
-        stored.request.volume_entrust >= stored.request.volume_traded) {
-        stored.request.volume_remain = stored.request.volume_entrust - stored.request.volume_traded;
-    }
-
-    orders_[index] = stored;
-    id_to_index_[order_id] = index;
-
-    if (stored.request.broker_order_id.as_uint != 0) {
-        broker_id_map_[stored.request.broker_order_id.as_uint] = order_id;
-    }
-
-    if (stored.request.internal_security_id != 0) {
-        security_orders_[stored.request.internal_security_id].push_back(order_id);
-    }
-
-    if (stored.is_split_child && stored.parent_order_id != 0) {
-        parent_to_children_[stored.parent_order_id].push_back(order_id);
-        child_to_parent_[order_id] = stored.parent_order_id;
-        refresh_parent_from_children_nolock(stored.parent_order_id);
-    }
-
-    ++active_count_;
     return true;
 }
 
@@ -155,125 +166,155 @@ order_entry* order_book::find_by_broker_id(uint64_t broker_order_id) {
 }
 
 bool order_book::update_status(internal_order_id_t order_id, order_status_t new_status) {
-    lock_guard<spinlock> guard(lock_);
+    order_change_callback_t callback;
+    order_entry snapshot{};
+    {
+        lock_guard<spinlock> guard(lock_);
 
-    order_entry* entry = find_order_nolock(order_id);
-    if (!entry) {
-        error_status status = ACCT_MAKE_ERROR(
-            error_domain::order, error_code::OrderNotFound, "order_book", "update_status order not found", 0);
-        record_error(status);
-        ACCT_LOG_ERROR_STATUS(status);
-        return false;
+        order_entry* entry = find_order_nolock(order_id);
+        if (!entry) {
+            error_status status = ACCT_MAKE_ERROR(
+                error_domain::order, error_code::OrderNotFound, "order_book", "update_status order not found", 0);
+            record_error(status);
+            ACCT_LOG_ERROR_STATUS(status);
+            return false;
+        }
+
+        entry->request.order_status.store(new_status, std::memory_order_release);
+        entry->last_update_ns = now_ns();
+
+        if (new_status == order_status_t::TraderError && parent_to_children_.find(order_id) != parent_to_children_.end()) {
+            split_parent_error_latched_.insert(order_id);
+        }
+
+        const auto parent_it = child_to_parent_.find(order_id);
+        if (parent_it != child_to_parent_.end()) {
+            refresh_parent_from_children_nolock(parent_it->second);
+        }
+
+        snapshot = *entry;
+        callback = change_callback_;
     }
 
-    entry->request.order_status.store(new_status, std::memory_order_release);
-    entry->last_update_ns = now_ns();
-
-    if (new_status == order_status_t::TraderError && parent_to_children_.find(order_id) != parent_to_children_.end()) {
-        split_parent_error_latched_.insert(order_id);
+    if (callback) {
+        callback(snapshot, order_book_event_t::StatusUpdated);
     }
-
-    const auto parent_it = child_to_parent_.find(order_id);
-    if (parent_it != child_to_parent_.end()) {
-        refresh_parent_from_children_nolock(parent_it->second);
-    }
-
     return true;
 }
 
 bool order_book::update_trade(internal_order_id_t order_id, volume_t vol, dprice_t px, dvalue_t val, dvalue_t fee) {
-    lock_guard<spinlock> guard(lock_);
+    order_change_callback_t callback;
+    order_entry snapshot{};
+    {
+        lock_guard<spinlock> guard(lock_);
 
-    order_entry* entry = find_order_nolock(order_id);
-    if (!entry) {
-        error_status status = ACCT_MAKE_ERROR(
-            error_domain::order, error_code::OrderNotFound, "order_book", "update_trade order not found", 0);
-        record_error(status);
-        ACCT_LOG_ERROR_STATUS(status);
-        return false;
-    }
+        order_entry* entry = find_order_nolock(order_id);
+        if (!entry) {
+            error_status status = ACCT_MAKE_ERROR(
+                error_domain::order, error_code::OrderNotFound, "order_book", "update_trade order not found", 0);
+            record_error(status);
+            ACCT_LOG_ERROR_STATUS(status);
+            return false;
+        }
 
-    order_request& request = entry->request;
-    request.volume_traded = saturating_add(request.volume_traded, vol);
-    if (request.volume_entrust > 0 && request.volume_traded > request.volume_entrust) {
-        request.volume_traded = request.volume_entrust;
-    }
+        order_request& request = entry->request;
+        request.volume_traded = saturating_add(request.volume_traded, vol);
+        if (request.volume_entrust > 0 && request.volume_traded > request.volume_entrust) {
+            request.volume_traded = request.volume_entrust;
+        }
 
-    if (vol >= request.volume_remain) {
-        request.volume_remain = 0;
-    } else {
-        request.volume_remain -= vol;
-    }
-
-    request.dvalue_traded = saturating_add(request.dvalue_traded, val);
-    request.dfee_executed = saturating_add(request.dfee_executed, fee);
-
-    if (request.volume_traded > 0) {
-        if (request.dvalue_traded > 0) {
-            request.dprice_traded = request.dvalue_traded / request.volume_traded;
+        if (vol >= request.volume_remain) {
+            request.volume_remain = 0;
         } else {
-            request.dprice_traded = px;
+            request.volume_remain -= vol;
         }
-    }
 
-    if (request.volume_remain == 0) {
-        const order_status_t current = request.order_status.load(std::memory_order_acquire);
-        if (!is_terminal_status(current)) {
-            request.order_status.store(order_status_t::Finished, std::memory_order_release);
+        request.dvalue_traded = saturating_add(request.dvalue_traded, val);
+        request.dfee_executed = saturating_add(request.dfee_executed, fee);
+
+        if (request.volume_traded > 0) {
+            if (request.dvalue_traded > 0) {
+                request.dprice_traded = request.dvalue_traded / request.volume_traded;
+            } else {
+                request.dprice_traded = px;
+            }
         }
+
+        if (request.volume_remain == 0) {
+            const order_status_t current = request.order_status.load(std::memory_order_acquire);
+            if (!is_terminal_status(current)) {
+                request.order_status.store(order_status_t::Finished, std::memory_order_release);
+            }
+        }
+
+        entry->last_update_ns = now_ns();
+
+        const auto parent_it = child_to_parent_.find(order_id);
+        if (parent_it != child_to_parent_.end()) {
+            refresh_parent_from_children_nolock(parent_it->second);
+        }
+
+        snapshot = *entry;
+        callback = change_callback_;
     }
 
-    entry->last_update_ns = now_ns();
-
-    const auto parent_it = child_to_parent_.find(order_id);
-    if (parent_it != child_to_parent_.end()) {
-        refresh_parent_from_children_nolock(parent_it->second);
+    if (callback) {
+        callback(snapshot, order_book_event_t::TradeUpdated);
     }
-
     return true;
 }
 
 bool order_book::archive_order(internal_order_id_t order_id) {
-    lock_guard<spinlock> guard(lock_);
+    order_change_callback_t callback;
+    order_entry snapshot{};
+    {
+        lock_guard<spinlock> guard(lock_);
 
-    const auto it = id_to_index_.find(order_id);
-    if (it == id_to_index_.end()) {
-        error_status status = ACCT_MAKE_ERROR(
-            error_domain::order, error_code::OrderNotFound, "order_book", "archive_order order not found", 0);
-        record_error(status);
-        ACCT_LOG_ERROR_STATUS(status);
-        return false;
-    }
-
-    const std::size_t index = it->second;
-    const order_entry& entry = orders_[index];
-
-    if (entry.request.broker_order_id.as_uint != 0) {
-        const auto broker_it = broker_id_map_.find(entry.request.broker_order_id.as_uint);
-        if (broker_it != broker_id_map_.end() && broker_it->second == order_id) {
-            broker_id_map_.erase(broker_it);
+        const auto it = id_to_index_.find(order_id);
+        if (it == id_to_index_.end()) {
+            error_status status = ACCT_MAKE_ERROR(
+                error_domain::order, error_code::OrderNotFound, "order_book", "archive_order order not found", 0);
+            record_error(status);
+            ACCT_LOG_ERROR_STATUS(status);
+            return false;
         }
-    }
 
-    if (entry.request.internal_security_id != 0) {
-        auto sec_it = security_orders_.find(entry.request.internal_security_id);
-        if (sec_it != security_orders_.end()) {
-            auto& orders = sec_it->second;
-            orders.erase(std::remove(orders.begin(), orders.end(), order_id), orders.end());
-            if (orders.empty()) {
-                security_orders_.erase(sec_it);
+        const std::size_t index = it->second;
+        const order_entry& entry = orders_[index];
+        snapshot = entry;
+
+        if (entry.request.broker_order_id.as_uint != 0) {
+            const auto broker_it = broker_id_map_.find(entry.request.broker_order_id.as_uint);
+            if (broker_it != broker_id_map_.end() && broker_it->second == order_id) {
+                broker_id_map_.erase(broker_it);
             }
         }
+
+        if (entry.request.internal_security_id != 0) {
+            auto sec_it = security_orders_.find(entry.request.internal_security_id);
+            if (sec_it != security_orders_.end()) {
+                auto& orders = sec_it->second;
+                orders.erase(std::remove(orders.begin(), orders.end(), order_id), orders.end());
+                if (orders.empty()) {
+                    security_orders_.erase(sec_it);
+                }
+            }
+        }
+
+        id_to_index_.erase(it);
+        orders_[index] = order_entry{};
+        free_slots_.push_back(index);
+
+        if (active_count_ > 0) {
+            --active_count_;
+        }
+
+        callback = change_callback_;
     }
 
-    id_to_index_.erase(it);
-    orders_[index] = order_entry{};
-    free_slots_.push_back(index);
-
-    if (active_count_ > 0) {
-        --active_count_;
+    if (callback) {
+        callback(snapshot, order_book_event_t::Archived);
     }
-
     return true;
 }
 
@@ -347,6 +388,11 @@ void order_book::clear() {
     }
 
     active_count_ = 0;
+}
+
+void order_book::set_change_callback(order_change_callback_t callback) {
+    lock_guard<spinlock> guard(lock_);
+    change_callback_ = std::move(callback);
 }
 
 order_entry* order_book::find_order_nolock(internal_order_id_t order_id) {
@@ -425,6 +471,12 @@ void order_book::refresh_parent_from_children_nolock(internal_order_id_t parent_
         return;
     }
 
+    auto notify_parent = [&]() {
+        if (change_callback_) {
+            change_callback_(*parent, order_book_event_t::ParentRefreshed);
+        }
+    };
+
     parent->request.volume_traded = total_volume_traded;
     parent->request.volume_remain = total_volume_remain;
     parent->request.dvalue_traded = total_dvalue_traded;
@@ -442,17 +494,20 @@ void order_book::refresh_parent_from_children_nolock(internal_order_id_t parent_
 
     if (split_parent_error_latched_.find(parent_id) != split_parent_error_latched_.end()) {
         parent->request.order_status.store(order_status_t::TraderError, std::memory_order_release);
+        notify_parent();
         return;
     }
 
     if (all_terminal) {
         parent->request.order_status.store(order_status_t::Finished, std::memory_order_release);
+        notify_parent();
         return;
     }
 
     if (best_progress_status != order_status_t::NotSet) {
         parent->request.order_status.store(best_progress_status, std::memory_order_release);
     }
+    notify_parent();
 }
 
 }  // namespace acct_service

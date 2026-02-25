@@ -4,10 +4,11 @@
 
 `acct_broker_gateway_main` 负责连接 `account_service` 与券商适配器：
 
-1. 从 `downstream_shm_layout.order_queue` 消费 `order_request`。
-2. 转换为 `broker_api::broker_order_request` 并发送。
-3. 从适配器拉取 `broker_event`。
-4. 转换为 `trade_response` 并写入 `trades_shm_layout.response_queue`。
+1. 从 `downstream_shm_layout.order_queue` 消费 `order_index_t`。
+2. 通过 `orders_shm_layout.slots[index]` 读取 `order_request` 快照。
+3. 转换为 `broker_api::broker_order_request` 并发送。
+4. 从适配器拉取 `broker_event`。
+5. 转换为 `trade_response` 并写入 `trades_shm_layout.response_queue`。
 
 ## 目录结构
 
@@ -27,12 +28,15 @@ sequenceDiagram
     autonumber
     participant AS as account_service
     participant DS as downstream_shm.order_queue
+    participant OP as orders_shm.slots
     participant GW as gateway_loop
     participant AD as broker_adapter
     participant TS as trades_shm.response_queue
 
-    AS->>DS: push(order_request)
-    GW->>DS: pop(order_request)
+    AS->>OP: write(order_slot)
+    AS->>DS: push(order_index)
+    GW->>DS: pop(order_index)
+    GW->>OP: read(order_slot by index)
     GW->>GW: map_order_request_to_broker
     GW->>AD: submit(broker_order_request)
     AD-->>GW: send_result
@@ -81,6 +85,8 @@ sequenceDiagram
 - `--account-id`
 - `--downstream-shm`
 - `--trades-shm`
+- `--orders-shm`
+- `--trading-day`
 - `--broker-type`（`sim` 或 `plugin`）
 - `--adapter-so`（`plugin` 模式必填）
 - `--create-if-not-exist`
