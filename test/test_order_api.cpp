@@ -1,8 +1,17 @@
 #include <cassert>
+#include <cerrno>
 #include <cstdio>
 #include <cstring>
+#include <string>
+#include <string_view>
+#include <string>
+#include <string_view>
+
+#include <sys/mman.h>
 
 #include "api/order_api.h"
+#include "common/constants.hpp"
+#include "shm/orders_shm.hpp"
 
 #define TEST(name) static void test_##name()
 #define RUN_TEST(name)                   \
@@ -11,6 +20,21 @@
         test_##name();                   \
         printf("PASSED\n");              \
     } while (0)
+
+namespace {
+
+void cleanup_order_api_shm(std::string_view trading_day) {
+    if (::shm_unlink(acct_service::kStrategyOrderShmName) < 0 && errno != ENOENT) {
+        std::perror("shm_unlink strategy_order_shm");
+    }
+
+    const std::string orders_name = acct_service::make_orders_shm_name(acct_service::kOrdersShmName, trading_day);
+    if (::shm_unlink(orders_name.c_str()) < 0 && errno != ENOENT) {
+        std::perror("shm_unlink orders_shm");
+    }
+}
+
+}  // namespace
 
 TEST(version) {
     const char* ver = acct_version();
@@ -59,6 +83,8 @@ TEST(null_ctx_operations) {
 }
 
 TEST(init_with_auto_create) {
+    cleanup_order_api_shm("19700101");
+
     // 共享内存会自动创建
     acct_ctx_t ctx = nullptr;
     acct_error_t err = acct_init(&ctx);
@@ -72,9 +98,12 @@ TEST(init_with_auto_create) {
     // 清理共享内存
     err = acct_cleanup_shm();
     assert(err == ACCT_OK);
+    cleanup_order_api_shm("19700101");
 }
 
 TEST(init_ex_with_custom_options) {
+    cleanup_order_api_shm("20260225");
+
     acct_ctx_t ctx = nullptr;
     acct_init_options_t opts{};
     opts.upstream_shm_name = "/strategy_order_shm";
@@ -86,6 +115,8 @@ TEST(init_ex_with_custom_options) {
     assert(err == ACCT_OK);
     assert(ctx != nullptr);
     assert(acct_destroy(ctx) == ACCT_OK);
+
+    cleanup_order_api_shm("20260225");
 }
 
 TEST(invalid_params) {

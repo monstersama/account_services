@@ -40,7 +40,9 @@ gateway模块负责读取 `downstream_shm` 中的索引，从 `orders_shm` 读�
 - 设计文档：`gateway/docs/gateway_design.md`
 - 时序图：`gateway/docs/gateway_sequence.mmd`
 - 券商适配接口契约：`docs/broker_api_contract.md`
-- 插件模式：`--broker-type plugin --adapter-so <adapter.so>`
+- 插件模式：在 `config/gateway.yaml` 中设置 `broker_type: "plugin"` 和 `adapter_so: "<adapter.so>"`
+- Gateway 配置文件示例：`config/gateway.yaml`
+- 配置文件启动示例：`./build/gateway/acct_broker_gateway_main --config ./config/gateway.yaml`
 
 ## 监控 SDK
 

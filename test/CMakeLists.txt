@@ -92,6 +92,13 @@ add_executable(test_gateway_mapper
 
 target_link_libraries(test_gateway_mapper PRIVATE acct_gateway_core)
 
+# ============ gateway config 测试 ==========
+add_executable(test_gateway_config
+    test_gateway_config.cpp
+)
+
+target_link_libraries(test_gateway_config PRIVATE acct_gateway_core)
+
 # ============ gateway loop 测试 ==========
 add_executable(test_gateway_loop
     test_gateway_loop.cpp
@@ -137,6 +144,7 @@ add_test(NAME test_event_loop COMMAND test_event_loop)
 add_test(NAME test_config_manager COMMAND test_config_manager)
 add_test(NAME test_account_service COMMAND test_account_service)
 add_test(NAME test_gateway_mapper COMMAND test_gateway_mapper)
+add_test(NAME test_gateway_config COMMAND test_gateway_config)
 add_test(NAME test_gateway_loop COMMAND test_gateway_loop)
 add_test(NAME test_gateway_plugin_mode COMMAND test_gateway_plugin_mode)
 add_test(NAME test_adapter_loader COMMAND test_adapter_loader)

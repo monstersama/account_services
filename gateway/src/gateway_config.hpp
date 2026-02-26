@@ -8,6 +8,7 @@ namespace acct_service::gateway {
 
 // gateway 运行时配置（命令行解析结果）。
 struct gateway_config {
+    std::string config_file;
     account_id_t account_id = 1;
     std::string downstream_shm_name = "/downstream_order_shm";
     std::string trades_shm_name = "/trades_shm";

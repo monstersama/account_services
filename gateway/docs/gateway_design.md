@@ -80,26 +80,33 @@ sequenceDiagram
 
 ## 配置项
 
-支持命令行参数：
+启动参数仅支持：
 
-- `--account-id`
-- `--downstream-shm`
-- `--trades-shm`
-- `--orders-shm`
-- `--trading-day`
-- `--broker-type`（`sim` 或 `plugin`）
-- `--adapter-so`（`plugin` 模式必填）
-- `--create-if-not-exist`
-- `--poll-batch-size`
-- `--idle-sleep-us`
-- `--stats-interval-ms`
-- `--max-retries`
-- `--retry-interval-us`
+- `--config`（YAML 配置文件路径，例如 `config/gateway.yaml`）
+- `-h` / `--help`
+
+业务参数统一放在 `gateway.yaml` 中，包含：
+
+- `account_id`
+- `downstream_shm`
+- `trades_shm`
+- `orders_shm`
+- `trading_day`
+- `broker_type`（`sim` 或 `plugin`）
+- `adapter_so`（`plugin` 模式必填）
+- `create_if_not_exist`
+- `poll_batch_size`
+- `idle_sleep_us`
+- `stats_interval_ms`
+- `max_retries`
+- `retry_interval_us`
+
+若不传 `--config`，默认读取 `config/gateway.yaml`。
 
 ## 适配器加载模式
 
 - `sim`：使用内置模拟适配器。
-- `plugin`：通过 `dlopen` 加载 `--adapter-so` 指定的插件。
+- `plugin`：通过 `dlopen` 加载配置文件 `adapter_so` 指定的插件。
 
 插件需导出 3 个 C 符号（见 `broker_api.hpp`）：
 

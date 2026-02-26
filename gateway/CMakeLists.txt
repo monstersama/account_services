@@ -1,3 +1,9 @@
+find_package(yaml-cpp REQUIRED)
+set(ACCT_GATEWAY_YAMLCPP_TARGET yaml-cpp)
+if(TARGET yaml-cpp::yaml-cpp)
+    set(ACCT_GATEWAY_YAMLCPP_TARGET yaml-cpp::yaml-cpp)
+endif()
+
 add_library(acct_gateway_core STATIC
     src/adapter_loader.cpp
     src/gateway_config.cpp
@@ -18,6 +24,7 @@ target_link_libraries(acct_gateway_core PUBLIC
     acct_common
     acct_shm
     acct_broker_api
+    ${ACCT_GATEWAY_YAMLCPP_TARGET}
     dl
 )
 
