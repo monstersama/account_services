@@ -33,7 +33,7 @@ bool report_shm_error(error_code code, std::string_view name, std::string_view d
 SHMManager::SHMManager() = default;
 
 // 析构函数
-SHMManager::~SHMManager() { close(); }
+SHMManager::~SHMManager() noexcept { close(); }
 
 // 移动构造函数
 SHMManager::SHMManager(SHMManager &&other) noexcept
@@ -372,10 +372,14 @@ positions_shm_layout *SHMManager::open_positions(std::string_view name, shm_mode
 }
 
 // 关闭并解除映射
-void SHMManager::close() {
+void SHMManager::close() noexcept {
     if (ptr_ && ptr_ != MAP_FAILED) {
         if (munmap(ptr_, size_) < 0) {
-            (void)report_shm_error(error_code::ShmMmapFailed, name_, "munmap failed", errno);
+            // Keep close() noexcept: error reporting must not leak exceptions.
+            try {
+                (void)report_shm_error(error_code::ShmMmapFailed, name_, "munmap failed", errno);
+            } catch (...) {
+            }
         }
     }
     if (fd_ >= 0) {

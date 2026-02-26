@@ -10,6 +10,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <new>
 #include <string>
 #include <string_view>
@@ -175,16 +176,11 @@ bool validate_header(const acct_service::orders_shm_layout* shm, std::string_vie
     return std::memcmp(header.trading_day, expected_trading_day.data(), ACCT_MON_TRADING_DAY_LEN) == 0;
 }
 
-void close_fd(int& fd) noexcept {
-    if (fd >= 0) {
-        (void)::close(fd);
-        fd = -1;
-    }
-}
-
 }  // namespace
 
 struct acct_orders_monitor_context {
+    acct_orders_monitor_context() = default;
+
     int fd = -1;
     const acct_service::orders_shm_layout* orders_shm = nullptr;
 
@@ -193,6 +189,19 @@ struct acct_orders_monitor_context {
     std::string orders_dated_name;
 
     bool initialized = false;
+
+    ~acct_orders_monitor_context() noexcept {
+        if (orders_shm) {
+            (void)munmap(
+                const_cast<acct_service::orders_shm_layout*>(orders_shm), sizeof(acct_service::orders_shm_layout));
+        }
+        if (fd >= 0) {
+            (void)::close(fd);
+        }
+    }
+
+    acct_orders_monitor_context(const acct_orders_monitor_context&) = delete;
+    acct_orders_monitor_context& operator=(const acct_orders_monitor_context&) = delete;
 };
 
 extern "C" {
@@ -209,7 +218,7 @@ ACCT_MON_API acct_mon_error_t acct_orders_mon_open(const acct_orders_mon_options
         return ACCT_MON_ERR_INVALID_PARAM;
     }
 
-    auto* ctx = new (std::nothrow) acct_orders_monitor_context();
+    auto ctx = std::unique_ptr<acct_orders_monitor_context>(new (std::nothrow) acct_orders_monitor_context());
     if (!ctx) {
         return ACCT_MON_ERR_INTERNAL;
     }
@@ -217,42 +226,32 @@ ACCT_MON_API acct_mon_error_t acct_orders_mon_open(const acct_orders_mon_options
     ctx->orders_dated_name = make_orders_shm_name(base_name, trading_day);
     ctx->fd = shm_open(ctx->orders_dated_name.c_str(), O_RDONLY | O_CLOEXEC, 0644);
     if (ctx->fd < 0) {
-        delete ctx;
         return ACCT_MON_ERR_SHM_FAILED;
     }
 
     struct stat st {};
     if (fstat(ctx->fd, &st) < 0) {
-        close_fd(ctx->fd);
-        delete ctx;
         return ACCT_MON_ERR_SHM_FAILED;
     }
 
     if (static_cast<std::size_t>(st.st_size) != sizeof(acct_service::orders_shm_layout)) {
-        close_fd(ctx->fd);
-        delete ctx;
         return ACCT_MON_ERR_SHM_FAILED;
     }
 
     void* ptr = mmap(nullptr, sizeof(acct_service::orders_shm_layout), PROT_READ, MAP_SHARED, ctx->fd, 0);
     if (ptr == MAP_FAILED) {
-        close_fd(ctx->fd);
-        delete ctx;
         return ACCT_MON_ERR_SHM_FAILED;
     }
 
     ctx->orders_shm = static_cast<const acct_service::orders_shm_layout*>(ptr);
     if (!validate_header(ctx->orders_shm, trading_day)) {
-        (void)munmap(const_cast<acct_service::orders_shm_layout*>(ctx->orders_shm), sizeof(acct_service::orders_shm_layout));
-        close_fd(ctx->fd);
-        delete ctx;
         return ACCT_MON_ERR_SHM_FAILED;
     }
 
     ctx->orders_base_name = base_name;
     ctx->trading_day = trading_day;
     ctx->initialized = true;
-    *out_ctx = ctx;
+    *out_ctx = ctx.release();
     return ACCT_MON_OK;
 }
 
@@ -262,11 +261,6 @@ ACCT_MON_API acct_mon_error_t acct_orders_mon_close(acct_orders_mon_ctx_t ctx) {
     }
 
     auto* context = ctx;
-    if (context->orders_shm) {
-        (void)munmap(const_cast<acct_service::orders_shm_layout*>(context->orders_shm), sizeof(acct_service::orders_shm_layout));
-        context->orders_shm = nullptr;
-    }
-    close_fd(context->fd);
     delete context;
     return ACCT_MON_OK;
 }

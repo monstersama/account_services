@@ -31,7 +31,7 @@ Fn lookup_symbol(void* handle, const char* symbol_name, std::string& error_messa
 
 }  // namespace
 
-loaded_adapter::~loaded_adapter() { reset(); }
+loaded_adapter::~loaded_adapter() noexcept { reset(); }
 
 loaded_adapter::loaded_adapter(loaded_adapter&& other) noexcept
     : handle_(other.handle_), adapter_(other.adapter_), destroy_fn_(other.destroy_fn_) {
@@ -130,4 +130,3 @@ bool load_adapter_plugin(const std::string& so_path, loaded_adapter& out, std::s
 }
 
 }  // namespace acct_service::gateway
-

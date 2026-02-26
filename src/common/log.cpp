@@ -112,14 +112,14 @@ void write_fallback_stderr(const log_record& record) {
 }  // namespace
 
 struct async_logger::impl {
-    logger_queue* queue = nullptr;
+    std::unique_ptr<logger_queue> queue{};
     std::thread worker;
     std::atomic<bool> running{false};
     std::atomic<bool> healthy{false};
     std::atomic<uint64_t> dropped{0};
     std::atomic<uint64_t> enqueued{0};
     std::atomic<uint64_t> written{0};
-    FILE* output = nullptr;
+    std::unique_ptr<FILE, int (*)(FILE*)> output{nullptr, std::fclose};
     log_level min_level = log_level::info;
     bool async_enabled = true;
     spinlock io_lock;
@@ -136,7 +136,7 @@ struct async_logger::impl {
                 }
                 got = true;
                 if (output) {
-                    std::fprintf(output,
+                    std::fprintf(output.get(),
                         "[%llu][%s][%s][%s:%u] severity=%s code=%s domain=%s errno=%d msg=%s\n",
                         static_cast<unsigned long long>(rec.ts_ns), to_string(rec.level), rec.module.c_str(),
                         rec.file.c_str(), rec.line, to_string(rec.severity), to_string(rec.code), to_string(rec.domain),
@@ -148,7 +148,7 @@ struct async_logger::impl {
             if (got) {
                 written.store(processed, std::memory_order_release);
                 if (output) {
-                    std::fflush(output);
+                    std::fflush(output.get());
                 }
             } else {
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -156,26 +156,25 @@ struct async_logger::impl {
         }
 
         if (output) {
-            std::fflush(output);
+            std::fflush(output.get());
         }
         written.store(processed, std::memory_order_release);
     }
 };
 
-async_logger::~async_logger() { shutdown(); }
+async_logger::~async_logger() noexcept { shutdown(); }
 
 bool async_logger::init(const log_config& config, account_id_t account_id) {
     shutdown();
 
-    auto* state = new (std::nothrow) impl();
+    auto state = std::unique_ptr<impl>(new (std::nothrow) impl());
     if (!state) {
         return false;
     }
 
     const std::size_t queue_size = normalize_capacity(config.async_queue_size);
-    state->queue = new (std::nothrow) logger_queue(queue_size);
+    state->queue.reset(new (std::nothrow) logger_queue(queue_size));
     if (!state->queue) {
-        delete state;
         return false;
     }
 
@@ -185,10 +184,8 @@ bool async_logger::init(const log_config& config, account_id_t account_id) {
     std::error_code ec;
     std::filesystem::create_directories(config.log_dir, ec);
     const std::string path = config.log_dir + "/account_" + std::to_string(account_id) + ".log";
-    state->output = std::fopen(path.c_str(), "a");
+    state->output.reset(std::fopen(path.c_str(), "a"));
     if (!state->output) {
-        delete state->queue;
-        delete state;
         return false;
     }
 
@@ -196,20 +193,17 @@ bool async_logger::init(const log_config& config, account_id_t account_id) {
     state->healthy.store(true, std::memory_order_release);
 
     try {
-        state->worker = std::thread([state]() { state->consume_loop(); });
+        state->worker = std::thread([raw = state.get()]() { raw->consume_loop(); });
     } catch (...) {
         state->healthy.store(false, std::memory_order_release);
-        std::fclose(state->output);
-        delete state->queue;
-        delete state;
         return false;
     }
 
-    impl_ = state;
+    impl_ = std::move(state);
     return true;
 }
 
-void async_logger::shutdown() {
+void async_logger::shutdown() noexcept {
     if (!impl_) {
         return;
     }
@@ -220,12 +214,9 @@ void async_logger::shutdown() {
     }
 
     if (impl_->output) {
-        std::fflush(impl_->output);
-        std::fclose(impl_->output);
+        std::fflush(impl_->output.get());
     }
-    delete impl_->queue;
-    delete impl_;
-    impl_ = nullptr;
+    impl_.reset();
 }
 
 bool async_logger::flush(uint32_t timeout_ms) {
@@ -245,7 +236,7 @@ bool async_logger::flush(uint32_t timeout_ms) {
     }
 
     if (impl_->output) {
-        std::fflush(impl_->output);
+        std::fflush(impl_->output.get());
     }
     return true;
 }
@@ -265,12 +256,12 @@ bool async_logger::log(const log_record& record) {
     if (!impl_->async_enabled) {
         lock_guard<spinlock> guard(impl_->io_lock);
         if (impl_->output) {
-            std::fprintf(impl_->output,
+            std::fprintf(impl_->output.get(),
                 "[%llu][%s][%s][%s:%u] severity=%s code=%s domain=%s errno=%d msg=%s\n",
                 static_cast<unsigned long long>(record.ts_ns), to_string(record.level), record.module.c_str(),
                 record.file.c_str(), record.line, to_string(record.severity), to_string(record.code),
                 to_string(record.domain), record.sys_errno, record.message.c_str());
-            std::fflush(impl_->output);
+            std::fflush(impl_->output.get());
             return true;
         }
         write_fallback_stderr(record);

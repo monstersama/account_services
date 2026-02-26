@@ -10,7 +10,7 @@ namespace acct_service::gateway {
 class loaded_adapter {
 public:
     loaded_adapter() = default;
-    ~loaded_adapter();
+    ~loaded_adapter() noexcept;
 
     loaded_adapter(const loaded_adapter&) = delete;
     loaded_adapter& operator=(const loaded_adapter&) = delete;
@@ -35,4 +35,3 @@ private:
 bool load_adapter_plugin(const std::string& so_path, loaded_adapter& out, std::string& error_message);
 
 }  // namespace acct_service::gateway
-

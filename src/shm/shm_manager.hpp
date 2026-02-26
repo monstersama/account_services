@@ -19,7 +19,7 @@ enum class shm_mode {
 class SHMManager {
 public:
     SHMManager();
-    ~SHMManager();
+    ~SHMManager() noexcept;
 
     // 禁止拷贝
     SHMManager(const SHMManager&) = delete;
@@ -45,7 +45,7 @@ public:
     positions_shm_layout* open_positions(std::string_view name, shm_mode mode, account_id_t account_id);
 
     // 关闭并解除映射
-    void close();
+    void close() noexcept;
 
     // 删除共享内存对象
     static bool unlink(std::string_view name);

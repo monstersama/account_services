@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <new>
 #include <string>
 #include <unordered_map>
@@ -157,7 +158,7 @@ ACCT_API acct_error_t acct_init_ex(const acct_init_options_t* options, acct_ctx_
         return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "invalid acct_init_ex options");
     }
 
-    auto* ctx = new (std::nothrow) acct_context();
+    auto ctx = std::unique_ptr<acct_context>(new (std::nothrow) acct_context());
     if (!ctx) {
         return api_error(ACCT_ERR_INTERNAL, error_code::InternalError, "acct_context allocation failed");
     }
@@ -170,7 +171,6 @@ ACCT_API acct_error_t acct_init_ex(const acct_init_options_t* options, acct_ctx_
         ctx->upstream_shm = ctx->upstream_shm_manager.open_upstream(upstream_name, shm_mode::Create, 0);
     }
     if (!ctx->upstream_shm) {
-        delete ctx;
         return api_error(ACCT_ERR_SHM_FAILED, error_code::ShmOpenFailed, "acct_init_ex open upstream shm failed");
     }
 
@@ -182,7 +182,6 @@ ACCT_API acct_error_t acct_init_ex(const acct_init_options_t* options, acct_ctx_
         ctx->orders_shm = ctx->orders_shm_manager.open_orders(ctx->orders_dated_name, shm_mode::Create, 0);
     }
     if (!ctx->orders_shm) {
-        delete ctx;
         return api_error(ACCT_ERR_SHM_FAILED, error_code::ShmOpenFailed, "acct_init_ex open orders shm failed");
     }
 
@@ -190,7 +189,7 @@ ACCT_API acct_error_t acct_init_ex(const acct_init_options_t* options, acct_ctx_
     ctx->orders_base_name = orders_base_name;
     ctx->trading_day = trading_day;
     ctx->initialized = true;
-    *out_ctx = ctx;
+    *out_ctx = ctx.release();
     return ACCT_OK;
 }
 
@@ -202,8 +201,6 @@ ACCT_API acct_error_t acct_destroy(acct_ctx_t ctx) {
     auto* context = ctx;
     context->upstream_shm = nullptr;
     context->orders_shm = nullptr;
-    context->upstream_shm_manager.close();
-    context->orders_shm_manager.close();
     delete context;
     return ACCT_OK;
 }

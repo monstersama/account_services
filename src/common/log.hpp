@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <string_view>
 
 #include "common/error.hpp"
@@ -36,10 +37,10 @@ struct log_record {
 class async_logger {
 public:
     async_logger() = default;
-    ~async_logger();
+    ~async_logger() noexcept;
 
     bool init(const log_config& config, account_id_t account_id);
-    void shutdown();
+    void shutdown() noexcept;
     bool flush(uint32_t timeout_ms);
     bool log(const log_record& record);
 
@@ -51,7 +52,7 @@ private:
     async_logger& operator=(const async_logger&) = delete;
 
     struct impl;
-    impl* impl_ = nullptr;
+    std::unique_ptr<impl> impl_{};
 };
 
 bool init_logger(const log_config& config, account_id_t account_id);
