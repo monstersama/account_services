@@ -1,0 +1,4 @@
+interface:
+  display_name: "Enforce Project Naming"
+  short_description: "Enforce naming consistency for new code in account_services."
+  default_prompt: "Ensure every newly introduced symbol follows the repository naming baseline before finalizing code changes."
