@@ -32,9 +32,11 @@ void install_signal_handler() {
 
 }  // namespace
 
+// 程序入口：解析参数、初始化资源、运行网关主循环并完成退出清理。
 int main(int argc, char* argv[]) {
     using namespace acct_service;
 
+    // 先解析命令行参数，处理 help / 参数错误等快速退出分支。
     gateway::gateway_config config;
     std::string error_message;
     const gateway::parse_result_t parse_result = gateway::parse_args(argc, argv, config, error_message);
@@ -104,6 +106,7 @@ int main(int argc, char* argv[]) {
     }
 
     broker_api::broker_runtime_config runtime_config;
+    // 组装适配器运行时参数并完成初始化。
     runtime_config.account_id = config.account_id;
     runtime_config.auto_fill = true;
 
@@ -113,12 +116,14 @@ int main(int argc, char* argv[]) {
     }
 
     gateway::gateway_loop loop(config, downstream, trades, orders, *adapter_ptr);
+    // 将 loop 指针暴露给信号处理逻辑，再进入主循环。
     g_gateway_loop.store(&loop, std::memory_order_release);
     install_signal_handler();
 
     // 进入主循环，直到信号或内部停止。
     const int run_rc = loop.run();
 
+    // 无论 run 返回何值都按固定顺序回收资源。
     g_gateway_loop.store(nullptr, std::memory_order_release);
     if (adapter_ptr) {
         adapter_ptr->shutdown();

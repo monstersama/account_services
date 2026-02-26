@@ -51,6 +51,7 @@ void copy_security_id(const fixed_string<SECURITY_ID_SIZE>& source, char* destin
 
 }  // namespace
 
+// 将交易方向从共享内存协议映射到 broker_api 枚举。
 broker_api::side to_broker_side(trade_side_t side_value) noexcept {
     switch (side_value) {
         case trade_side_t::Buy:
@@ -62,6 +63,7 @@ broker_api::side to_broker_side(trade_side_t side_value) noexcept {
     }
 }
 
+// 将 broker_api 方向映射回订单协议方向。
 trade_side_t to_order_side(broker_api::side side_value) noexcept {
     switch (side_value) {
         case broker_api::side::Buy:
@@ -73,6 +75,7 @@ trade_side_t to_order_side(broker_api::side side_value) noexcept {
     }
 }
 
+// 将上游 order_request 转换为 broker_order_request；输入不合法时返回 false。
 bool map_order_request_to_broker(
     const order_request& request, broker_api::broker_order_request& out_request) noexcept {
     // 基本合法性检查。
@@ -85,6 +88,7 @@ bool map_order_request_to_broker(
         return false;
     }
 
+    // 执行字段映射，时间戳优先使用 md_time_entrust，缺失时回退到 md_time_driven。
     out_request = broker_api::broker_order_request{};
     out_request.internal_order_id = request.internal_order_id;
     out_request.orig_internal_order_id = request.orig_internal_order_id;

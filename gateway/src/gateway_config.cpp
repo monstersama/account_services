@@ -41,6 +41,7 @@ bool parse_bool(std::string text, bool& out) {
     return false;
 }
 
+// 校验交易日格式：必须是 YYYYMMDD 八位数字。
 bool is_valid_trading_day(std::string_view trading_day) {
     if (trading_day.size() != 8) {
         return false;
@@ -62,6 +63,7 @@ bool require_value(int argc, int i, char* argv[], std::string& value, std::strin
 
 }  // namespace
 
+// 打印网关命令行参数说明。
 void print_usage(const char* program) {
     std::fprintf(stderr,
         "Usage: %s [options]\n"
@@ -82,6 +84,7 @@ void print_usage(const char* program) {
         program ? program : "acct_broker_gateway");
 }
 
+// 解析命令行参数并填充 gateway_config，遇到非法输入时返回 Error。
 parse_result_t parse_args(int argc, char* argv[], gateway_config& config, std::string& error_message) {
     // 逐项扫描命令行参数，解析到 config。
     for (int i = 1; i < argc; ++i) {
@@ -252,6 +255,7 @@ parse_result_t parse_args(int argc, char* argv[], gateway_config& config, std::s
         return parse_result_t::Error;
     }
 
+    // 参数扫描完成后执行跨字段约束校验。
     // 共享内存名称是必须项。
     if (config.downstream_shm_name.empty() || config.trades_shm_name.empty() || config.orders_shm_name.empty()) {
         error_message = "shared memory names must be non-empty";

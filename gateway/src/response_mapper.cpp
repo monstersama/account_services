@@ -26,6 +26,7 @@ order_status_t map_event_kind_to_status(broker_api::event_kind kind) noexcept {
 
 }  // namespace
 
+// 将 broker_event 映射为 trade_response；如果事件不合法或无法识别则返回 false。
 bool map_broker_event_to_trade_response(
     const broker_api::broker_event& event, trade_response& out_response) noexcept {
     // internal_order_id 是上游关联主键，不能为空。
@@ -34,6 +35,7 @@ bool map_broker_event_to_trade_response(
     }
 
     const order_status_t mapped_status = map_event_kind_to_status(event.kind);
+    // 仅允许可识别状态继续下发，避免写入协议外状态值。
     if (mapped_status == order_status_t::Unknown) {
         return false;
     }
@@ -50,6 +52,7 @@ bool map_broker_event_to_trade_response(
     out_response.dvalue_traded = event.value_traded;
     out_response.dfee = event.fee;
     out_response.md_time_traded = event.md_time_traded;
+    // 若 broker 未提供接收时间，使用本地时间兜底。
     out_response.recv_time_ns = (event.recv_time_ns != 0) ? event.recv_time_ns : now_ns();
 
     return true;
