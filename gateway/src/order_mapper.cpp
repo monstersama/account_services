@@ -36,7 +36,7 @@ broker_api::market to_broker_market(market_t market_value) noexcept {
 }
 
 // 拷贝证券代码到定长 C 字符串。
-void copy_security_id(const fixed_string<SECURITY_ID_SIZE>& source, char* destination, std::size_t capacity) {
+void copy_security_id(const security_id_t& source, char* destination, std::size_t capacity) {
     if (capacity == 0) {
         return;
     }
@@ -90,8 +90,7 @@ trade_side_t to_order_side(broker_api::side side_value) noexcept {
 }
 
 // 将上游 order_request 转换为 broker_order_request；输入不合法时返回 false。
-bool map_order_request_to_broker(
-    const order_request& request, broker_api::broker_order_request& out_request) noexcept {
+bool map_order_request_to_broker(const order_request& request, broker_api::broker_order_request& out_request) noexcept {
     // 基本合法性检查。
     if (request.internal_order_id == 0) {
         return false;
@@ -106,7 +105,8 @@ bool map_order_request_to_broker(
     out_request = broker_api::broker_order_request{};
     out_request.internal_order_id = request.internal_order_id;
     out_request.orig_internal_order_id = request.orig_internal_order_id;
-    copy_internal_security_id(request.internal_security_id, out_request.internal_security_id, sizeof(out_request.internal_security_id));
+    copy_internal_security_id(request.internal_security_id, out_request.internal_security_id,
+                              sizeof(out_request.internal_security_id));
     out_request.type = mapped_type;
     out_request.trade_side = to_broker_side(request.trade_side);
     out_request.order_market = to_broker_market(request.market);
@@ -116,8 +116,9 @@ bool map_order_request_to_broker(
 
     // 新单需要检查关键下单字段。
     if (out_request.type == broker_api::request_type::New) {
-        if (out_request.trade_side == broker_api::side::Unknown || out_request.order_market == broker_api::market::Unknown ||
-            out_request.volume == 0 || out_request.price == 0) {
+        if (out_request.trade_side == broker_api::side::Unknown ||
+            out_request.order_market == broker_api::market::Unknown || out_request.volume == 0 ||
+            out_request.price == 0) {
             return false;
         }
         copy_security_id(request.security_id, out_request.security_id, sizeof(out_request.security_id));

@@ -3,24 +3,6 @@
 本清单基于当前仓库实际扫描结果，目标是先提升一致性，再处理可能影响外部适配器的改名。
 
 ## P0（低风险，建议优先）
-
-1. 常量名统一为 `kXxx`
-- 现状：
-  - `BROKER_ORDER_ID_SIZE`
-  - `SECURITY_ID_SIZE`
-- 目标：
-  - `kBrokerOrderIdSize`
-  - `kSecurityIdSize`
-- 位置：
-  - `src/order/order_request.hpp:52`
-  - `src/order/order_request.hpp:53`
-  - `src/order/order_request.hpp:71`
-  - `src/order/order_request.hpp:75`
-  - `src/api/order_monitor_api.cpp:22`
-  - `src/api/order_monitor_api.cpp:23`
-- 影响评估：
-  - 仅源码级改名，无 ABI 符号变化，风险低。
-
 2. 内部 C++ 头扩展名统一（`.h` -> `.hpp`）
 - 现状：
   - 内部头 `src/portfolio/positions.h` 与项目多数 `.hpp` 混用。

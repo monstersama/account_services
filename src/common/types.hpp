@@ -1,21 +1,17 @@
 #pragma once
 
-#include <atomic>
-#include <cstddef>
 #include <cstdint>
 #include <ctime>
 
+#include "common/constants.hpp"
 #include "common/fixed_string.hpp"
 
 namespace acct_service {
 
-inline constexpr std::size_t SECURITY_ID_SIZE = 16;
-inline constexpr std::size_t BROKER_ORDER_ID_SIZE = 32;
-
 using internal_order_id_t = uint32_t;
-using security_id_t = fixed_string<SECURITY_ID_SIZE>;
-using internal_security_id_t = security_id_t;
-using broker_order_id_t = fixed_string<BROKER_ORDER_ID_SIZE>;
+using security_id_t = fixed_string<kSecurityIdSize>;
+using internal_security_id_t = fixed_string<kInternalSecurityIdSize>;
+using broker_order_id_t = fixed_string<kBrokerOrderIdSize>;
 using volume_t = uint64_t;
 using dprice_t = uint64_t;   // 价格，单位：分 (2位小数精度)
 using dvalue_t = uint64_t;   // 金额，单位：分

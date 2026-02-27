@@ -5,7 +5,6 @@
 #include <cstring>
 #include <string_view>
 
-#include "common/fixed_string.hpp"
 #include "common/types.hpp"
 
 namespace acct_service {
@@ -54,20 +53,20 @@ struct alignas(64) order_request {
     // cache line 0
     internal_order_id_t internal_order_id{0};  // 系统内部订单ID，唯一标识
     uint8_t padding0_0{0};
-    order_type_t order_type{order_type_t::NotSet};   // 订单类型：报单、撤单
-    trade_side_t trade_side{trade_side_t::NotSet};   // 买卖方向：买入、卖出
-    market_t market{market_t::NotSet};               // 市场：深、沪、北、港
-    volume_t volume_entrust{0};                      // 委托数量
-    dprice_t dprice_entrust{0};                      // 委托价格
-    internal_order_id_t orig_internal_order_id{0};   // 原始订单ID（仅撤单请求使用）
-    internal_security_id_t internal_security_id{};   // 内部证券ID（格式: "SZ.000001"）
-    security_id_t security_id{};                   // 证券代码字符串（如 "000001"）
+    order_type_t order_type{order_type_t::NotSet};  // 订单类型：报单、撤单
+    trade_side_t trade_side{trade_side_t::NotSet};  // 买卖方向：买入、卖出
+    market_t market{market_t::NotSet};              // 市场：深、沪、北、港
+    volume_t volume_entrust{0};                     // 委托数量
+    dprice_t dprice_entrust{0};                     // 委托价格
+    internal_order_id_t orig_internal_order_id{0};  // 原始订单ID（仅撤单请求使用）
+    internal_security_id_t internal_security_id{};  // 内部证券ID（格式: "SZ.000001"）
+    security_id_t security_id{};                    // 证券代码字符串（如 "000001"）
     uint8_t padding0_1[4]{};
 
     // cache line 1
     union {
-        broker_order_id_t as_str{};                   // 柜台返回的订单ID（字符串）
-        uint64_t as_uint;                             // 柜台返回的订单ID（数字）
+        broker_order_id_t as_str{};  // 柜台返回的订单ID（字符串）
+        uint64_t as_uint;            // 柜台返回的订单ID（数字）
     } broker_order_id;
     volume_t volume_traded{0};  // 已成交数量
     volume_t volume_remain{0};  // 剩余未成交数量
@@ -89,7 +88,7 @@ struct alignas(64) order_request {
     uint8_t padding2[15]{};                                            // 填充以对齐缓存行
 
     order_request() = default;
-    order_request(const order_request &other) {
+    order_request(const order_request& other) {
         internal_order_id = other.internal_order_id;
         padding0_0 = other.padding0_0;
         order_type = other.order_type;
@@ -117,7 +116,7 @@ struct alignas(64) order_request {
         md_time_traded_latest = other.md_time_traded_latest;
         order_status.store(other.order_status.load(std::memory_order_relaxed), std::memory_order_relaxed);
     }
-    order_request &operator=(const order_request &other) {
+    order_request& operator=(const order_request& other) {
         if (this != &other) {
             internal_order_id = other.internal_order_id;
             padding0_0 = other.padding0_0;
@@ -150,7 +149,7 @@ struct alignas(64) order_request {
     }
 
     void init_new(std::string_view sec_id, internal_security_id_t internal_sec_id, internal_order_id_t internal_id,
-        trade_side_t side, market_t mkt, volume_t vol, dprice_t dpx, md_time_t md_time_driven_) {
+                  trade_side_t side, market_t mkt, volume_t vol, dprice_t dpx, md_time_t md_time_driven_) {
         internal_order_id = internal_id;
         order_type = order_type_t::New;
         trade_side = side;

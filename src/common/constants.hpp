@@ -24,6 +24,7 @@ inline constexpr uint32_t kShmVersion = 3;
 // 字符串长度常量
 inline constexpr std::size_t kBrokerOrderIdSize = 32;
 inline constexpr std::size_t kSecurityIdSize = 16;
+inline constexpr std::size_t kInternalSecurityIdSize = 16;
 inline constexpr std::size_t kAccountNameSize = 32;
 inline constexpr std::size_t kBrokerCodeSize = 16;
 

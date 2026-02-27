@@ -6,8 +6,8 @@
 #include <unistd.h>
 
 #include <atomic>
-#include <cerrno>
 #include <cctype>
+#include <cerrno>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -20,10 +20,10 @@
 
 namespace {
 
-static_assert(ACCT_MON_SECURITY_ID_LEN == acct_service::SECURITY_ID_SIZE, "security id size mismatch");
-static_assert(
-    ACCT_MON_INTERNAL_SECURITY_ID_LEN == sizeof(acct_service::internal_security_id_t), "internal security id size mismatch");
-static_assert(ACCT_MON_BROKER_ORDER_ID_LEN == acct_service::BROKER_ORDER_ID_SIZE, "broker order id size mismatch");
+static_assert(ACCT_MON_SECURITY_ID_LEN == acct_service::kSecurityIdSize, "security id size mismatch");
+static_assert(ACCT_MON_INTERNAL_SECURITY_ID_LEN == acct_service::kInternalSecurityIdSize,
+              "internal security id size mismatch");
+static_assert(ACCT_MON_BROKER_ORDER_ID_LEN == acct_service::kBrokerOrderIdSize, "broker order id size mismatch");
 
 bool is_valid_trading_day(std::string_view trading_day) noexcept {
     if (trading_day.size() != 8) {
@@ -82,7 +82,8 @@ bool is_index_visible(const acct_service::orders_shm_layout* shm, uint32_t index
 }
 
 void fill_snapshot(acct_orders_mon_snapshot_t& out, uint32_t index, uint64_t seq, uint64_t last_update_ns,
-    acct_service::order_slot_stage_t stage, acct_service::order_slot_source_t source, const acct_service::order_request& request) {
+                   acct_service::order_slot_stage_t stage, acct_service::order_slot_source_t source,
+                   const acct_service::order_request& request) {
     out = acct_orders_mon_snapshot_t{};
     out.index = index;
     out.seq = seq;
@@ -122,8 +123,8 @@ void fill_snapshot(acct_orders_mon_snapshot_t& out, uint32_t index, uint64_t seq
     std::memcpy(out.broker_order_id, request.broker_order_id.as_str.data, sizeof(out.broker_order_id));
 }
 
-bool try_read_stable_snapshot(
-    const acct_service::orders_shm_layout* shm, uint32_t index, acct_orders_mon_snapshot_t& out_snapshot) {
+bool try_read_stable_snapshot(const acct_service::orders_shm_layout* shm, uint32_t index,
+                              acct_orders_mon_snapshot_t& out_snapshot) {
     if (!is_index_visible(shm, index)) {
         return false;
     }
@@ -194,8 +195,8 @@ struct acct_orders_monitor_context {
 
     ~acct_orders_monitor_context() noexcept {
         if (orders_shm) {
-            (void)munmap(
-                const_cast<acct_service::orders_shm_layout*>(orders_shm), sizeof(acct_service::orders_shm_layout));
+            (void)munmap(const_cast<acct_service::orders_shm_layout*>(orders_shm),
+                         sizeof(acct_service::orders_shm_layout));
         }
         if (fd >= 0) {
             (void)::close(fd);
@@ -208,7 +209,8 @@ struct acct_orders_monitor_context {
 
 extern "C" {
 
-ACCT_MON_API acct_mon_error_t acct_orders_mon_open(const acct_orders_mon_options_t* options, acct_orders_mon_ctx_t* out_ctx) {
+ACCT_MON_API acct_mon_error_t acct_orders_mon_open(const acct_orders_mon_options_t* options,
+                                                   acct_orders_mon_ctx_t* out_ctx) {
     if (!out_ctx) {
         return ACCT_MON_ERR_INVALID_PARAM;
     }
@@ -231,7 +233,7 @@ ACCT_MON_API acct_mon_error_t acct_orders_mon_open(const acct_orders_mon_options
         return ACCT_MON_ERR_SHM_FAILED;
     }
 
-    struct stat st {};
+    struct stat st{};
     if (fstat(ctx->fd, &st) < 0) {
         return ACCT_MON_ERR_SHM_FAILED;
     }
@@ -290,8 +292,8 @@ ACCT_MON_API acct_mon_error_t acct_orders_mon_info(acct_orders_mon_ctx_t ctx, ac
     return ACCT_MON_OK;
 }
 
-ACCT_MON_API acct_mon_error_t acct_orders_mon_read(
-    acct_orders_mon_ctx_t ctx, uint32_t index, acct_orders_mon_snapshot_t* out_snapshot) {
+ACCT_MON_API acct_mon_error_t acct_orders_mon_read(acct_orders_mon_ctx_t ctx, uint32_t index,
+                                                   acct_orders_mon_snapshot_t* out_snapshot) {
     if (!ctx || !out_snapshot) {
         return ACCT_MON_ERR_INVALID_PARAM;
     }
