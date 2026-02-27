@@ -9,10 +9,18 @@
  */
 
 #include <cstdio>
+#include <cstring>
 
 #include "api/order_api.h"
 
-int main() {
+int main(int argc, char* argv[]) {
+    bool cleanup_shm = false;
+    for (int i = 1; i < argc; ++i) {
+        if (argv[i] && std::strcmp(argv[i], "--cleanup-shm") == 0) {
+            cleanup_shm = true;
+        }
+    }
+
     printf("=== libacct_order.so 使用示例 ===\n\n");
 
     // 打印版本
@@ -110,9 +118,16 @@ int main() {
 
     // 6. 可选：清理共享内存（如果需要重置）
     printf("\n--- 步骤6: 可选 - 清理共享内存 ---\n");
-    printf("如果要删除共享内存，调用: acct_cleanup_shm()\n");
-    printf("跳过此步骤，共享内存将保留供下次使用\n");
-    acct_cleanup_shm();
+    if (cleanup_shm) {
+        const acct_error_t cleanup_err = acct_cleanup_shm();
+        if (cleanup_err == ACCT_OK) {
+            printf("[Client] 已清理共享内存\n");
+        } else {
+            fprintf(stderr, "[Client] 清理共享内存失败: %s\n", acct_strerror(cleanup_err));
+        }
+    } else {
+        printf("未启用 --cleanup-shm，跳过清理，共享内存将保留供下次使用\n");
+    }
 
     printf("\n=== 示例完成 ===\n");
     return 0;

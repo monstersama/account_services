@@ -23,7 +23,7 @@ using namespace acct_service;
 order_entry make_parent_entry(internal_order_id_t order_id, volume_t volume) {
     order_entry entry{};
     entry.request.init_new(
-        "000001", static_cast<internal_security_id_t>(1), order_id, trade_side_t::Buy, market_t::SZ, volume, 1000,
+        "000001", internal_security_id_t("SZ.000001"), order_id, trade_side_t::Buy, market_t::SZ, volume, 1000,
         93000000);
     entry.request.order_status.store(order_status_t::RiskControllerAccepted, std::memory_order_relaxed);
     entry.submit_time_ns = now_ns();
@@ -142,7 +142,7 @@ TEST(partial_send_failure_latches_parent_error) {
     const std::size_t capacity = decltype(downstream->order_queue)::capacity();
     order_request dummy;
     dummy.init_new(
-        "000001", static_cast<internal_security_id_t>(1), 999999, trade_side_t::Buy, market_t::SZ, 1, 1000, 93000000);
+        "000001", internal_security_id_t("SZ.000001"), 999999, trade_side_t::Buy, market_t::SZ, 1, 1000, 93000000);
     dummy.order_status.store(order_status_t::TraderSubmitted, std::memory_order_relaxed);
 
     for (std::size_t i = 0; i < capacity - 1; ++i) {

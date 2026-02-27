@@ -22,7 +22,7 @@ order_entry make_new_entry(internal_order_id_t order_id, volume_t volume, bool i
     internal_order_id_t parent_order_id = 0) {
     order_entry entry{};
     entry.request.init_new(
-        "000001", static_cast<internal_security_id_t>(1), order_id, trade_side_t::Buy, market_t::SZ, volume, 1000,
+        "000001", internal_security_id_t("SZ.000001"), order_id, trade_side_t::Buy, market_t::SZ, volume, 1000,
         93000000);
     entry.request.order_status.store(order_status_t::StrategySubmitted, std::memory_order_relaxed);
     entry.submit_time_ns = now_ns();

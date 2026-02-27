@@ -170,7 +170,7 @@ TEST(initialize_and_run_processes_orders) {
     std::thread worker([&service, &run_rc]() { run_rc = service.run(); });
 
     order_request req;
-    req.init_new("000001", static_cast<internal_security_id_t>(1), static_cast<internal_order_id_t>(5001),
+    req.init_new("000001", internal_security_id_t("SZ.000001"), static_cast<internal_order_id_t>(5001),
         trade_side_t::Buy, market_t::SZ, static_cast<volume_t>(100), static_cast<dprice_t>(1000), 93000000);
     req.order_status.store(order_status_t::StrategySubmitted, std::memory_order_relaxed);
 
@@ -190,7 +190,7 @@ TEST(initialize_and_run_processes_orders) {
 
     trade_response rsp{};
     rsp.internal_order_id = static_cast<internal_order_id_t>(5001);
-    rsp.internal_security_id = static_cast<internal_security_id_t>(1);
+    rsp.internal_security_id = internal_security_id_t("SZ.000001");
     rsp.trade_side = trade_side_t::Buy;
     rsp.new_status = order_status_t::MarketAccepted;
     rsp.volume_traded = static_cast<volume_t>(50);

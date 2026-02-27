@@ -7,6 +7,7 @@
 
 #include "common/error.hpp"
 #include "common/log.hpp"
+#include "common/security_identity.hpp"
 #include "shm/orders_shm.hpp"
 
 #if defined(__linux__)
@@ -205,6 +206,19 @@ std::size_t event_loop::process_downstream_responses() {
 }
 
 void event_loop::handle_order_request(order_index_t index, order_request& request) {
+    if (request.order_type == order_type_t::New && request.internal_security_id.empty() && !request.security_id.empty()) {
+        if (!build_internal_security_id(request.market, request.security_id.view(), request.internal_security_id)) {
+            request.order_status.store(order_status_t::TraderError, std::memory_order_release);
+            (void)orders_shm_sync_order(orders_shm_, index, request, now_ns());
+            (void)orders_shm_update_stage(orders_shm_, index, order_slot_stage_t::QueuePushFailed, now_ns());
+            error_status status = ACCT_MAKE_ERROR(
+                error_domain::order, error_code::InvalidParam, "event_loop", "invalid market/security_id for internal key", 0);
+            record_error(status);
+            ACCT_LOG_ERROR_STATUS(status);
+            return;
+        }
+    }
+
     if (request.internal_order_id == 0) {
         request.internal_order_id = order_book_.next_order_id();
         (void)orders_shm_sync_order(orders_shm_, index, request, now_ns());
@@ -302,13 +316,13 @@ void event_loop::handle_trade_response(const trade_response& response) {
         const order_entry* order = order_book_.find_order(response.internal_order_id);
         if (order && order->request.order_type == order_type_t::New) {
             const internal_security_id_t security_id =
-                (response.internal_security_id != 0) ? response.internal_security_id : order->request.internal_security_id;
+                response.internal_security_id.empty() ? order->request.internal_security_id : response.internal_security_id;
 
-            if (security_id != 0) {
+            if (!security_id.empty()) {
                 if (!positions_.get_position(security_id) && !order->request.security_id.empty()) {
                     const internal_security_id_t added =
                         positions_.add_security(order->request.security_id.view(), order->request.security_id.view(), order->request.market);
-                    if (added == 0) {
+                    if (added.empty()) {
                         error_status status = ACCT_MAKE_ERROR(error_domain::portfolio, error_code::PositionUpdateFailed,
                             "event_loop", "failed to create missing position row", 0);
                         record_error(status);

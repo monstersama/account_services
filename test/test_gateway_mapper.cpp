@@ -1,4 +1,5 @@
 #include <cassert>
+#include <cstring>
 #include <cstdio>
 #include <string>
 
@@ -21,7 +22,7 @@ using namespace acct_service;
 // 验证新单字段映射是否完整正确。
 TEST(map_new_order_request) {
     order_request request;
-    request.init_new("600000", static_cast<internal_security_id_t>(42), static_cast<internal_order_id_t>(1001),
+    request.init_new("600000", internal_security_id_t("SH.600000"), static_cast<internal_order_id_t>(1001),
         trade_side_t::Buy, market_t::SH, static_cast<volume_t>(300), static_cast<dprice_t>(1234), 93000000);
     request.md_time_entrust = 93010000;
 
@@ -29,7 +30,7 @@ TEST(map_new_order_request) {
     assert(gateway::map_order_request_to_broker(request, mapped));
 
     assert(mapped.internal_order_id == static_cast<uint32_t>(1001));
-    assert(mapped.internal_security_id == static_cast<uint16_t>(42));
+    assert(std::string(mapped.internal_security_id) == "SH.600000");
     assert(mapped.type == broker_api::request_type::New);
     assert(mapped.trade_side == broker_api::side::Buy);
     assert(mapped.order_market == broker_api::market::SH);
@@ -58,7 +59,7 @@ TEST(map_trade_event_response) {
     event.kind = broker_api::event_kind::Trade;
     event.internal_order_id = 3001;
     event.broker_order_id = 7001;
-    event.internal_security_id = 9;
+    std::strcpy(event.internal_security_id, "SZ.000009");
     event.trade_side = broker_api::side::Sell;
     event.volume_traded = 88;
     event.price_traded = 3210;
@@ -71,7 +72,7 @@ TEST(map_trade_event_response) {
 
     assert(response.internal_order_id == 3001);
     assert(response.broker_order_id == 7001);
-    assert(response.internal_security_id == 9);
+    assert(response.internal_security_id == std::string_view("SZ.000009"));
     assert(response.trade_side == trade_side_t::Sell);
     assert(response.new_status == order_status_t::MarketAccepted);
     assert(response.volume_traded == 88);

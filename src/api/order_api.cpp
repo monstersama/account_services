@@ -14,6 +14,7 @@
 #include "common/constants.hpp"
 #include "common/error.hpp"
 #include "common/log.hpp"
+#include "common/security_identity.hpp"
 #include "common/types.hpp"
 #include "order/order_request.hpp"
 #include "shm/orders_shm.hpp"
@@ -231,6 +232,11 @@ ACCT_API acct_error_t acct_new_order(acct_ctx_t ctx, const char* security_id, ui
         return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_new_order zero volume");
     }
 
+    internal_security_id_t internal_security_id;
+    if (!build_internal_security_id(static_cast<market_t>(market), std::string_view(security_id), internal_security_id)) {
+        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_new_order invalid security_id length/market");
+    }
+
     if (context->cached_orders.size() >= kMaxCachedOrders) {
         return api_error(ACCT_ERR_CACHE_FULL, error_code::QueueFull, "acct_new_order cache full");
     }
@@ -241,7 +247,7 @@ ACCT_API acct_error_t acct_new_order(acct_ctx_t ctx, const char* security_id, ui
     (void)valid_sec;
 
     order_request request;
-    request.init_new(std::string_view(security_id), static_cast<internal_security_id_t>(0),
+    request.init_new(std::string_view(security_id), internal_security_id,
         static_cast<internal_order_id_t>(order_id), static_cast<trade_side_t>(side), static_cast<market_t>(market),
         static_cast<volume_t>(volume), internal_price, md_time);
     request.order_status.store(order_status_t::NotSet, std::memory_order_relaxed);
@@ -302,13 +308,19 @@ ACCT_API acct_error_t acct_submit_order(acct_ctx_t ctx, const char* security_id,
         return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_submit_order zero volume");
     }
 
+    internal_security_id_t internal_security_id;
+    if (!build_internal_security_id(static_cast<market_t>(market), std::string_view(security_id), internal_security_id)) {
+        return api_error(
+            ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_submit_order invalid security_id length/market");
+    }
+
     const uint32_t order_id = context->upstream_shm->header.next_order_id.fetch_add(1, std::memory_order_relaxed);
     const dprice_t internal_price = static_cast<dprice_t>(price * 100.0 + 0.5);
     const md_time_t md_time = get_current_md_time();
     (void)valid_sec;
 
     order_request request;
-    request.init_new(std::string_view(security_id), static_cast<internal_security_id_t>(0),
+    request.init_new(std::string_view(security_id), internal_security_id,
         static_cast<internal_order_id_t>(order_id), static_cast<trade_side_t>(side), static_cast<market_t>(market),
         static_cast<volume_t>(volume), internal_price, md_time);
     request.order_status.store(order_status_t::StrategySubmitted, std::memory_order_release);

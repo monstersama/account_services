@@ -8,8 +8,9 @@
 namespace acct_service::broker_api {
 
 // broker_api ABI 版本，用于调用方做兼容性检查。
-inline constexpr uint32_t kBrokerApiAbiVersion = 1;
+inline constexpr uint32_t kBrokerApiAbiVersion = 2;
 inline constexpr std::size_t kSecurityIdSize = 16;
+inline constexpr std::size_t kInternalSecurityIdSize = 16;
 inline constexpr std::size_t kBrokerOrderIdSize = 32;
 
 enum class request_type : uint8_t {
@@ -51,7 +52,7 @@ struct broker_runtime_config {
 struct broker_order_request {
     uint32_t internal_order_id = 0;
     uint32_t orig_internal_order_id = 0;
-    uint16_t internal_security_id = 0;
+    char internal_security_id[kInternalSecurityIdSize]{};
     request_type type = request_type::Unknown;
     side trade_side = side::Unknown;
     market order_market = market::Unknown;
@@ -79,7 +80,7 @@ struct broker_event {
     event_kind kind = event_kind::None;
     uint32_t internal_order_id = 0;
     uint32_t broker_order_id = 0;
-    uint16_t internal_security_id = 0;
+    char internal_security_id[kInternalSecurityIdSize]{};
     side trade_side = side::Unknown;
     uint64_t volume_traded = 0;
     uint64_t price_traded = 0;

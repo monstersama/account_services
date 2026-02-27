@@ -68,7 +68,7 @@ TEST(initialize_sets_fund_row) {
     assert_fund_row_fields(fund_row, fund);
 }
 
-TEST(add_security_uses_row_index_and_excludes_fund_row) {
+TEST(add_security_uses_internal_key_and_excludes_fund_row) {
     using namespace acct_service;
 
     auto shm = make_shm(0);
@@ -77,19 +77,19 @@ TEST(add_security_uses_row_index_and_excludes_fund_row) {
 
     const internal_security_id_t first = manager.add_security("000001", "PingAn", market_t::SZ);
     const internal_security_id_t second = manager.add_security("600000", "PuFa", market_t::SH);
-    assert(first == 1);
-    assert(second == 2);
+    assert(first == std::string_view("SZ.000001"));
+    assert(second == std::string_view("SH.600000"));
     assert(manager.position_count() == 2);
 
-    assert(shm->positions[1].id == std::string_view("000001"));
-    assert(shm->positions[2].id == std::string_view("600000"));
-    assert(manager.find_security_id("000001").value_or(0) == 1);
-    assert(manager.find_security_id("600000").value_or(0) == 2);
+    assert(shm->positions[1].id == std::string_view("SZ.000001"));
+    assert(shm->positions[2].id == std::string_view("SH.600000"));
+    assert(manager.find_security_id("SZ.000001").value_or(internal_security_id_t()) == std::string_view("SZ.000001"));
+    assert(manager.find_security_id("SH.600000").value_or(internal_security_id_t()) == std::string_view("SH.600000"));
 
     const auto all_positions = manager.get_all_positions();
     assert(all_positions.size() == 2);
-    assert(all_positions[0]->id == std::string_view("000001"));
-    assert(all_positions[1]->id == std::string_view("600000"));
+    assert(all_positions[0]->id == std::string_view("SZ.000001"));
+    assert(all_positions[1]->id == std::string_view("SH.600000"));
 }
 
 TEST(fund_ops_write_into_fund_row) {
@@ -122,10 +122,10 @@ TEST(add_position_requires_registered_security) {
     position_manager manager(shm.get());
     assert(manager.initialize(1));
 
-    assert(!manager.add_position(1, 100, 123, 1));
+    assert(!manager.add_position(internal_security_id_t("SZ.000001"), 100, 123, 1));
 
     const internal_security_id_t sec_id = manager.add_security("000001", "PingAn", market_t::SZ);
-    assert(sec_id == 1);
+    assert(sec_id == std::string_view("SZ.000001"));
     assert(manager.add_position(sec_id, 100, 123, 2));
 
     const position* pos = manager.get_position(sec_id);
@@ -140,9 +140,9 @@ TEST(initialize_rebuilds_code_map_from_existing_rows) {
 
     auto shm = make_shm(1);
     shm->position_count.store(2, std::memory_order_relaxed);
-    shm->positions[1].id.assign("000001");
+    shm->positions[1].id.assign("SZ.000001");
     shm->positions[1].name.assign("PingAn");
-    shm->positions[2].id.assign("600000");
+    shm->positions[2].id.assign("SH.600000");
     shm->positions[2].name.assign("PuFa");
 
     position_manager manager(shm.get());
@@ -150,15 +150,15 @@ TEST(initialize_rebuilds_code_map_from_existing_rows) {
 
     assert(shm->positions[kFundPositionIndex].id == std::string_view(kFundPositionId));
     assert(manager.position_count() == 2);
-    assert(manager.find_security_id("000001").value_or(0) == 1);
-    assert(manager.find_security_id("600000").value_or(0) == 2);
+    assert(manager.find_security_id("SZ.000001").value_or(internal_security_id_t()) == std::string_view("SZ.000001"));
+    assert(manager.find_security_id("SH.600000").value_or(internal_security_id_t()) == std::string_view("SH.600000"));
 }
 
 int main() {
     printf("=== Position Manager Test Suite ===\n\n");
 
     RUN_TEST(initialize_sets_fund_row);
-    RUN_TEST(add_security_uses_row_index_and_excludes_fund_row);
+    RUN_TEST(add_security_uses_internal_key_and_excludes_fund_row);
     RUN_TEST(fund_ops_write_into_fund_row);
     RUN_TEST(add_position_requires_registered_security);
     RUN_TEST(initialize_rebuilds_code_map_from_existing_rows);

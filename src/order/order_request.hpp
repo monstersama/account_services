@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstddef>
 #include <cstring>
 #include <string_view>
 
@@ -49,9 +50,6 @@ enum class order_status_t : uint8_t {
     Unknown = 0xFF,
 };
 
-inline constexpr std::size_t BROKER_ORDER_ID_SIZE = 32;
-inline constexpr std::size_t SECURITY_ID_SIZE = 16;
-
 struct alignas(64) order_request {
     // cache line 0
     internal_order_id_t internal_order_id{0};  // 系统内部订单ID，唯一标识
@@ -61,18 +59,14 @@ struct alignas(64) order_request {
     market_t market{market_t::NotSet};               // 市场：深、沪、北、港
     volume_t volume_entrust{0};                      // 委托数量
     dprice_t dprice_entrust{0};                      // 委托价格
-    md_time_t md_time_driven{0};                     // 触发时间
-    md_time_t md_time_entrust{0};                    // 委托结束时间
     internal_order_id_t orig_internal_order_id{0};   // 原始订单ID（仅撤单请求使用）
-    md_time_t md_time_cancel_sent{0};                // 撤单发送时间（本地时间）
-    md_time_t md_time_cancel_done{0};                // 撤单完成时间（来自柜台/市场）
-    internal_security_id_t internal_security_id{0};  // 内部证券ID
-    uint8_t padding0_1[2]{};
-    fixed_string<SECURITY_ID_SIZE> security_id{};  // 证券代码字符串（如 "000001"）
+    internal_security_id_t internal_security_id{};   // 内部证券ID（格式: "SZ.000001"）
+    security_id_t security_id{};                   // 证券代码字符串（如 "000001"）
+    uint8_t padding0_1[4]{};
 
     // cache line 1
     union {
-        fixed_string<BROKER_ORDER_ID_SIZE> as_str{};  // 柜台返回的订单ID（字符串）
+        broker_order_id_t as_str{};                   // 柜台返回的订单ID（字符串）
         uint64_t as_uint;                             // 柜台返回的订单ID（数字）
     } broker_order_id;
     volume_t volume_traded{0};  // 已成交数量
@@ -83,12 +77,16 @@ struct alignas(64) order_request {
     // cache line 2
     dvalue_t dfee_estimate{0};                                         // 预估手续费
     dvalue_t dfee_executed{0};                                         // 已实际产生的手续费
+    md_time_t md_time_driven{0};                                       // 触发时间
+    md_time_t md_time_entrust{0};                                      // 委托结束时间
+    md_time_t md_time_cancel_sent{0};                                  // 撤单发送时间（本地时间）
+    md_time_t md_time_cancel_done{0};                                  // 撤单完成时间（来自柜台/市场）
     md_time_t md_time_broker_response{0};                              // 柜台响应时间
     md_time_t md_time_market_response{0};                              // 交易所响应时间
     md_time_t md_time_traded_first{0};                                 // 首次成交时间
     md_time_t md_time_traded_latest{0};                                // 最近成交时间
     std::atomic<order_status_t> order_status{order_status_t::NotSet};  // 订单当前状态
-    uint8_t padding2[31]{};                                            // 填充以对齐缓存行
+    uint8_t padding2[15]{};                                            // 填充以对齐缓存行
 
     order_request() = default;
     order_request(const order_request &other) {
@@ -183,7 +181,7 @@ struct alignas(64) order_request {
         md_time_driven = md_time_driven_;
         md_time_entrust = 0;  // filled by trader_api
         security_id.assign({});
-        internal_security_id = 0;
+        internal_security_id.clear();
         orig_internal_order_id = orig_internal_id;
         md_time_cancel_sent = 0;
         md_time_cancel_done = 0;
@@ -204,4 +202,6 @@ struct alignas(64) order_request {
 
 static_assert(sizeof(order_request) == 192, "order_request must be 192 bytes (3 cache lines)");
 static_assert(alignof(order_request) == 64, "order_request must be 64-byte aligned");
+static_assert(offsetof(order_request, broker_order_id) == 64, "broker_order_id must start at cache line 1");
+static_assert(offsetof(order_request, dfee_estimate) == 128, "dfee_estimate must start at cache line 2");
 };  // namespace acct_service

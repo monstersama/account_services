@@ -5,6 +5,7 @@
 #include "common/constants.hpp"
 #include "common/error.hpp"
 #include "common/log.hpp"
+#include "common/security_identity.hpp"
 #include "common/types.hpp"
 
 namespace acct_service {
@@ -66,11 +67,10 @@ position* fund_position(positions_shm_layout* shm) {
     return &shm->positions[kFundPositionIndex];
 }
 
-const position* security_position(const positions_shm_layout* shm, internal_security_id_t security_id) {
-    if (!shm || security_id < kFirstSecurityPositionIndex) {
+const position* security_position_by_row(const positions_shm_layout* shm, std::size_t row_index) {
+    if (!shm || row_index < kFirstSecurityPositionIndex) {
         return nullptr;
     }
-    const std::size_t row_index = static_cast<std::size_t>(security_id);
     if (row_index >= kMaxPositions) {
         return nullptr;
     }
@@ -82,8 +82,8 @@ const position* security_position(const positions_shm_layout* shm, internal_secu
     return &shm->positions[row_index];
 }
 
-position* security_position(positions_shm_layout* shm, internal_security_id_t security_id) {
-    return const_cast<position*>(security_position(static_cast<const positions_shm_layout*>(shm), security_id));
+position* security_position_by_row(positions_shm_layout* shm, std::size_t row_index) {
+    return const_cast<position*>(security_position_by_row(static_cast<const positions_shm_layout*>(shm), row_index));
 }
 
 void ensure_fund_identity(position& fund_pos) {
@@ -115,7 +115,7 @@ bool position_manager::initialize(account_id_t account_id) {
         return false;
     }
 
-    code_to_id_.clear();
+    security_to_row_.clear();
 
     if (!header_compatible(shm_->header)) {
         error_status status = ACCT_MAKE_ERROR(
@@ -189,7 +189,9 @@ bool position_manager::initialize(account_id_t account_id) {
         if (pos.id.empty()) {
             continue;
         }
-        code_to_id_[std::string(pos.id.view())] = static_cast<internal_security_id_t>(row_index);
+        internal_security_id_t security_id;
+        security_id.assign(pos.id.view());
+        security_to_row_[security_id] = row_index;
     }
 
     shm_->header.id.store(next_security_id(count), std::memory_order_relaxed);
@@ -318,11 +320,19 @@ bool position_manager::add_fund(dvalue_t amount, internal_order_id_t order_id) {
 }
 
 const position* position_manager::get_position(internal_security_id_t security_id) const {
-    return security_position(shm_, security_id);
+    const auto it = security_to_row_.find(security_id);
+    if (it == security_to_row_.end()) {
+        return nullptr;
+    }
+    return security_position_by_row(shm_, it->second);
 }
 
 position* position_manager::get_position_mut(internal_security_id_t security_id) {
-    return security_position(shm_, security_id);
+    const auto it = security_to_row_.find(security_id);
+    if (it == security_to_row_.end()) {
+        return nullptr;
+    }
+    return security_position_by_row(shm_, it->second);
 }
 
 volume_t position_manager::get_sellable_volume(internal_security_id_t security_id) const {
@@ -466,22 +476,28 @@ std::optional<internal_security_id_t> position_manager::find_security_id(std::st
     if (code.empty()) {
         return std::nullopt;
     }
-    auto it = code_to_id_.find(std::string(code));
-    if (it == code_to_id_.end()) {
+    internal_security_id_t security_id;
+    security_id.assign(code);
+    auto it = security_to_row_.find(security_id);
+    if (it == security_to_row_.end()) {
         return std::nullopt;
     }
-    return it->second;
+    return security_id;
 }
 
 internal_security_id_t position_manager::add_security(std::string_view code, std::string_view name, market_t market) {
-    (void)market;
     if (!shm_ || code.empty()) {
-        return 0;
+        return {};
     }
 
-    auto it = code_to_id_.find(std::string(code));
-    if (it != code_to_id_.end()) {
-        return it->second;
+    internal_security_id_t security_id;
+    if (!build_internal_security_id(market, code, security_id)) {
+        return {};
+    }
+
+    auto it = security_to_row_.find(security_id);
+    if (it != security_to_row_.end()) {
+        return security_id;
     }
 
     std::size_t count = shm_->position_count.load(std::memory_order_acquire);
@@ -491,21 +507,20 @@ internal_security_id_t position_manager::add_security(std::string_view code, std
         shm_->position_count.store(count, std::memory_order_relaxed);
     }
     if (count >= kMaxSecurityPositions) {
-        return 0;
+        return {};
     }
 
     const std::size_t row_index = count + kFirstSecurityPositionIndex;
     if (row_index >= kMaxPositions) {
-        return 0;
+        return {};
     }
 
     position& pos = shm_->positions[row_index];
     clear_position(pos);
-    pos.id.assign(code);
+    pos.id.assign(security_id.view());
     pos.name.assign(name);
 
-    const internal_security_id_t security_id = static_cast<internal_security_id_t>(row_index);
-    code_to_id_[std::string(code)] = security_id;
+    security_to_row_[security_id] = row_index;
 
     const std::size_t new_count = count + 1;
     shm_->position_count.store(new_count, std::memory_order_release);

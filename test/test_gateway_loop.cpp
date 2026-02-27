@@ -137,7 +137,7 @@ TEST(process_new_order_end_to_end) {
     std::thread worker([&loop]() { (void)loop.run(); });
 
     order_request request;
-    request.init_new("000001", static_cast<internal_security_id_t>(1), static_cast<internal_order_id_t>(9001),
+    request.init_new("000001", internal_security_id_t("SZ.000001"), static_cast<internal_order_id_t>(9001),
         trade_side_t::Buy, market_t::SZ, static_cast<volume_t>(100), static_cast<dprice_t>(1000), 93000000);
     request.order_status.store(order_status_t::TraderSubmitted, std::memory_order_relaxed);
 

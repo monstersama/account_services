@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
+#include <functional>
 #include <string_view>
 
 // 定长字符串模板类，用于共享内存结构
@@ -41,3 +42,14 @@ struct fixed_string {
 
     bool operator<(const fixed_string &other) const { return std::strcmp(data, other.data) < 0; }
 };
+
+namespace std {
+
+template <std::size_t N>
+struct hash<fixed_string<N>> {
+    std::size_t operator()(const fixed_string<N>& value) const noexcept {
+        return std::hash<std::string_view>{}(value.view());
+    }
+};
+
+}  // namespace std

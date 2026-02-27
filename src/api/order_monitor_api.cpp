@@ -21,6 +21,8 @@
 namespace {
 
 static_assert(ACCT_MON_SECURITY_ID_LEN == acct_service::SECURITY_ID_SIZE, "security id size mismatch");
+static_assert(
+    ACCT_MON_INTERNAL_SECURITY_ID_LEN == sizeof(acct_service::internal_security_id_t), "internal security id size mismatch");
 static_assert(ACCT_MON_BROKER_ORDER_ID_LEN == acct_service::BROKER_ORDER_ID_SIZE, "broker order id size mismatch");
 
 bool is_valid_trading_day(std::string_view trading_day) noexcept {
@@ -92,7 +94,7 @@ void fill_snapshot(acct_orders_mon_snapshot_t& out, uint32_t index, uint64_t seq
     out.trade_side = static_cast<uint8_t>(request.trade_side);
     out.market = static_cast<uint8_t>(request.market);
     out.order_status = static_cast<uint8_t>(request.order_status.load(std::memory_order_acquire));
-    out.internal_security_id = request.internal_security_id;
+    std::memcpy(out.internal_security_id, request.internal_security_id.data, sizeof(out.internal_security_id));
 
     out.internal_order_id = request.internal_order_id;
     out.orig_internal_order_id = request.orig_internal_order_id;

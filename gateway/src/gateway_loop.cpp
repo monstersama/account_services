@@ -207,7 +207,9 @@ void gateway_loop::submit_request(const broker_api::broker_order_request& reques
     if (attempts > 0) {
         ++stats_.retries_exhausted;
     }
-    emit_trader_error(request.internal_order_id, request.internal_security_id, to_order_side(request.trade_side));
+    internal_security_id_t internal_security_id;
+    internal_security_id.assign(request.internal_security_id);
+    emit_trader_error(request.internal_order_id, internal_security_id, to_order_side(request.trade_side));
 }
 
 bool gateway_loop::push_response(const trade_response& response) {

@@ -137,7 +137,7 @@ bool entrust_record_manager::save_to_db(const std::string& db_path) const {
     }
 
     for (const entrust_record& record : entrusts_) {
-        out << record.order_id << ',' << record.security_id << ',' << static_cast<int>(record.order_type) << ','
+        out << record.order_id << ',' << record.security_id.view() << ',' << static_cast<int>(record.order_type) << ','
             << static_cast<int>(record.side) << ',' << static_cast<int>(record.market) << ','
             << static_cast<int>(record.status) << ',' << record.volume_entrust << ',' << record.volume_traded << ','
             << record.price_entrust << ',' << record.price_traded_avg << ',' << record.value_traded << ',' << record.fee

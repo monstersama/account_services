@@ -107,7 +107,7 @@ bool trade_record_manager::save_to_db(const std::string& db_path) const {
     }
 
     for (const trade_record& record : trades_) {
-        out << record.trade_id << ',' << record.order_id << ',' << record.security_id << ','
+        out << record.trade_id << ',' << record.order_id << ',' << record.security_id.view() << ','
             << static_cast<int>(record.side) << ',' << record.volume << ',' << record.price << ',' << record.value << ','
             << record.fee << ',' << record.trade_time << ',' << record.local_time << ','
             << record.broker_trade_id.c_str() << '\n';

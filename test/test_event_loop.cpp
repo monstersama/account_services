@@ -99,7 +99,7 @@ bool wait_until(const std::function<bool()>& predicate, int timeout_ms = 1000) {
 order_request make_order(internal_order_id_t order_id, volume_t volume) {
     order_request req;
     req.init_new(
-        "000001", static_cast<internal_security_id_t>(1), order_id, trade_side_t::Buy, market_t::SZ, volume, 1000,
+        "000001", internal_security_id_t("SZ.000001"), order_id, trade_side_t::Buy, market_t::SZ, volume, 1000,
         93000000);
     req.order_status.store(order_status_t::StrategySubmitted, std::memory_order_relaxed);
     return req;
@@ -116,7 +116,7 @@ TEST(process_order_and_trade_response) {
 
     position_manager positions(positions_shm.get());
     assert(positions.initialize(1));
-    assert(positions.add_security("000001", "PingAn", market_t::SZ) == 1);
+    assert(positions.add_security("000001", "PingAn", market_t::SZ) == std::string_view("SZ.000001"));
 
     risk_config risk_cfg;
     risk_cfg.enable_position_check = false;
@@ -159,7 +159,7 @@ TEST(process_order_and_trade_response) {
 
     trade_response rsp{};
     rsp.internal_order_id = order_id;
-    rsp.internal_security_id = static_cast<internal_security_id_t>(1);
+    rsp.internal_security_id = internal_security_id_t("SZ.000001");
     rsp.trade_side = trade_side_t::Buy;
     rsp.new_status = order_status_t::MarketAccepted;
     rsp.volume_traded = 50;
@@ -181,7 +181,7 @@ TEST(process_order_and_trade_response) {
     assert(order->request.volume_traded == 50);
     assert(order->request.order_status.load(std::memory_order_acquire) == order_status_t::MarketAccepted);
 
-    const position* pos = positions.get_position(1);
+    const position* pos = positions.get_position(internal_security_id_t("SZ.000001"));
     assert(pos != nullptr);
     assert(pos->volume_buy_traded >= 50);
 

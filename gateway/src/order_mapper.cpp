@@ -49,6 +49,20 @@ void copy_security_id(const fixed_string<SECURITY_ID_SIZE>& source, char* destin
     }
 }
 
+// 拷贝内部证券键到定长 C 字符串，保持 market.security_id 语义。
+void copy_internal_security_id(const internal_security_id_t& source, char* destination, std::size_t capacity) {
+    if (capacity == 0) {
+        return;
+    }
+
+    std::memset(destination, 0, capacity);
+    const std::string_view id = source.view();
+    const std::size_t copy_size = std::min(id.size(), capacity - 1);
+    if (copy_size > 0) {
+        std::memcpy(destination, id.data(), copy_size);
+    }
+}
+
 }  // namespace
 
 // 将交易方向从共享内存协议映射到 broker_api 枚举。
@@ -92,7 +106,7 @@ bool map_order_request_to_broker(
     out_request = broker_api::broker_order_request{};
     out_request.internal_order_id = request.internal_order_id;
     out_request.orig_internal_order_id = request.orig_internal_order_id;
-    out_request.internal_security_id = request.internal_security_id;
+    copy_internal_security_id(request.internal_security_id, out_request.internal_security_id, sizeof(out_request.internal_security_id));
     out_request.type = mapped_type;
     out_request.trade_side = to_broker_side(request.trade_side);
     out_request.order_market = to_broker_market(request.market);

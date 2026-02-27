@@ -1,6 +1,7 @@
 #include "sim_broker_adapter.hpp"
 
 #include <algorithm>
+#include <cstring>
 
 #include "common/types.hpp"
 
@@ -15,7 +16,7 @@ broker_api::broker_event make_base_event(
     event.kind = kind;
     event.internal_order_id = request.internal_order_id;
     event.broker_order_id = broker_order_id;
-    event.internal_security_id = request.internal_security_id;
+    std::memcpy(event.internal_security_id, request.internal_security_id, sizeof(event.internal_security_id));
     event.trade_side = request.trade_side;
     event.md_time_traded = request.md_time;
     event.recv_time_ns = now_ns();

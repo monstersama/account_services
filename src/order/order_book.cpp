@@ -124,7 +124,7 @@ bool order_book::add_order(const order_entry& entry) {
             broker_id_map_[stored.request.broker_order_id.as_uint] = order_id;
         }
 
-        if (stored.request.internal_security_id != 0) {
+        if (!stored.request.internal_security_id.empty()) {
             security_orders_[stored.request.internal_security_id].push_back(order_id);
         }
 
@@ -290,7 +290,7 @@ bool order_book::archive_order(internal_order_id_t order_id) {
             }
         }
 
-        if (entry.request.internal_security_id != 0) {
+        if (!entry.request.internal_security_id.empty()) {
             auto sec_it = security_orders_.find(entry.request.internal_security_id);
             if (sec_it != security_orders_.end()) {
                 auto& orders = sec_it->second;

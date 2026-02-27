@@ -22,7 +22,7 @@ struct alignas(64) shm_header {
     uint64_t reserved[4];                    // 预留字段
 
     static constexpr uint32_t kMagic = 0x41435354;
-    static constexpr uint32_t kVersion = 2;
+    static constexpr uint32_t kVersion = 3;
 };
 
 static_assert(sizeof(shm_header) == 64, "shm_header must be 64 bytes");
@@ -62,7 +62,7 @@ struct alignas(64) trade_response {
     timestamp_ns_t recv_time_ns;
 };
 
-static_assert(sizeof(trade_response) == 64, "trade_response must be 64 bytes");
+static_assert(sizeof(trade_response) == 128, "trade_response must be 128 bytes");
 
 using order_index_t = uint32_t;
 inline constexpr order_index_t kInvalidOrderIndex = std::numeric_limits<order_index_t>::max();
@@ -102,7 +102,7 @@ struct alignas(64) orders_header {
     uint64_t reserved[3]{};
 
     static constexpr uint32_t kMagic = 0x4143534F;  // "ACSO"
-    static constexpr uint32_t kVersion = 1;
+    static constexpr uint32_t kVersion = 2;
 };
 
 static_assert(alignof(orders_header) == 64, "orders_header must be 64-byte aligned");

@@ -35,7 +35,7 @@ std::unique_ptr<positions_shm_layout> make_positions_shm() {
 
 order_request make_buy_order(internal_order_id_t order_id, volume_t volume) {
     order_request req;
-    req.init_new("000001", static_cast<internal_security_id_t>(1), order_id, trade_side_t::Buy, market_t::SZ, volume,
+    req.init_new("000001", internal_security_id_t("SZ.000001"), order_id, trade_side_t::Buy, market_t::SZ, volume,
         1000, 93000000);
     req.order_status.store(order_status_t::StrategySubmitted, std::memory_order_relaxed);
     return req;
@@ -47,7 +47,7 @@ TEST(fund_and_duplicate_rules) {
     auto shm = make_positions_shm();
     position_manager positions(shm.get());
     assert(positions.initialize(1));
-    assert(positions.add_security("000001", "PingAn", market_t::SZ) == 1);
+    assert(positions.add_security("000001", "PingAn", market_t::SZ) == std::string_view("SZ.000001"));
 
     risk_config cfg;
     cfg.max_order_value = 0;

@@ -49,6 +49,28 @@ gateway模块负责读取 `downstream_shm` 中的索引，从 `orders_shm` 读�
 - 监控 SDK 文档：`docs/order_monitor_sdk.md`
 - 监控示例程序：`examples/order_monitor_usage.cpp`
 
+## 待处理事项（工程化）
+
+以下事项来自当前项目结构与实现评估，作为后续迭代清单：
+
+- [ ] P1：统一配置入口与参数语义  
+  `acct_service_main` 当前只接收 `--config`，而 `config_manager` 内已有更多 CLI 覆盖项但未接入主入口，需要统一为单一、可预期的配置模型。
+
+- [ ] P1：收敛进程级信号处理副作用  
+  `event_loop` 内部直接注册信号处理并依赖全局活动指针，建议将信号注册下沉到进程入口层，循环层只保留可控停止接口。
+
+- [ ] P2：收敛全局头文件注入  
+  顶层 `include_directories(...)` 为全局生效，建议逐步改为各 target 显式声明 `target_include_directories(...)`，强化模块边界。
+
+- [ ] P2：修正文档与实现漂移  
+  现有部分计划文档仍描述 C++20/TOML 等旧信息，需与当前 C++23/YAML 实现保持一致，避免误导。
+
+- [ ] P2：强化 `trading_day` 配置治理  
+  多处默认 `19700101` 适合开发环境，但生产/联调建议改为显式必填或增加启动期严格校验，避免误用默认值。
+
+- [ ] P3：补齐真实多进程 E2E 门禁  
+  当前单测与集成测试覆盖较好，但真实多进程全链路 E2E 仍主要在计划文档中，建议落地到 `ctest` 常规门禁。
+
 ## OrbStack 虚拟机下 VSCode 调试（GDB）
 
 在 OrbStack 虚拟机环境中，直接使用 VSCode `cppdbg + gdb` 启动 x86_64 程序，可能出现以下错误：

@@ -1,5 +1,8 @@
 #include "response_mapper.hpp"
 
+#include <cstring>
+#include <string_view>
+
 #include "order_mapper.hpp"
 
 namespace acct_service::gateway {
@@ -44,7 +47,8 @@ bool map_broker_event_to_trade_response(
     out_response = trade_response{};
     out_response.internal_order_id = event.internal_order_id;
     out_response.broker_order_id = event.broker_order_id;
-    out_response.internal_security_id = event.internal_security_id;
+    const std::size_t key_len = ::strnlen(event.internal_security_id, sizeof(event.internal_security_id));
+    out_response.internal_security_id.assign(std::string_view(event.internal_security_id, key_len));
     out_response.trade_side = to_order_side(event.trade_side);
     out_response.new_status = mapped_status;
     out_response.volume_traded = event.volume_traded;

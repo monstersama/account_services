@@ -38,6 +38,7 @@ typedef struct acct_orders_monitor_context* acct_orders_mon_ctx_t;
 
 #define ACCT_MON_TRADING_DAY_LEN 8
 #define ACCT_MON_SECURITY_ID_LEN 16
+#define ACCT_MON_INTERNAL_SECURITY_ID_LEN 16
 #define ACCT_MON_BROKER_ORDER_ID_LEN 32
 
 // ============ 订单槽位阶段 ============
@@ -91,7 +92,7 @@ typedef struct acct_orders_mon_snapshot {
     uint8_t trade_side;           // 0=NotSet,1=Buy,2=Sell
     uint8_t market;               // 1=SZ,2=SH,3=BJ,4=HK
     uint8_t order_status;         // 内部状态码（见 docs/order_monitor_sdk.md）
-    uint16_t internal_security_id; // 内部证券 ID
+    char internal_security_id[ACCT_MON_INTERNAL_SECURITY_ID_LEN]; // 内部证券 ID（market.security_id）
 
     uint32_t internal_order_id;      // 系统内部订单 ID
     uint32_t orig_internal_order_id; // 原始订单 ID（撤单对应被撤单 ID）

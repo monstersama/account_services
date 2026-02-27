@@ -68,7 +68,7 @@ public:
 
 private:
     positions_shm_layout* shm_;
-    std::unordered_map<std::string, internal_security_id_t> code_to_id_;
+    std::unordered_map<internal_security_id_t, std::size_t> security_to_row_;
 };
 
 }  // namespace acct_service
