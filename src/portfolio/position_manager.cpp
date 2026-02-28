@@ -406,10 +406,35 @@ bool position_manager::deduct_position(internal_security_id_t security_id, volum
     }
 
     position_lock guard(*pos);
-    if (pos->volume_sell < volume) {
-        return false;
+    if (pos->volume_sell >= volume) {
+        // 常规路径：已冻结卖出数量，成交后只需释放冻结计数。
+        pos->volume_sell -= volume;
+    } else {
+        // 兼容路径：若前置未冻结，回退到可卖仓位扣减，避免成交回报阶段直接失败。
+        volume_t remaining = volume;
+        if (pos->volume_sell > 0) {
+            remaining -= pos->volume_sell;
+            pos->volume_sell = 0;
+        }
+
+        const volume_t sellable = pos->volume_available_t0 + pos->volume_available_t1;
+        if (sellable < remaining) {
+            return false;
+        }
+
+        if (pos->volume_available_t1 >= remaining) {
+            pos->volume_available_t1 -= remaining;
+            remaining = 0;
+        } else {
+            remaining -= pos->volume_available_t1;
+            pos->volume_available_t1 = 0;
+            if (pos->volume_available_t0 < remaining) {
+                return false;
+            }
+            pos->volume_available_t0 -= remaining;
+        }
     }
-    pos->volume_sell -= volume;
+
     pos->volume_sell_traded += volume;
     pos->dvalue_sell_traded += value;
     shm_->header.last_update = now_ns();
