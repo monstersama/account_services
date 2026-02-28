@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "name": "cpp-modern-features",
+  "owner": "thebushidocollective",
+  "repo": "han",
+  "path": "plugins/languages/cpp/cpp-modern-features",
+  "branch": "main",
+  "sha": "444b24363ead3b15b7f50eed57638456bab49c46",
+  "source": "manual"
+}
