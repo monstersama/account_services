@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.28)
 project(account_services VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -44,3 +44,4 @@ add_subdirectory(src/api)
 add_subdirectory(gateway)
 add_subdirectory(test)
 add_subdirectory(examples)
+# add_subdirectory(tools)
