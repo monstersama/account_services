@@ -211,7 +211,9 @@ bool account_service::init_portfolio() {
     trade_records_ = std::make_unique<trade_record_manager>();
     entrust_records_ = std::make_unique<entrust_record_manager>();
 
-    position_manager_ = std::make_unique<position_manager>(positions_shm_);
+    const acct_service::config& cfg = config_manager_.get();
+    position_manager_ =
+        std::make_unique<position_manager>(positions_shm_, cfg.config_file, cfg.db.db_path, cfg.db.enable_persistence);
     if (!position_manager_ || !position_manager_->initialize(config_manager_.account_id())) {
         raise_service_error(
             make_service_error(error_code::ComponentUnavailable, "failed to initialize position manager"));

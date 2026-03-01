@@ -1,12 +1,14 @@
 #include "portfolio/position_manager.hpp"
 
 #include <string>
+#include <utility>
 
 #include "common/constants.hpp"
 #include "common/error.hpp"
 #include "common/log.hpp"
 #include "common/security_identity.hpp"
 #include "common/types.hpp"
+#include "portfolio/position_loader.hpp"
 
 namespace acct_service {
 
@@ -102,10 +104,11 @@ void set_default_fund(position& fund_pos) {
 
 }  // namespace
 
-position_manager::position_manager(positions_shm_layout* shm) : shm_(shm) {}
+position_manager::position_manager(
+    positions_shm_layout* shm, std::string config_file_path, std::string db_path, bool db_enabled)
+    : shm_(shm), config_file_path_(std::move(config_file_path)), db_path_(std::move(db_path)), db_enabled_(db_enabled) {}
 
 bool position_manager::initialize(account_id_t account_id) {
-    (void)account_id;
 
     if (!shm_) {
         error_status status = ACCT_MAKE_ERROR(
@@ -160,7 +163,25 @@ bool position_manager::initialize(account_id_t account_id) {
         ensure_fund_identity(*fund_pos);
         set_default_fund(*fund_pos);
 
-        shm_->header.id.store(next_security_id(0), std::memory_order_relaxed);
+        const bool load_ok = [&]() {
+            if (db_enabled_) {
+                position_loader loader(position_loader::db_source{db_path_});
+                return loader.load(account_id, *this);
+            }
+
+            position_loader loader(position_loader::file_source{config_file_path_});
+            return loader.load(account_id, *this);
+        }();
+        if (!load_ok) {
+            error_status status = ACCT_MAKE_ERROR(error_domain::portfolio, error_code::PositionUpdateFailed,
+                "position_manager", "position init loader failed on fresh shm", 0);
+            record_error(status);
+            ACCT_LOG_ERROR_STATUS(status);
+            return false;
+        }
+
+        const std::size_t loaded_count = clamp_security_count(shm_->position_count.load(std::memory_order_acquire));
+        shm_->header.id.store(next_security_id(loaded_count), std::memory_order_relaxed);
         shm_->header.init_state = 1;
         shm_->header.last_update = now_ns();
         return true;
@@ -319,6 +340,81 @@ bool position_manager::add_fund(dvalue_t amount, internal_order_id_t order_id) {
     return true;
 }
 
+// 将买入成交金额与费用直接结算到资金行，保证监控可见资金变动。
+bool position_manager::apply_buy_trade_fund(dvalue_t amount, dvalue_t fee, internal_order_id_t order_id) {
+    (void)order_id;
+    if (!shm_) {
+        return false;
+    }
+
+    const uint64_t total = amount + fee;
+    if (total < amount) {
+        return false;
+    }
+
+    position& fund_pos = shm_->positions[kFundPositionIndex];
+    position_lock guard(fund_pos);
+
+    const uint64_t available = fund_available_field(fund_pos);
+    if (available < total) {
+        return false;
+    }
+
+    const uint64_t market_value = fund_market_value_field(fund_pos);
+    const uint64_t new_market_value = market_value + amount;
+    if (new_market_value < market_value) {
+        return false;
+    }
+
+    const uint64_t total_asset = fund_total_asset_field(fund_pos);
+    const uint64_t new_total_asset = total_asset < fee ? 0 : total_asset - fee;
+
+    fund_available_field(fund_pos) = available - total;
+    fund_total_asset_field(fund_pos) = new_total_asset;
+    fund_market_value_field(fund_pos) = new_market_value;
+    shm_->header.last_update = now_ns();
+    return true;
+}
+
+// 将卖出成交金额与费用直接结算到资金行，保证可用资金与市值同步回写。
+bool position_manager::apply_sell_trade_fund(dvalue_t amount, dvalue_t fee, internal_order_id_t order_id) {
+    (void)order_id;
+    if (!shm_) {
+        return false;
+    }
+
+    position& fund_pos = shm_->positions[kFundPositionIndex];
+    position_lock guard(fund_pos);
+
+    const uint64_t available = fund_available_field(fund_pos);
+    uint64_t new_available = available;
+    if (amount >= fee) {
+        const uint64_t cash_increase = amount - fee;
+        new_available += cash_increase;
+        if (new_available < available) {
+            return false;
+        }
+    } else {
+        const uint64_t cash_decrease = fee - amount;
+        if (available < cash_decrease) {
+            return false;
+        }
+        new_available = available - cash_decrease;
+    }
+
+    const uint64_t market_value = fund_market_value_field(fund_pos);
+    const uint64_t new_market_value = market_value < amount ? 0 : market_value - amount;
+
+    const uint64_t total_asset = fund_total_asset_field(fund_pos);
+    const uint64_t new_total_asset = total_asset < fee ? 0 : total_asset - fee;
+
+    fund_available_field(fund_pos) = new_available;
+    fund_total_asset_field(fund_pos) = new_total_asset;
+    fund_market_value_field(fund_pos) = new_market_value;
+    shm_->header.last_update = now_ns();
+    return true;
+}
+
 const position* position_manager::get_position(internal_security_id_t security_id) const {
     const auto it = security_to_row_.find(security_id);
     if (it == security_to_row_.end()) {
@@ -343,7 +439,7 @@ volume_t position_manager::get_sellable_volume(internal_security_id_t security_i
 
     auto& mutable_pos = const_cast<position&>(*pos);
     position_lock guard(mutable_pos);
-    return mutable_pos.volume_available_t0 + mutable_pos.volume_available_t1;
+    return mutable_pos.volume_available_t0;
 }
 
 bool position_manager::freeze_position(internal_security_id_t security_id, volume_t volume,
@@ -355,24 +451,11 @@ bool position_manager::freeze_position(internal_security_id_t security_id, volum
     }
 
     position_lock guard(*pos);
-    const volume_t sellable = pos->volume_available_t0 + pos->volume_available_t1;
-    if (sellable < volume) {
+    if (pos->volume_available_t0 < volume) {
         return false;
     }
 
-    volume_t remaining = volume;
-    if (pos->volume_available_t1 >= remaining) {
-        pos->volume_available_t1 -= remaining;
-        remaining = 0;
-    } else {
-        remaining -= pos->volume_available_t1;
-        pos->volume_available_t1 = 0;
-        if (pos->volume_available_t0 < remaining) {
-            return false;
-        }
-        pos->volume_available_t0 -= remaining;
-    }
-
+    pos->volume_available_t0 -= volume;
     pos->volume_sell += volume;
     pos->count_order += 1;
     shm_->header.last_update = now_ns();
@@ -417,22 +500,10 @@ bool position_manager::deduct_position(internal_security_id_t security_id, volum
             pos->volume_sell = 0;
         }
 
-        const volume_t sellable = pos->volume_available_t0 + pos->volume_available_t1;
-        if (sellable < remaining) {
+        if (pos->volume_available_t0 < remaining) {
             return false;
         }
-
-        if (pos->volume_available_t1 >= remaining) {
-            pos->volume_available_t1 -= remaining;
-            remaining = 0;
-        } else {
-            remaining -= pos->volume_available_t1;
-            pos->volume_available_t1 = 0;
-            if (pos->volume_available_t0 < remaining) {
-                return false;
-            }
-            pos->volume_available_t0 -= remaining;
-        }
+        pos->volume_available_t0 -= remaining;
     }
 
     pos->volume_sell_traded += volume;
@@ -488,6 +559,24 @@ fund_info position_manager::get_fund_info() const {
     position& fund_pos = shm_->positions[kFundPositionIndex];
     position_lock guard(fund_pos);
     return load_fund_info(fund_pos);
+}
+
+// 覆盖 FUND 行快照，供 fresh SHM 的外部加载流程使用。
+bool position_manager::overwrite_fund_info(const fund_info& fund) {
+    if (!shm_) {
+        return false;
+    }
+
+    position* fund_pos = fund_position(shm_);
+    if (!fund_pos) {
+        return false;
+    }
+
+    position_lock guard(*fund_pos);
+    ensure_fund_identity(*fund_pos);
+    store_fund_info(*fund_pos, fund);
+    shm_->header.last_update = now_ns();
+    return true;
 }
 
 std::size_t position_manager::position_count() const noexcept {

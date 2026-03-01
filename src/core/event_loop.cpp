@@ -243,7 +243,7 @@ void event_loop::handle_order_request(order_index_t index, order_request& reques
         ACCT_LOG_ERROR_STATUS(status);
         return;
     }
-
+    // 风控检查
     order_book_.update_status(request.internal_order_id, order_status_t::RiskControllerPending);
 
     if (request.order_type == order_type_t::New) {
@@ -264,6 +264,7 @@ void event_loop::handle_order_request(order_index_t index, order_request& reques
         order_book_.update_status(request.internal_order_id, order_status_t::RiskControllerAccepted);
     }
 
+    // 进入订单路由
     order_entry* active = order_book_.find_order(request.internal_order_id);
     if (!active || !router_.route_order(*active)) {
         order_book_.update_status(request.internal_order_id, order_status_t::TraderError);
@@ -315,6 +316,22 @@ void event_loop::handle_trade_response(const trade_response& response) {
 
         const order_entry* order = order_book_.find_order(response.internal_order_id);
         if (order && order->request.order_type == order_type_t::New) {
+            if (response.trade_side == trade_side_t::Buy) {
+                if (!positions_.apply_buy_trade_fund(response.dvalue_traded, response.dfee, response.internal_order_id)) {
+                    error_status status = ACCT_MAKE_ERROR(error_domain::portfolio, error_code::PositionUpdateFailed,
+                        "event_loop", "failed to settle buy fund from trade response", 0);
+                    record_error(status);
+                    ACCT_LOG_ERROR_STATUS(status);
+                }
+            } else if (response.trade_side == trade_side_t::Sell) {
+                if (!positions_.apply_sell_trade_fund(response.dvalue_traded, response.dfee, response.internal_order_id)) {
+                    error_status status = ACCT_MAKE_ERROR(error_domain::portfolio, error_code::PositionUpdateFailed,
+                        "event_loop", "failed to settle sell fund from trade response", 0);
+                    record_error(status);
+                    ACCT_LOG_ERROR_STATUS(status);
+                }
+            }
+
             const internal_security_id_t security_id =
                 response.internal_security_id.empty() ? order->request.internal_security_id : response.internal_security_id;
 

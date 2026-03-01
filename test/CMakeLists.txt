@@ -11,6 +11,12 @@ add_executable(test_order_monitor_api
 
 target_link_libraries(test_order_monitor_api PRIVATE acct_order acct_order_monitor)
 
+add_executable(test_position_monitor_api
+    test_position_monitor_api.cpp
+)
+
+target_link_libraries(test_position_monitor_api PRIVATE acct_position_monitor acct_portfolio acct_shm)
+
 # ============ shm_manager 测试 ============
 add_executable(test_shm_manager
     test_shm_manager.cpp
@@ -132,6 +138,7 @@ add_dependencies(test_adapter_loader acct_gateway_sim_plugin)
 enable_testing()
 add_test(NAME test_order_api COMMAND test_order_api)
 add_test(NAME test_order_monitor_api COMMAND test_order_monitor_api)
+add_test(NAME test_position_monitor_api COMMAND test_position_monitor_api)
 add_test(NAME test_shm_manager COMMAND test_shm_manager)
 add_test(NAME test_error_registry COMMAND test_error_registry)
 add_test(NAME test_logger_async COMMAND test_logger_async)
@@ -148,3 +155,11 @@ add_test(NAME test_gateway_config COMMAND test_gateway_config)
 add_test(NAME test_gateway_loop COMMAND test_gateway_loop)
 add_test(NAME test_gateway_plugin_mode COMMAND test_gateway_plugin_mode)
 add_test(NAME test_adapter_loader COMMAND test_adapter_loader)
+
+add_test(NAME test_full_chain_e2e
+    COMMAND ${CMAKE_SOURCE_DIR}/test/full_chain_e2e.sh ${CMAKE_BINARY_DIR}
+)
+set_tests_properties(test_full_chain_e2e PROPERTIES
+    TIMEOUT 180
+    ENVIRONMENT "MONITOR_CONSOLE=0;ORDER_COUNT=1;RANDOM_SIDE=0;SUBMIT_INTERVAL_SEC=1"
+)

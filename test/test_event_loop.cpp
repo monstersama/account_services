@@ -185,6 +185,11 @@ TEST(process_order_and_trade_response) {
     assert(pos != nullptr);
     assert(pos->volume_buy_traded >= 50);
 
+    const fund_info fund = positions.get_fund_info();
+    assert(fund.available == 99949990);
+    assert(fund.total_asset == 99999990);
+    assert(fund.market_value == 50000);
+
     assert(wait_until([&loop]() { return loop.stats().responses_processed >= 1; }));
 
     loop.stop();

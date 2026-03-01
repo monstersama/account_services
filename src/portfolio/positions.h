@@ -15,19 +15,19 @@ inline constexpr const char* kFundPositionId = "FUND";
 struct position {
     std::atomic<uint8_t> locked{0};  // 单行锁（股票行用）
     uint64_t available{0};           // 可用资金 (用于 positions[0])
-    uint64_t volume_available_t0{0};
-    uint64_t volume_available_t1{0};
-    uint64_t volume_buy{0};
-    uint64_t dvalue_buy{0};
-    uint64_t volume_buy_traded{0};
-    uint64_t dvalue_buy_traded{0};
-    uint64_t volume_sell{0};
-    uint64_t dvalue_sell{0};
-    uint64_t volume_sell_traded{0};
-    uint64_t dvalue_sell_traded{0};
-    uint64_t count_order{0};
+    uint64_t volume_available_t0{0}; // t0交易可用数量
+    uint64_t volume_available_t1{0}; // t1交易可用数量（当日成交买量，每日初始化时为0，当日重启初始为volume_buy）
+    uint64_t volume_buy{0};          // 今日买量
+    uint64_t dvalue_buy{0};          // 今日买额
+    uint64_t volume_buy_traded{0};   // 今日买成交量
+    uint64_t dvalue_buy_traded{0};   // 今日买成交额
+    uint64_t volume_sell{0};         // 今日卖量
+    uint64_t dvalue_sell{0};         // 今日卖额
+    uint64_t volume_sell_traded{0};  // 今日卖成交量
+    uint64_t dvalue_sell_traded{0};  // 今日卖成交额
+    uint64_t count_order{0};         // 累计订单数量
     fixed_string<16> id{};  // 资金:"FUND", 股票:"000001"等
-    fixed_string<16> name{};
+    fixed_string<16> name{}; // 名称：market.code
 };
 
 // 资金结构

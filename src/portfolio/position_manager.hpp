@@ -28,14 +28,15 @@ struct position_change {
 // 持仓管理器
 class position_manager {
 public:
-    explicit position_manager(positions_shm_layout* shm);
+    explicit position_manager(
+        positions_shm_layout* shm, std::string config_file_path = {}, std::string db_path = {}, bool db_enabled = false);
     ~position_manager() = default;
 
     // 禁止拷贝
     position_manager(const position_manager&) = delete;
     position_manager& operator=(const position_manager&) = delete;
 
-    // 初始化（从数据库/文件加载）
+    // 初始化（新建/未完成初始化 SHM 时内部触发 loader 从外部加载）
     bool initialize(account_id_t account_id);
 
     // === 资金操作 ===
@@ -45,6 +46,10 @@ public:
     bool unfreeze_fund(dvalue_t amount, internal_order_id_t order_id);
     bool deduct_fund(dvalue_t amount, dvalue_t fee, internal_order_id_t order_id);
     bool add_fund(dvalue_t amount, internal_order_id_t order_id);
+    // 按成交结果更新买入资金（available/total_asset/market_value）。
+    bool apply_buy_trade_fund(dvalue_t amount, dvalue_t fee, internal_order_id_t order_id);
+    // 按成交结果更新卖出资金（available/total_asset/market_value）。
+    bool apply_sell_trade_fund(dvalue_t amount, dvalue_t fee, internal_order_id_t order_id);
 
     // === 持仓操作 ===
 
@@ -59,9 +64,10 @@ public:
         internal_security_id_t security_id, volume_t volume, dprice_t price, internal_order_id_t order_id);
 
     // === 查询接口 ===
-
     std::vector<const position*> get_all_positions() const;
     fund_info get_fund_info() const;
+    // 覆盖 FUND 行快照（仅用于初始化加载）。
+    bool overwrite_fund_info(const fund_info& fund);
     std::size_t position_count() const noexcept;
     std::optional<internal_security_id_t> find_security_id(std::string_view code) const;
     internal_security_id_t add_security(std::string_view code, std::string_view name, market_t market);
@@ -69,6 +75,9 @@ public:
 private:
     positions_shm_layout* shm_;
     std::unordered_map<internal_security_id_t, std::size_t> security_to_row_;
+    std::string config_file_path_;
+    std::string db_path_;
+    bool db_enabled_{false};
 };
 
 }  // namespace acct_service

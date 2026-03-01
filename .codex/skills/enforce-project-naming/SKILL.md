@@ -19,7 +19,7 @@ For C++ internal code (`src/**`, `include/broker_api/*.hpp`):
 - Use `snake_case` for namespaces, types, functions, and local variables.
 - Use `snake_case_` for member fields.
 - Use `kXxx` for constants.
-- Use `PascalCase` for enum values.
+- Use `PascalCase` for enum values, class, structs.
 - Use `ALL_CAPS` only for macros.
 
 For C API / ABI surface (`include/api/*.h`, exported C symbols):

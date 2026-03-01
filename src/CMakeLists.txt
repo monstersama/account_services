@@ -1,6 +1,7 @@
 # src/CMakeLists.txt
 
 find_package(yaml-cpp REQUIRED)
+find_package(SQLite3 QUIET)
 set(ACCT_YAMLCPP_TARGET yaml-cpp)
 if(TARGET yaml-cpp::yaml-cpp)
     set(ACCT_YAMLCPP_TARGET yaml-cpp::yaml-cpp)
@@ -33,6 +34,7 @@ target_link_libraries(acct_shm PRIVATE acct_common rt)
 # portfolio 库 (position/account/trade/entrust)
 add_library(acct_portfolio STATIC
     portfolio/position_manager.cpp
+    portfolio/position_loader.cpp
     portfolio/account_info.cpp
     portfolio/trade_record.cpp
     portfolio/entrust_record.cpp
@@ -41,7 +43,25 @@ target_include_directories(acct_portfolio PUBLIC
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_BINARY_DIR}/generated
 )
-target_link_libraries(acct_portfolio PUBLIC acct_common)
+if(TARGET SQLite::SQLite3)
+    target_link_libraries(acct_portfolio PUBLIC acct_common SQLite::SQLite3)
+elseif(SQLite3_FOUND)
+    target_include_directories(acct_portfolio PUBLIC ${SQLite3_INCLUDE_DIRS})
+    target_link_libraries(acct_portfolio PUBLIC acct_common ${SQLite3_LIBRARIES})
+else()
+    find_library(ACCT_SQLITE3_RUNTIME_LIB NAMES sqlite3)
+    if(NOT ACCT_SQLITE3_RUNTIME_LIB)
+        find_library(
+            ACCT_SQLITE3_RUNTIME_LIB
+            NAMES sqlite3.so.0 libsqlite3.so.0
+            PATHS /lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu
+        )
+    endif()
+    if(NOT ACCT_SQLITE3_RUNTIME_LIB)
+        message(FATAL_ERROR "SQLite3 not found: install sqlite3 runtime/dev packages or provide sqlite3 library path.")
+    endif()
+    target_link_libraries(acct_portfolio PUBLIC acct_common ${ACCT_SQLITE3_RUNTIME_LIB})
+endif()
 
 # order 核心库 (order_book, order_router, order_splitter)
 add_library(acct_order_core STATIC
