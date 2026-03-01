@@ -44,6 +44,6 @@ log:
   async_queue_size: 8192
 
 db:
-  db_path: ""
+  db_path: "./data/account_service.db"
   enable_persistence: true
   sync_interval_ms: 1000

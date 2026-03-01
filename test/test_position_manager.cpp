@@ -25,14 +25,14 @@ namespace {
 constexpr acct_service::dvalue_t kExpectedInitialFund = 100000000;
 using sqlite_db_ptr = std::unique_ptr<sqlite3, decltype(&sqlite3_close)>;
 
-// 定位并创建仓库 data 目录，统一存放测试 CSV/SQLite 文件。
+// 定位并创建测试临时目录，避免写入仓库 data 初始化目录。
 const std::string& test_data_dir() {
     namespace fs = std::filesystem;
     static const std::string kDataDir = []() {
         fs::path probe = fs::current_path();
         for (int depth = 0; depth < 8; ++depth) {
             if (fs::exists(probe / "CMakeLists.txt") && fs::exists(probe / "src") && fs::exists(probe / "test")) {
-                const fs::path data_path = probe / "data";
+                const fs::path data_path = probe / "build" / "test_data";
                 std::error_code ec;
                 fs::create_directories(data_path, ec);
                 return data_path.string();
@@ -47,7 +47,7 @@ const std::string& test_data_dir() {
             probe = parent;
         }
 
-        const fs::path fallback = fs::current_path() / "data";
+        const fs::path fallback = fs::temp_directory_path() / "acct_service_test_data";
         std::error_code ec;
         fs::create_directories(fallback, ec);
         return fallback.string();
