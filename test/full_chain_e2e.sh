@@ -9,12 +9,15 @@ BUILD_DIR="${1:-${SOURCE_DIR}/build}"
 RUN_ID="$(date +%Y%m%d_%H%M%S)_$$"
 TRADING_DAY="$(date +%Y%m%d)"
 TIMEOUT_SEC="${TIMEOUT_SEC:-180}"
-ORDER_COUNT="${ORDER_COUNT:-}"
-ORDER_START_SECURITY="${ORDER_START_SECURITY:-1}"
-SUBMIT_INTERVAL_SEC="${SUBMIT_INTERVAL_SEC:-1}"
+ORDER_COUNT="${ORDER_COUNT:-100}"
+SUBMIT_INTERVAL_SEC="${SUBMIT_INTERVAL_SEC:-0.1}"
 SUBMIT_DURATION_SEC="${SUBMIT_DURATION_SEC:-60}"
-RANDOM_SIDE="${RANDOM_SIDE:-0}"
+RANDOM_SIDE="${RANDOM_SIDE:-1}"
 MONITOR_CONSOLE="${MONITOR_CONSOLE:-1}"
+# 固定样本 DB：默认使用仓库 data 目录下的数据库，可通过环境变量覆盖。
+SAMPLE_DB_PATH="${SAMPLE_DB_PATH:-${SOURCE_DIR}/data/account_service.db}"
+# 默认追加 2 个“非数据库内”的 SZ 标的，用于覆盖新标的创建路径。
+EXTRA_SECURITY_IDS="${EXTRA_SECURITY_IDS:-990001,990002}"
 
 UPSTREAM_SHM="/acct_e2e_upstream_${RUN_ID}"
 DOWNSTREAM_SHM="/acct_e2e_downstream_${RUN_ID}"
@@ -29,6 +32,7 @@ UPSTREAM_SHM_PATH="/dev/shm/${UPSTREAM_SHM#/}"
 
 RUN_DIR="${BUILD_DIR}/e2e_artifacts/${RUN_ID}"
 mkdir -p "${RUN_DIR}"
+RUN_DB_PATH="${RUN_DIR}/account_service.db"
 
 SERVICE_BIN="${BUILD_DIR}/src/acct_service_main"
 GATEWAY_BIN="${BUILD_DIR}/gateway/acct_broker_gateway_main"
@@ -43,8 +47,8 @@ GATEWAY_LOG="${RUN_DIR}/gateway.stdout.log"
 OBSERVER_LOG="${RUN_DIR}/observer.stdout.log"
 SUBMIT_LOG="${RUN_DIR}/order_submit.stderr.log"
 
-ORDERS_CSV="${RUN_DIR}/orders_events.csv"
-POSITIONS_CSV="${RUN_DIR}/positions_events.csv"
+ORDERS_CSV="${RUN_DIR}/orders_final.csv"
+POSITIONS_CSV="${RUN_DIR}/positions_final.csv"
 ORDER_IDS_CSV="${RUN_DIR}/order_ids.csv"
 ORDER_IDS_TXT="${RUN_DIR}/order_ids.txt"
 
@@ -98,8 +102,8 @@ cleanup() {
     [[ -f "${SERVICE_LOG}" ]] && { echo "--- account_service (tail) ---" >&2; tail -n 80 "${SERVICE_LOG}" >&2; }
     [[ -f "${GATEWAY_LOG}" ]] && { echo "--- gateway (tail) ---" >&2; tail -n 80 "${GATEWAY_LOG}" >&2; }
     [[ -f "${OBSERVER_LOG}" ]] && { echo "--- observer (tail) ---" >&2; tail -n 80 "${OBSERVER_LOG}" >&2; }
-    [[ -f "${ORDERS_CSV}" ]] && { echo "--- orders_events.csv (tail) ---" >&2; tail -n 20 "${ORDERS_CSV}" >&2; }
-    [[ -f "${POSITIONS_CSV}" ]] && { echo "--- positions_events.csv (tail) ---" >&2; tail -n 20 "${POSITIONS_CSV}" >&2; }
+    [[ -f "${ORDERS_CSV}" ]] && { echo "--- orders_final.csv (tail) ---" >&2; tail -n 20 "${ORDERS_CSV}" >&2; }
+    [[ -f "${POSITIONS_CSV}" ]] && { echo "--- positions_final.csv (tail) ---" >&2; tail -n 20 "${POSITIONS_CSV}" >&2; }
   fi
 }
 trap 'cleanup $?' EXIT
@@ -150,16 +154,25 @@ for bin in "${SERVICE_BIN}" "${GATEWAY_BIN}" "${OBSERVER_BIN}" "${SUBMIT_BIN}"; 
   fi
 done
 
+if [[ ! -f "${SAMPLE_DB_PATH}" ]]; then
+  echo "[e2e] missing sample db: ${SAMPLE_DB_PATH}" >&2
+  exit 1
+fi
+if ! cp "${SAMPLE_DB_PATH}" "${RUN_DB_PATH}"; then
+  echo "[e2e] failed to copy sample db to run dir: ${RUN_DB_PATH}" >&2
+  exit 1
+fi
+
 # 校验发单参数。
 if [[ -n "${ORDER_COUNT}" ]] && ! [[ "${ORDER_COUNT}" =~ ^[1-9][0-9]*$ ]]; then
   echo "[e2e] invalid ORDER_COUNT: ${ORDER_COUNT}" >&2
   exit 1
 fi
-if ! [[ "${ORDER_START_SECURITY}" =~ ^[1-9][0-9]*$ ]]; then
-  echo "[e2e] invalid ORDER_START_SECURITY: ${ORDER_START_SECURITY}" >&2
-  exit 1
-fi
-if ! [[ "${SUBMIT_INTERVAL_SEC}" =~ ^[1-9][0-9]*$ ]]; then
+if ! awk -v value="${SUBMIT_INTERVAL_SEC}" '
+    BEGIN {
+      is_number = (value ~ /^([0-9]+([.][0-9]+)?|[.][0-9]+)$/)
+      exit((is_number && (value + 0) > 0) ? 0 : 1)
+    }'; then
   echo "[e2e] invalid SUBMIT_INTERVAL_SEC: ${SUBMIT_INTERVAL_SEC}" >&2
   exit 1
 fi
@@ -176,8 +189,123 @@ if ! [[ "${MONITOR_CONSOLE}" =~ ^[01]$ ]]; then
   exit 1
 fi
 
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "[e2e] python3 is required to load security universe from db" >&2
+  exit 1
+fi
+
+DB_SECURITY_ROWS=()
+while IFS= read -r row; do
+  [[ -n "${row}" ]] && DB_SECURITY_ROWS+=("${row}")
+done < <(python3 - "${SAMPLE_DB_PATH}" <<'PY'
+import sqlite3
+import sys
+
+db_path = sys.argv[1]
+conn = sqlite3.connect(db_path)
+cur = conn.cursor()
+
+cur.execute("""
+SELECT security_id, internal_security_id, volume_available_t0
+FROM positions
+ORDER BY internal_security_id, ID
+""")
+
+seen = set()
+for security_id, internal_security_id, volume_available_t0 in cur.fetchall():
+    internal = (internal_security_id or "").strip()
+    if "." not in internal:
+        continue
+    market = internal.split(".", 1)[0].lower()
+    if market not in {"sz", "sh", "bj", "hk"}:
+        continue
+    security = (security_id or "").strip()
+    if not security:
+        continue
+    key = f"{market}|{security}"
+    if key in seen:
+        continue
+    seen.add(key)
+    print(f"{market}|{security}|{int(volume_available_t0 or 0)}")
+conn.close()
+PY
+)
+
+if (( ${#DB_SECURITY_ROWS[@]} == 0 )); then
+  echo "[e2e] no sz/sh/bj/hk securities found in sample db: ${SAMPLE_DB_PATH}" >&2
+  exit 1
+fi
+
+DB_ORDER_KEYS=()
+DB_SECURITY_T0_VOLUMES=()
+declare -A DB_ORDER_KEY_SET
+declare -A DB_SECURITY_ID_SET
+for row in "${DB_SECURITY_ROWS[@]}"; do
+  market="${row%%|*}"
+  rest="${row#*|}"
+  security_id="${rest%%|*}"
+  t0_volume="${rest##*|}"
+  if ! [[ "${market}" =~ ^(sz|sh|bj|hk)$ ]]; then
+    echo "[e2e] invalid market in db row: ${row}" >&2
+    exit 1
+  fi
+  if [[ -z "${security_id}" || ${#security_id} -gt 12 ]]; then
+    echo "[e2e] invalid security_id in db for market=${market}: ${security_id}" >&2
+    exit 1
+  fi
+  if ! [[ "${t0_volume}" =~ ^[0-9]+$ ]]; then
+    echo "[e2e] invalid volume_available_t0 in db for ${market}.${security_id}: ${t0_volume}" >&2
+    exit 1
+  fi
+  order_key="${market}|${security_id}"
+  DB_ORDER_KEYS+=("${order_key}")
+  DB_SECURITY_T0_VOLUMES+=("${t0_volume}")
+  DB_ORDER_KEY_SET["${order_key}"]=1
+  DB_SECURITY_ID_SET["${security_id}"]=1
+done
+
+IFS=',' read -r -a EXTRA_SECURITIES <<< "${EXTRA_SECURITY_IDS}"
+if (( ${#EXTRA_SECURITIES[@]} != 2 )); then
+  echo "[e2e] EXTRA_SECURITY_IDS must contain exactly 2 ids (comma separated): ${EXTRA_SECURITY_IDS}" >&2
+  exit 1
+fi
+EXTRA_ORDER_KEYS=()
+declare -A EXTRA_SECURITY_SET
+for i in "${!EXTRA_SECURITIES[@]}"; do
+  sec="$(echo "${EXTRA_SECURITIES[$i]}" | tr -d '[:space:]')"
+  EXTRA_SECURITIES["${i}"]="${sec}"
+  if [[ -z "${sec}" || ${#sec} -gt 12 ]]; then
+    echo "[e2e] invalid extra security_id: ${sec}" >&2
+    exit 1
+  fi
+  if [[ -n "${DB_SECURITY_ID_SET["${sec}"]:-}" ]]; then
+    echo "[e2e] extra security_id must not exist in db: ${sec}" >&2
+    exit 1
+  fi
+  if [[ -n "${EXTRA_SECURITY_SET["${sec}"]:-}" ]]; then
+    echo "[e2e] duplicated extra security_id: ${sec}" >&2
+    exit 1
+  fi
+  EXTRA_SECURITY_SET["${sec}"]=1
+  EXTRA_ORDER_KEYS+=("sz|${sec}")
+done
+
+ORDER_SECURITY_POOL=("${DB_ORDER_KEYS[@]}" "${EXTRA_ORDER_KEYS[@]}")
+ORDER_SECURITY_POOL_SIZE=${#ORDER_SECURITY_POOL[@]}
+echo "[e2e] db securities (market|security): ${DB_ORDER_KEYS[*]}" >&2
+echo "[e2e] extra non-db securities (market|security): ${EXTRA_ORDER_KEYS[*]}" >&2
+
 if [[ -n "${ORDER_COUNT}" ]]; then
-  min_timeout_sec=$((ORDER_COUNT * SUBMIT_INTERVAL_SEC + 60))
+  min_timeout_sec="$(awk -v order_count="${ORDER_COUNT}" -v interval_sec="${SUBMIT_INTERVAL_SEC}" '
+    BEGIN {
+      # 对小数发单间隔按秒向上取整，给 observer 留足等待窗口。
+      raw_timeout = order_count * interval_sec + 60
+      min_timeout = int(raw_timeout)
+      if ((raw_timeout - min_timeout) > 1e-9) {
+        min_timeout += 1
+      }
+      print min_timeout
+    }')"
 else
   min_timeout_sec=$((SUBMIT_DURATION_SEC + 60))
 fi
@@ -232,8 +360,8 @@ log:
   async_queue_size: 8192
 
 db:
-  db_path: ""
-  enable_persistence: false
+  db_path: "${RUN_DB_PATH}"
+  enable_persistence: true
   sync_interval_ms: 1000
 YAML
 
@@ -287,11 +415,11 @@ if [[ "${MONITOR_CONSOLE}" -eq 1 ]]; then
   start_console_log_follow "observer" "${OBSERVER_LOG}" OBSERVER_TAIL_PID
 fi
 
-# 等待观测文件创建，确保后续轮询有输入源。
+# 等待快照 CSV 创建，确保后续轮询有输入源。
 wait_for_file "${ORDERS_CSV}" 20 || { echo "[e2e] orders csv not ready" >&2; exit 1; }
 wait_for_file "${POSITIONS_CSV}" 20 || { echo "[e2e] positions csv not ready" >&2; exit 1; }
 
-# 发起订单流：默认 1 秒 1 单，持续 60 秒，随机买卖方向。
+# 发起订单流：默认 1 秒 1 单，发送 100 单，随机买卖方向。
 : > "${SUBMIT_LOG}"
 echo "internal_order_id,security_id,market,side,volume,price" > "${ORDER_IDS_CSV}"
 : > "${ORDER_IDS_TXT}"
@@ -301,8 +429,10 @@ submitted_count=0
 submit_start_sec="${SECONDS}"
 submit_deadline_sec=$((submit_start_sec + SUBMIT_DURATION_SEC))
 offset=0
-next_buy_security_num="${ORDER_START_SECURITY}"
 declare -A security_holdings
+for i in "${!DB_ORDER_KEYS[@]}"; do
+  security_holdings["${DB_ORDER_KEYS[$i]}"]="${DB_SECURITY_T0_VOLUMES[$i]}"
+done
 
 while :; do
   if [[ -n "${ORDER_COUNT}" ]]; then
@@ -315,7 +445,9 @@ while :; do
     fi
   fi
 
+  security_key=""
   security_id=""
+  security_market=""
   volume=100
   price="$(printf "10.%02d" $(((offset + 1) % 100)))"
   side="buy"
@@ -343,8 +475,8 @@ while :; do
     done
     if (( ${#sell_candidates[@]} > 0 )); then
       picked_index=$((RANDOM % ${#sell_candidates[@]}))
-      security_id="${sell_candidates[${picked_index}]}"
-      available_volume=${security_holdings["${security_id}"]}
+      security_key="${sell_candidates[${picked_index}]}"
+      available_volume=${security_holdings["${security_key}"]}
       if (( available_volume >= 100 )); then
         volume=100
       else
@@ -359,9 +491,15 @@ while :; do
   fi
 
   if [[ "${side}" == "buy" ]]; then
-    security_id="$(printf "%06d" "${next_buy_security_num}")"
-    next_buy_security_num=$((next_buy_security_num + 1))
+    security_key="${ORDER_SECURITY_POOL[$((offset % ORDER_SECURITY_POOL_SIZE))]}"
     volume=$((100 + (offset % 5) * 100))
+  fi
+
+  security_market="${security_key%%|*}"
+  security_id="${security_key#*|}"
+  if [[ -z "${security_market}" || -z "${security_id}" || "${security_market}" == "${security_id}" ]]; then
+    echo "[e2e] invalid security key resolved: ${security_key}" >&2
+    exit 1
   fi
 
   order_id=""
@@ -372,7 +510,7 @@ while :; do
         --trading-day "${TRADING_DAY}" \
         --security "${security_id}" \
         --side "${side}" \
-        --market sz \
+        --market "${security_market}" \
         --volume "${volume}" \
         --price "${price}" \
         --no-cleanup-shm-on-exit 2>>"${SUBMIT_LOG}")"; then
@@ -386,27 +524,27 @@ while :; do
   done
 
   if [[ -z "${order_id}" ]]; then
-    echo "[e2e] failed to submit order for security=${security_id}" >&2
+    echo "[e2e] failed to submit order for market=${security_market} security=${security_id}" >&2
     exit 1
   fi
 
   if [[ -z "${FIRST_ORDER_ID}" ]]; then
     FIRST_ORDER_ID="${order_id}"
   fi
-  echo "${order_id},${security_id},sz,${side},${volume},${price}" >> "${ORDER_IDS_CSV}"
+  echo "${order_id},${security_id},${security_market},${side},${volume},${price}" >> "${ORDER_IDS_CSV}"
   echo "${order_id}" >> "${ORDER_IDS_TXT}"
-  echo "[submit] order_id=${order_id} security=${security_id} side=${side} volume=${volume} price=${price}" >&2
+  echo "[submit] order_id=${order_id} market=${security_market} security=${security_id} side=${side} volume=${volume} price=${price}" >&2
 
   if [[ "${side}" == "buy" ]]; then
-    prev_volume=${security_holdings["${security_id}"]:-0}
-    security_holdings["${security_id}"]=$((prev_volume + volume))
+    prev_volume=${security_holdings["${security_key}"]:-0}
+    security_holdings["${security_key}"]=$((prev_volume + volume))
   else
-    prev_volume=${security_holdings["${security_id}"]:-0}
+    prev_volume=${security_holdings["${security_key}"]:-0}
     next_volume=$((prev_volume - volume))
     if (( next_volume < 0 )); then
       next_volume=0
     fi
-    security_holdings["${security_id}"]=${next_volume}
+    security_holdings["${security_key}"]=${next_volume}
   fi
 
   submitted_count=$((submitted_count + 1))
@@ -447,7 +585,7 @@ while (( SECONDS < DEADLINE )); do
         next
       }
       NR>1 {
-        if (($4 in want) && ($10+0)>0 && ($11+0)==0) {
+        if (($4 in want) && ($7+0)>=4) {
           seen[$4]=1
         }
       }
@@ -462,32 +600,47 @@ while (( SECONDS < DEADLINE )); do
   fi
 
   if awk -F',' '
-      NR==FNR {
-        if (NR>1) {
-          key = "SZ." $2
-          if (!(key in want)) {
-            want[key]=1
-            total+=1
-          }
+      FILENAME==ARGV[1] {
+        if (FNR>1) {
+          want_order[$1]=1
         }
         next
       }
-      NR>1 {
+      FILENAME==ARGV[2] {
+        if (FNR>1 && ($4 in want_order) && (($10+0)>0)) {
+          key=$6
+          gsub(/"/, "", key)
+          want_position[key]=1
+        }
+        next
+      }
+      FILENAME==ARGV[3] {
+        if (FNR<=1) {
+          next
+        }
         kind=$2
         key=$3
         gsub(/"/, "", kind)
         gsub(/"/, "", key)
-        if (kind=="position" && (key in want) && (($16+0)>0 || ($17+0)>0)) {
+        if (kind=="position" && (key in want_position) && (($16+0)>0 || ($17+0)>0)) {
           seen[key]=1
         }
+        next
       }
       END {
+        total=0
         matched=0
-        for (id in seen) {
-          matched+=1
+        for (id in want_position) {
+          total+=1
+          if (id in seen) {
+            matched+=1
+          }
+        }
+        if (total==0) {
+          exit 0
         }
         exit(matched==total ? 0 : 1)
-      }' "${ORDER_IDS_CSV}" "${POSITIONS_CSV}"; then
+      }' "${ORDER_IDS_CSV}" "${ORDERS_CSV}" "${POSITIONS_CSV}"; then
     POSITIONS_OK=1
   fi
 

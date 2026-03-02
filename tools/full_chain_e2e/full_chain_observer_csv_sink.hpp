@@ -1,7 +1,7 @@
 #pragma once
 
 #include <filesystem>
-#include <fstream>
+#include <map>
 #include <string>
 
 #include "full_chain_observer_order_watch.hpp"
@@ -9,7 +9,7 @@
 
 namespace acct_service {
 
-// CSV 输出封装：统一管理 orders/positions 两路事件落盘。
+// CSV 输出封装：维护 orders/positions 最新快照并覆盖写最终结果。
 class full_chain_observer_csv_sink {
 public:
     full_chain_observer_csv_sink() = default;
@@ -26,8 +26,15 @@ public:
     void flush();
 
 private:
-    std::ofstream orders_stream_{};
-    std::ofstream positions_stream_{};
+    bool opened_{false};
+    std::filesystem::path orders_csv_path_{};
+    std::filesystem::path positions_csv_path_{};
+    std::map<uint32_t, acct_orders_mon_snapshot_t> orders_snapshot_{};
+    std::map<std::string, acct_positions_mon_position_snapshot_t> positions_snapshot_{};
+    acct_positions_mon_info_t info_snapshot_{};
+    acct_positions_mon_fund_snapshot_t fund_snapshot_{};
+    bool has_info_snapshot_{false};
+    bool has_fund_snapshot_{false};
 };
 
 }  // namespace acct_service

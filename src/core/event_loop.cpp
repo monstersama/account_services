@@ -337,8 +337,11 @@ void event_loop::handle_trade_response(const trade_response& response) {
 
             if (!security_id.empty()) {
                 if (!positions_.get_position(security_id) && !order->request.security_id.empty()) {
+                    const std::string_view position_name = !order->request.internal_security_id.empty()
+                                                               ? order->request.internal_security_id.view()
+                                                               : security_id.view();
                     const internal_security_id_t added =
-                        positions_.add_security(order->request.security_id.view(), order->request.security_id.view(), order->request.market);
+                        positions_.add_security(order->request.security_id.view(), position_name, order->request.market);
                     if (added.empty()) {
                         error_status status = ACCT_MAKE_ERROR(error_domain::portfolio, error_code::PositionUpdateFailed,
                             "event_loop", "failed to create missing position row", 0);

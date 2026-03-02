@@ -199,7 +199,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // 4) 打开 CSV 落盘通道。
+    // 4) 打开 CSV 汇总通道（仅维护最新快照，不记录事件流）。
     full_chain_observer_csv_sink csv_sink{};
     if (!csv_sink.open(cli_options.output_dir, &error_message)) {
         std::fprintf(stderr, "open csv sink failed: %s\n", error_message.c_str());
@@ -209,7 +209,7 @@ int main(int argc, char** argv) {
     const auto start_time = std::chrono::steady_clock::now();
     const auto poll_interval = std::chrono::milliseconds(cli_options.poll_interval_ms);
 
-    // 5) 轮询并输出订单/持仓事件，直到达到超时条件。
+    // 5) 轮询并输出订单/持仓日志，同时刷新最终快照 CSV。
     for (;;) {
         std::vector<full_chain_observer_order_event> order_events;
         if (!order_watch.poll(&order_events, &error_message)) {
