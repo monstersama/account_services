@@ -1,0 +1,16 @@
+# Default broker gateway config.
+account_id: 1001
+downstream_shm: "/downstream_order_shm"
+trades_shm: "/trades_shm"
+orders_shm: "/orders_shm"
+trading_day: "19700101"
+
+broker_type: "sim"     # sim | plugin
+adapter_so: ""         # required when broker_type=plugin
+
+create_if_not_exist: true
+poll_batch_size: 64
+idle_sleep_us: 50
+stats_interval_ms: 1000
+max_retries: 3
+retry_interval_us: 200

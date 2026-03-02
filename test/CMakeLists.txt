@@ -84,6 +84,16 @@ add_executable(test_config_manager
 
 target_link_libraries(test_config_manager PRIVATE acct_core_service)
 
+# ============ full_chain_observer config 测试 ==========
+add_executable(test_full_chain_observer_config
+    test_full_chain_observer_config.cpp
+    ${CMAKE_SOURCE_DIR}/tools/full_chain_e2e/full_chain_observer_config.cpp
+)
+target_include_directories(test_full_chain_observer_config PRIVATE
+    ${CMAKE_SOURCE_DIR}/tools/full_chain_e2e
+)
+target_link_libraries(test_full_chain_observer_config PRIVATE ${ACCT_TEST_YAMLCPP_TARGET})
+
 # ============ account_service 测试 ==========
 add_executable(test_account_service
     test_account_service.cpp
@@ -149,6 +159,7 @@ add_test(NAME test_order_router_split_cancel COMMAND test_order_router_split_can
 add_test(NAME test_risk_manager COMMAND test_risk_manager)
 add_test(NAME test_event_loop COMMAND test_event_loop)
 add_test(NAME test_config_manager COMMAND test_config_manager)
+add_test(NAME test_full_chain_observer_config COMMAND test_full_chain_observer_config)
 add_test(NAME test_account_service COMMAND test_account_service)
 add_test(NAME test_gateway_mapper COMMAND test_gateway_mapper)
 add_test(NAME test_gateway_config COMMAND test_gateway_config)

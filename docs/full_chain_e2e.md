@@ -37,10 +37,16 @@ ctest -R test_full_chain_e2e --output-on-failure --test-dir build
 ./test/full_chain_e2e.sh ./build
 ```
 
+仅需发单（不拉起进程）时可使用：
+
+```bash
+./test/full_chain_submit_only.sh ./build
+```
+
 脚本会自动：
 
 - 生成唯一 `run_id` 和唯一 SHM 名称
-- 生成临时配置文件并启动三进程
+- 通过 `--config` 参数启动 `account_service/gateway/observer` 三进程
 - 调用 `order_submit_cli` 按固定频率连续发单
 - 轮询 `orders_events.csv` / `positions_events.csv` 至成功或超时
 - 失败时打印关键日志 tail
@@ -49,6 +55,7 @@ ctest -R test_full_chain_e2e --output-on-failure --test-dir build
 说明：
 
 - 默认行为：控制台实时输出 `account_service/gateway/observer` 日志，`1s/单`，随机 `buy/sell`，持续 `60s`。
+- `full_chain_observer` 仅支持 `--config`（或位置参数 `config_path`）启动，业务参数统一走 YAML。
 - `order_submit_cli` 默认在退出时清理其使用的 `upstream/orders` 共享内存名称。
 - `test/full_chain_e2e.sh` 发单时会显式传 `--no-cleanup-shm-on-exit`，避免持续发单过程中中途清理导致后续发单失败。
 

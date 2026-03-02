@@ -7,7 +7,7 @@ SOURCE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BUILD_DIR="${1:-${SOURCE_DIR}/build}"
 
 RUN_ID="$(date +%Y%m%d_%H%M%S)_$$"
-TRADING_DAY="$(date +%Y%m%d)"
+TRADING_DAY="${TRADING_DAY:-19700101}"
 TIMEOUT_SEC="${TIMEOUT_SEC:-180}"
 ORDER_COUNT="${ORDER_COUNT:-100}"
 SUBMIT_INTERVAL_SEC="${SUBMIT_INTERVAL_SEC:-0.1}"
@@ -19,11 +19,12 @@ SAMPLE_DB_PATH="${SAMPLE_DB_PATH:-${SOURCE_DIR}/data/account_service.db}"
 # 默认追加 2 个“非数据库内”的 SZ 标的，用于覆盖新标的创建路径。
 EXTRA_SECURITY_IDS="${EXTRA_SECURITY_IDS:-990001,990002}"
 
-UPSTREAM_SHM="/acct_e2e_upstream_${RUN_ID}"
-DOWNSTREAM_SHM="/acct_e2e_downstream_${RUN_ID}"
-TRADES_SHM="/acct_e2e_trades_${RUN_ID}"
-ORDERS_SHM_BASE="/acct_e2e_orders_${RUN_ID}"
-POSITIONS_SHM="/acct_e2e_positions_${RUN_ID}"
+# 与配置文件保持一致的 SHM/交易日默认值，可通过环境变量覆盖。
+UPSTREAM_SHM="${UPSTREAM_SHM:-/strategy_order_shm}"
+DOWNSTREAM_SHM="${DOWNSTREAM_SHM:-/downstream_order_shm}"
+TRADES_SHM="${TRADES_SHM:-/trades_shm}"
+ORDERS_SHM_BASE="${ORDERS_SHM_BASE:-/orders_shm}"
+POSITIONS_SHM="${POSITIONS_SHM:-/positions_shm}"
 ORDERS_DATED_SHM="${ORDERS_SHM_BASE}_${TRADING_DAY}"
 
 ORDERS_SHM_PATH="/dev/shm/${ORDERS_DATED_SHM#/}"
@@ -32,15 +33,17 @@ UPSTREAM_SHM_PATH="/dev/shm/${UPSTREAM_SHM#/}"
 
 RUN_DIR="${BUILD_DIR}/e2e_artifacts/${RUN_ID}"
 mkdir -p "${RUN_DIR}"
-RUN_DB_PATH="${RUN_DIR}/account_service.db"
+RUN_DIR="$(cd "${RUN_DIR}" && pwd)"
 
 SERVICE_BIN="${BUILD_DIR}/src/acct_service_main"
 GATEWAY_BIN="${BUILD_DIR}/gateway/acct_broker_gateway_main"
 OBSERVER_BIN="${BUILD_DIR}/tools/full_chain_e2e/full_chain_observer"
 SUBMIT_BIN="${BUILD_DIR}/tools/full_chain_e2e/order_submit_cli"
+SUBMIT_ONLY_SCRIPT="${SOURCE_DIR}/test/full_chain_submit_only.sh"
 
-SERVICE_CFG="${RUN_DIR}/account_service.yaml"
-GATEWAY_CFG="${RUN_DIR}/gateway.yaml"
+SERVICE_CFG="${SERVICE_CFG:-${SOURCE_DIR}/config/default.yaml}"
+GATEWAY_CFG="${GATEWAY_CFG:-${SOURCE_DIR}/config/gateway.yaml}"
+OBSERVER_CFG="${OBSERVER_CFG:-${SOURCE_DIR}/config/observer.yaml}"
 
 SERVICE_LOG="${RUN_DIR}/account_service.stdout.log"
 GATEWAY_LOG="${RUN_DIR}/gateway.stdout.log"
@@ -94,7 +97,7 @@ cleanup() {
   wait "${GATEWAY_TAIL_PID}" 2>/dev/null || true
   wait "${SERVICE_TAIL_PID}" 2>/dev/null || true
 
-  # 统一清理本次运行创建的 SHM 名称，避免污染后续手工调试。
+  # 清理本次运行使用的 SHM 名称，避免污染后续手工调试。
   rm -f "${UPSTREAM_SHM_PATH}" "${DOWNSTREAM_SHM_PATH}" "${TRADES_SHM_PATH}" "${ORDERS_SHM_PATH}" "${POSITIONS_SHM_PATH}" || true
 
   if [[ "${exit_code}" -ne 0 ]]; then
@@ -153,15 +156,37 @@ for bin in "${SERVICE_BIN}" "${GATEWAY_BIN}" "${OBSERVER_BIN}" "${SUBMIT_BIN}"; 
     exit 1
   fi
 done
+for cfg in "${SERVICE_CFG}" "${GATEWAY_CFG}" "${OBSERVER_CFG}"; do
+  if [[ ! -f "${cfg}" ]]; then
+    echo "[e2e] missing config file: ${cfg}" >&2
+    exit 1
+  fi
+done
+if [[ ! -x "${SUBMIT_ONLY_SCRIPT}" ]]; then
+  echo "[e2e] missing executable script: ${SUBMIT_ONLY_SCRIPT}" >&2
+  exit 1
+fi
 
-if [[ ! -f "${SAMPLE_DB_PATH}" ]]; then
-  echo "[e2e] missing sample db: ${SAMPLE_DB_PATH}" >&2
-  exit 1
+# 从 observer 配置中读取 output_dir，定位 CSV 产物路径。
+OBSERVER_OUTPUT_DIR="$(awk -F':' '
+  /^[[:space:]]*output_dir[[:space:]]*:/ {
+    sub(/^[^:]*:[[:space:]]*/, "", $0)
+    gsub(/^[[:space:]]+|[[:space:]]+$/, "", $0)
+    gsub(/^"|"$/, "", $0)
+    gsub(/^'\''|'\''$/, "", $0)
+    print
+    exit
+  }' "${OBSERVER_CFG}")"
+if [[ -z "${OBSERVER_OUTPUT_DIR}" ]]; then
+  OBSERVER_OUTPUT_DIR="."
 fi
-if ! cp "${SAMPLE_DB_PATH}" "${RUN_DB_PATH}"; then
-  echo "[e2e] failed to copy sample db to run dir: ${RUN_DB_PATH}" >&2
-  exit 1
+if [[ "${OBSERVER_OUTPUT_DIR}" = /* ]]; then
+  OBSERVER_OUTPUT_PATH="${OBSERVER_OUTPUT_DIR}"
+else
+  OBSERVER_OUTPUT_PATH="${RUN_DIR}/${OBSERVER_OUTPUT_DIR}"
 fi
+ORDERS_CSV="${OBSERVER_OUTPUT_PATH}/orders_final.csv"
+POSITIONS_CSV="${OBSERVER_OUTPUT_PATH}/positions_final.csv"
 
 # 校验发单参数。
 if [[ -n "${ORDER_COUNT}" ]] && ! [[ "${ORDER_COUNT}" =~ ^[1-9][0-9]*$ ]]; then
@@ -189,111 +214,7 @@ if ! [[ "${MONITOR_CONSOLE}" =~ ^[01]$ ]]; then
   exit 1
 fi
 
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "[e2e] python3 is required to load security universe from db" >&2
-  exit 1
-fi
-
-DB_SECURITY_ROWS=()
-while IFS= read -r row; do
-  [[ -n "${row}" ]] && DB_SECURITY_ROWS+=("${row}")
-done < <(python3 - "${SAMPLE_DB_PATH}" <<'PY'
-import sqlite3
-import sys
-
-db_path = sys.argv[1]
-conn = sqlite3.connect(db_path)
-cur = conn.cursor()
-
-cur.execute("""
-SELECT security_id, internal_security_id, volume_available_t0
-FROM positions
-ORDER BY internal_security_id, ID
-""")
-
-seen = set()
-for security_id, internal_security_id, volume_available_t0 in cur.fetchall():
-    internal = (internal_security_id or "").strip()
-    if "." not in internal:
-        continue
-    market = internal.split(".", 1)[0].lower()
-    if market not in {"sz", "sh", "bj", "hk"}:
-        continue
-    security = (security_id or "").strip()
-    if not security:
-        continue
-    key = f"{market}|{security}"
-    if key in seen:
-        continue
-    seen.add(key)
-    print(f"{market}|{security}|{int(volume_available_t0 or 0)}")
-conn.close()
-PY
-)
-
-if (( ${#DB_SECURITY_ROWS[@]} == 0 )); then
-  echo "[e2e] no sz/sh/bj/hk securities found in sample db: ${SAMPLE_DB_PATH}" >&2
-  exit 1
-fi
-
-DB_ORDER_KEYS=()
-DB_SECURITY_T0_VOLUMES=()
-declare -A DB_ORDER_KEY_SET
-declare -A DB_SECURITY_ID_SET
-for row in "${DB_SECURITY_ROWS[@]}"; do
-  market="${row%%|*}"
-  rest="${row#*|}"
-  security_id="${rest%%|*}"
-  t0_volume="${rest##*|}"
-  if ! [[ "${market}" =~ ^(sz|sh|bj|hk)$ ]]; then
-    echo "[e2e] invalid market in db row: ${row}" >&2
-    exit 1
-  fi
-  if [[ -z "${security_id}" || ${#security_id} -gt 12 ]]; then
-    echo "[e2e] invalid security_id in db for market=${market}: ${security_id}" >&2
-    exit 1
-  fi
-  if ! [[ "${t0_volume}" =~ ^[0-9]+$ ]]; then
-    echo "[e2e] invalid volume_available_t0 in db for ${market}.${security_id}: ${t0_volume}" >&2
-    exit 1
-  fi
-  order_key="${market}|${security_id}"
-  DB_ORDER_KEYS+=("${order_key}")
-  DB_SECURITY_T0_VOLUMES+=("${t0_volume}")
-  DB_ORDER_KEY_SET["${order_key}"]=1
-  DB_SECURITY_ID_SET["${security_id}"]=1
-done
-
-IFS=',' read -r -a EXTRA_SECURITIES <<< "${EXTRA_SECURITY_IDS}"
-if (( ${#EXTRA_SECURITIES[@]} != 2 )); then
-  echo "[e2e] EXTRA_SECURITY_IDS must contain exactly 2 ids (comma separated): ${EXTRA_SECURITY_IDS}" >&2
-  exit 1
-fi
-EXTRA_ORDER_KEYS=()
-declare -A EXTRA_SECURITY_SET
-for i in "${!EXTRA_SECURITIES[@]}"; do
-  sec="$(echo "${EXTRA_SECURITIES[$i]}" | tr -d '[:space:]')"
-  EXTRA_SECURITIES["${i}"]="${sec}"
-  if [[ -z "${sec}" || ${#sec} -gt 12 ]]; then
-    echo "[e2e] invalid extra security_id: ${sec}" >&2
-    exit 1
-  fi
-  if [[ -n "${DB_SECURITY_ID_SET["${sec}"]:-}" ]]; then
-    echo "[e2e] extra security_id must not exist in db: ${sec}" >&2
-    exit 1
-  fi
-  if [[ -n "${EXTRA_SECURITY_SET["${sec}"]:-}" ]]; then
-    echo "[e2e] duplicated extra security_id: ${sec}" >&2
-    exit 1
-  fi
-  EXTRA_SECURITY_SET["${sec}"]=1
-  EXTRA_ORDER_KEYS+=("sz|${sec}")
-done
-
-ORDER_SECURITY_POOL=("${DB_ORDER_KEYS[@]}" "${EXTRA_ORDER_KEYS[@]}")
-ORDER_SECURITY_POOL_SIZE=${#ORDER_SECURITY_POOL[@]}
-echo "[e2e] db securities (market|security): ${DB_ORDER_KEYS[*]}" >&2
-echo "[e2e] extra non-db securities (market|security): ${EXTRA_ORDER_KEYS[*]}" >&2
+# 发单细节由独立脚本 full_chain_submit_only.sh 负责。
 
 if [[ -n "${ORDER_COUNT}" ]]; then
   min_timeout_sec="$(awk -v order_count="${ORDER_COUNT}" -v interval_sec="${SUBMIT_INTERVAL_SEC}" '
@@ -313,82 +234,17 @@ if (( TIMEOUT_SEC < min_timeout_sec )); then
   TIMEOUT_SEC="${min_timeout_sec}"
 fi
 
-# 生成 account_service 临时配置，使用唯一 SHM 名称隔离运行。
-cat > "${SERVICE_CFG}" <<YAML
-account_id: 1001
-trading_day: "${TRADING_DAY}"
-
-shm:
-  upstream_shm_name: "${UPSTREAM_SHM}"
-  downstream_shm_name: "${DOWNSTREAM_SHM}"
-  trades_shm_name: "${TRADES_SHM}"
-  orders_shm_name: "${ORDERS_SHM_BASE}"
-  positions_shm_name: "${POSITIONS_SHM}"
-  create_if_not_exist: true
-
-event_loop:
-  busy_polling: false
-  poll_batch_size: 64
-  idle_sleep_us: 50
-  stats_interval_ms: 1000
-  pin_cpu: false
-  cpu_core: -1
-
-risk:
-  max_order_value: 0
-  max_order_volume: 0
-  max_daily_turnover: 0
-  max_orders_per_second: 0
-  enable_price_limit_check: false
-  enable_duplicate_check: false
-  enable_fund_check: false
-  enable_position_check: true
-  duplicate_window_ns: 100000000
-
-split:
-  strategy: "none"
-  max_child_volume: 0
-  min_child_volume: 100
-  max_child_count: 100
-  interval_ms: 0
-  randomize_factor: 0.0
-
-log:
-  log_dir: "${RUN_DIR}"
-  log_level: "info"
-  async_logging: true
-  async_queue_size: 8192
-
-db:
-  db_path: "${RUN_DB_PATH}"
-  enable_persistence: true
-  sync_interval_ms: 1000
-YAML
-
-# 生成 gateway 临时配置，与 account_service 的 SHM 名称保持一致。
-cat > "${GATEWAY_CFG}" <<YAML
-account_id: 1001
-downstream_shm: "${DOWNSTREAM_SHM}"
-trades_shm: "${TRADES_SHM}"
-orders_shm: "${ORDERS_SHM_BASE}"
-trading_day: "${TRADING_DAY}"
-
-broker_type: "sim"
-adapter_so: ""
-
-create_if_not_exist: true
-poll_batch_size: 64
-idle_sleep_us: 50
-stats_interval_ms: 1000
-max_retries: 3
-retry_interval_us: 200
-YAML
-
-# 启动账户服务、网关和观测器三进程。
-"${SERVICE_BIN}" --config "${SERVICE_CFG}" >"${SERVICE_LOG}" 2>&1 &
+# 通过启动参数传入配置文件路径，避免脚本内写入配置内容。
+(
+  cd "${SOURCE_DIR}"
+  exec "${SERVICE_BIN}" --config "${SERVICE_CFG}" >"${SERVICE_LOG}" 2>&1
+) &
 SERVICE_PID="$!"
 
-"${GATEWAY_BIN}" --config "${GATEWAY_CFG}" >"${GATEWAY_LOG}" 2>&1 &
+(
+  cd "${SOURCE_DIR}"
+  exec "${GATEWAY_BIN}" --config "${GATEWAY_CFG}" >"${GATEWAY_LOG}" 2>&1
+) &
 GATEWAY_PID="$!"
 
 if [[ "${MONITOR_CONSOLE}" -eq 1 ]]; then
@@ -402,13 +258,11 @@ wait_for_path "${POSITIONS_SHM_PATH}" 10 || { echo "[e2e] positions shm not read
 wait_for_path "${UPSTREAM_SHM_PATH}" 10 || { echo "[e2e] upstream shm not ready: ${UPSTREAM_SHM_PATH}" >&2; exit 1; }
 sleep 0.3
 
-"${OBSERVER_BIN}" \
-  --orders-shm "${ORDERS_SHM_BASE}" \
-  --trading-day "${TRADING_DAY}" \
-  --positions-shm "${POSITIONS_SHM}" \
-  --poll-ms 100 \
-  --timeout-ms $((TIMEOUT_SEC * 1000)) \
-  --output-dir "${RUN_DIR}" >"${OBSERVER_LOG}" 2>&1 &
+# observer 默认 output_dir 为 "."，切换到 RUN_DIR 启动可将 CSV 保持在本次产物目录。
+(
+  cd "${RUN_DIR}"
+  exec "${OBSERVER_BIN}" --config "${OBSERVER_CFG}" >"${OBSERVER_LOG}" 2>&1
+) &
 OBSERVER_PID="$!"
 
 if [[ "${MONITOR_CONSOLE}" -eq 1 ]]; then
@@ -419,155 +273,28 @@ fi
 wait_for_file "${ORDERS_CSV}" 20 || { echo "[e2e] orders csv not ready" >&2; exit 1; }
 wait_for_file "${POSITIONS_CSV}" 20 || { echo "[e2e] positions csv not ready" >&2; exit 1; }
 
-# 发起订单流：默认 1 秒 1 单，发送 100 单，随机买卖方向。
-: > "${SUBMIT_LOG}"
-echo "internal_order_id,security_id,market,side,volume,price" > "${ORDER_IDS_CSV}"
-: > "${ORDER_IDS_TXT}"
+# 发单改为调用独立脚本，避免 e2e runner 内嵌提交细节。
+SAMPLE_DB_PATH="${SAMPLE_DB_PATH}" \
+EXTRA_SECURITY_IDS="${EXTRA_SECURITY_IDS}" \
+TRADING_DAY="${TRADING_DAY}" \
+UPSTREAM_SHM="${UPSTREAM_SHM}" \
+ORDERS_SHM_BASE="${ORDERS_SHM_BASE}" \
+ORDER_COUNT="${ORDER_COUNT}" \
+SUBMIT_INTERVAL_SEC="${SUBMIT_INTERVAL_SEC}" \
+SUBMIT_DURATION_SEC="${SUBMIT_DURATION_SEC}" \
+RANDOM_SIDE="${RANDOM_SIDE}" \
+SUBMIT_LOG="${SUBMIT_LOG}" \
+ORDER_IDS_CSV="${ORDER_IDS_CSV}" \
+ORDER_IDS_TXT="${ORDER_IDS_TXT}" \
+FIRST_ORDER_ID_OUT="${RUN_DIR}/order_id.txt" \
+"${SUBMIT_ONLY_SCRIPT}" "${BUILD_DIR}"
 
-FIRST_ORDER_ID=""
-submitted_count=0
-submit_start_sec="${SECONDS}"
-submit_deadline_sec=$((submit_start_sec + SUBMIT_DURATION_SEC))
-offset=0
-declare -A security_holdings
-for i in "${!DB_ORDER_KEYS[@]}"; do
-  security_holdings["${DB_ORDER_KEYS[$i]}"]="${DB_SECURITY_T0_VOLUMES[$i]}"
-done
-
-while :; do
-  if [[ -n "${ORDER_COUNT}" ]]; then
-    if (( submitted_count >= ORDER_COUNT )); then
-      break
-    fi
-  else
-    if (( SECONDS >= submit_deadline_sec )); then
-      break
-    fi
-  fi
-
-  security_key=""
-  security_id=""
-  security_market=""
-  volume=100
-  price="$(printf "10.%02d" $(((offset + 1) % 100)))"
-  side="buy"
-
-  can_sell=0
-  for sec in "${!security_holdings[@]}"; do
-    if (( security_holdings["${sec}"] > 0 )); then
-      can_sell=1
-      break
-    fi
-  done
-
-  if [[ "${RANDOM_SIDE}" -eq 1 && "${can_sell}" -eq 1 ]]; then
-    if (( RANDOM % 2 == 1 )); then
-      side="sell"
-    fi
-  fi
-
-  if [[ "${side}" == "sell" ]]; then
-    sell_candidates=()
-    for sec in "${!security_holdings[@]}"; do
-      if (( security_holdings["${sec}"] > 0 )); then
-        sell_candidates+=("${sec}")
-      fi
-    done
-    if (( ${#sell_candidates[@]} > 0 )); then
-      picked_index=$((RANDOM % ${#sell_candidates[@]}))
-      security_key="${sell_candidates[${picked_index}]}"
-      available_volume=${security_holdings["${security_key}"]}
-      if (( available_volume >= 100 )); then
-        volume=100
-      else
-        volume=${available_volume}
-      fi
-      if (( volume <= 0 )); then
-        side="buy"
-      fi
-    else
-      side="buy"
-    fi
-  fi
-
-  if [[ "${side}" == "buy" ]]; then
-    security_key="${ORDER_SECURITY_POOL[$((offset % ORDER_SECURITY_POOL_SIZE))]}"
-    volume=$((100 + (offset % 5) * 100))
-  fi
-
-  security_market="${security_key%%|*}"
-  security_id="${security_key#*|}"
-  if [[ -z "${security_market}" || -z "${security_id}" || "${security_market}" == "${security_id}" ]]; then
-    echo "[e2e] invalid security key resolved: ${security_key}" >&2
-    exit 1
-  fi
-
-  order_id=""
-  for _ in $(seq 1 30); do
-    if order_id="$("${SUBMIT_BIN}" \
-        --upstream-shm "${UPSTREAM_SHM}" \
-        --orders-shm "${ORDERS_SHM_BASE}" \
-        --trading-day "${TRADING_DAY}" \
-        --security "${security_id}" \
-        --side "${side}" \
-        --market "${security_market}" \
-        --volume "${volume}" \
-        --price "${price}" \
-        --no-cleanup-shm-on-exit 2>>"${SUBMIT_LOG}")"; then
-      order_id="$(echo "${order_id}" | tr -d '\r\n')"
-      if [[ "${order_id}" =~ ^[0-9]+$ ]]; then
-        break
-      fi
-    fi
-    order_id=""
-    sleep 0.2
-  done
-
-  if [[ -z "${order_id}" ]]; then
-    echo "[e2e] failed to submit order for market=${security_market} security=${security_id}" >&2
-    exit 1
-  fi
-
-  if [[ -z "${FIRST_ORDER_ID}" ]]; then
-    FIRST_ORDER_ID="${order_id}"
-  fi
-  echo "${order_id},${security_id},${security_market},${side},${volume},${price}" >> "${ORDER_IDS_CSV}"
-  echo "${order_id}" >> "${ORDER_IDS_TXT}"
-  echo "[submit] order_id=${order_id} market=${security_market} security=${security_id} side=${side} volume=${volume} price=${price}" >&2
-
-  if [[ "${side}" == "buy" ]]; then
-    prev_volume=${security_holdings["${security_key}"]:-0}
-    security_holdings["${security_key}"]=$((prev_volume + volume))
-  else
-    prev_volume=${security_holdings["${security_key}"]:-0}
-    next_volume=$((prev_volume - volume))
-    if (( next_volume < 0 )); then
-      next_volume=0
-    fi
-    security_holdings["${security_key}"]=${next_volume}
-  fi
-
-  submitted_count=$((submitted_count + 1))
-  offset=$((offset + 1))
-
-  if [[ -n "${ORDER_COUNT}" ]]; then
-    if (( submitted_count >= ORDER_COUNT )); then
-      break
-    fi
-  else
-    if (( SECONDS >= submit_deadline_sec )); then
-      break
-    fi
-  fi
-  sleep "${SUBMIT_INTERVAL_SEC}"
-done
-
-if (( submitted_count == 0 )); then
+submitted_count="$(wc -l < "${ORDER_IDS_TXT}")"
+submitted_count="${submitted_count//[[:space:]]/}"
+if [[ -z "${submitted_count}" || "${submitted_count}" == "0" ]]; then
   echo "[e2e] no orders submitted" >&2
   exit 1
 fi
-
-echo "${FIRST_ORDER_ID}" > "${RUN_DIR}/order_id.txt"
 
 # 轮询订单/持仓 CSV，直到两侧条件同时满足。
 SUCCESS=0

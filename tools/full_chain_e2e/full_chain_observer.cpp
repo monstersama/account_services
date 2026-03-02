@@ -1,106 +1,16 @@
 #include <chrono>
 #include <cstdio>
-#include <cstdlib>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "full_chain_observer_config.hpp"
 #include "full_chain_observer_csv_sink.hpp"
 #include "full_chain_observer_order_watch.hpp"
 #include "full_chain_observer_position_watch.hpp"
 
 namespace acct_service {
 namespace {
-
-// 命令行参数集合：覆盖观测器最小可运行配置。
-struct full_chain_observer_cli_options {
-    std::string orders_shm_name{"/orders_shm"};
-    std::string trading_day{"19700101"};
-    std::string positions_shm_name{"/positions_shm"};
-    std::string output_dir{"."};
-    uint32_t poll_interval_ms{200};
-    uint32_t timeout_ms{30000};
-};
-
-// 打印命令行帮助并说明默认值。
-void print_usage(const char* program_name) {
-    std::fprintf(stderr,
-        "Usage: %s [--orders-shm NAME] [--trading-day YYYYMMDD] [--positions-shm NAME]\n"
-        "          [--poll-ms N] [--timeout-ms N] [--output-dir DIR]\n",
-        program_name);
-}
-
-// 解析无符号整数参数，失败时返回 false。
-bool parse_uint32(const char* text, uint32_t* out_value) {
-    if (text == nullptr || out_value == nullptr) {
-        return false;
-    }
-    char* end = nullptr;
-    errno = 0;
-    const unsigned long parsed = std::strtoul(text, &end, 10);
-    if (errno != 0 || end == text || *end != '\0') {
-        return false;
-    }
-    if (parsed > 0xFFFFFFFFUL) {
-        return false;
-    }
-    *out_value = static_cast<uint32_t>(parsed);
-    return true;
-}
-
-// 解析命令行参数并填充运行选项。
-bool parse_cli_args(int argc, char** argv, full_chain_observer_cli_options* out_options) {
-    if (out_options == nullptr) {
-        return false;
-    }
-    for (int i = 1; i < argc; ++i) {
-        const std::string arg = argv[i];
-        if (arg == "--help" || arg == "-h") {
-            print_usage(argv[0]);
-            return false;
-        }
-        if (i + 1 >= argc) {
-            std::fprintf(stderr, "missing value for %s\n", arg.c_str());
-            return false;
-        }
-
-        const char* value = argv[++i];
-        if (arg == "--orders-shm") {
-            out_options->orders_shm_name = value;
-        } else if (arg == "--trading-day") {
-            out_options->trading_day = value;
-        } else if (arg == "--positions-shm") {
-            out_options->positions_shm_name = value;
-        } else if (arg == "--output-dir") {
-            out_options->output_dir = value;
-        } else if (arg == "--poll-ms") {
-            if (!parse_uint32(value, &out_options->poll_interval_ms)) {
-                std::fprintf(stderr, "invalid --poll-ms value: %s\n", value);
-                return false;
-            }
-        } else if (arg == "--timeout-ms") {
-            if (!parse_uint32(value, &out_options->timeout_ms)) {
-                std::fprintf(stderr, "invalid --timeout-ms value: %s\n", value);
-                return false;
-            }
-        } else {
-            std::fprintf(stderr, "unknown argument: %s\n", arg.c_str());
-            return false;
-        }
-    }
-    return true;
-}
-
-// 判断是否仅请求帮助信息。
-bool wants_help(int argc, char** argv) {
-    for (int i = 1; i < argc; ++i) {
-        const std::string arg = argv[i];
-        if (arg == "--help" || arg == "-h") {
-            return true;
-        }
-    }
-    return false;
-}
 
 // 输出订单事件到终端，便于运行中实时观察。
 void print_order_event(const full_chain_observer_order_event& event) {
@@ -169,13 +79,18 @@ void print_position_event(const full_chain_observer_position_event& event) {
 int main(int argc, char** argv) {
     using namespace acct_service;
 
-    // 1) 解析参数并构造运行时配置。
-    if (wants_help(argc, argv)) {
-        print_usage(argv[0]);
+    // 1) 解析参数并加载配置文件。
+    full_chain_observer_config observer_config{};
+    std::string parse_error;
+    const observer_parse_result parse_result = parse_args(argc, argv, &observer_config, &parse_error);
+    if (parse_result == observer_parse_result::Help) {
         return 0;
     }
-    full_chain_observer_cli_options cli_options{};
-    if (!parse_cli_args(argc, argv, &cli_options)) {
+    if (parse_result == observer_parse_result::Error) {
+        if (!parse_error.empty()) {
+            std::fprintf(stderr, "%s\n", parse_error.c_str());
+        }
+        print_usage(argv[0]);
         return 1;
     }
 
@@ -183,8 +98,8 @@ int main(int argc, char** argv) {
     full_chain_observer_order_watch order_watch{};
     std::string error_message;
     full_chain_observer_order_watch_options order_watch_options{};
-    order_watch_options.orders_shm_name = cli_options.orders_shm_name;
-    order_watch_options.trading_day = cli_options.trading_day;
+    order_watch_options.orders_shm_name = observer_config.orders_shm_name;
+    order_watch_options.trading_day = observer_config.trading_day;
     if (!order_watch.open(order_watch_options, &error_message)) {
         std::fprintf(stderr, "open order watch failed: %s\n", error_message.c_str());
         return 1;
@@ -193,7 +108,7 @@ int main(int argc, char** argv) {
     // 3) 打开持仓监控模块（基于 position_monitor_api）。
     full_chain_observer_position_watch position_watch{};
     full_chain_observer_position_watch_options position_watch_options{};
-    position_watch_options.positions_shm_name = cli_options.positions_shm_name;
+    position_watch_options.positions_shm_name = observer_config.positions_shm_name;
     if (!position_watch.open(position_watch_options, &error_message)) {
         std::fprintf(stderr, "open position watch failed: %s\n", error_message.c_str());
         return 1;
@@ -201,13 +116,13 @@ int main(int argc, char** argv) {
 
     // 4) 打开 CSV 汇总通道（仅维护最新快照，不记录事件流）。
     full_chain_observer_csv_sink csv_sink{};
-    if (!csv_sink.open(cli_options.output_dir, &error_message)) {
+    if (!csv_sink.open(observer_config.output_dir, &error_message)) {
         std::fprintf(stderr, "open csv sink failed: %s\n", error_message.c_str());
         return 1;
     }
 
     const auto start_time = std::chrono::steady_clock::now();
-    const auto poll_interval = std::chrono::milliseconds(cli_options.poll_interval_ms);
+    const auto poll_interval = std::chrono::milliseconds(observer_config.poll_interval_ms);
 
     // 5) 轮询并输出订单/持仓日志，同时刷新最终快照 CSV。
     for (;;) {
@@ -239,10 +154,10 @@ int main(int argc, char** argv) {
 
         csv_sink.flush();
 
-        if (cli_options.timeout_ms > 0) {
+        if (observer_config.timeout_ms > 0) {
             const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - start_time);
-            if (elapsed.count() >= cli_options.timeout_ms) {
+            if (elapsed.count() >= observer_config.timeout_ms) {
                 break;
             }
         }
