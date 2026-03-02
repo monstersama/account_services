@@ -16,8 +16,8 @@ add_executable(full_chain_observer
 target_link_libraries(full_chain_observer PRIVATE
     acct_order_monitor
     acct_position_monitor
-    rt
     ${ACCT_TOOLS_YAMLCPP_TARGET}
+    rt
 )
 
 add_executable(order_submit_cli

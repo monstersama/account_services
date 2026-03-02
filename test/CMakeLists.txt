@@ -1,4 +1,10 @@
 # ============ 测试可执行文件 ============
+find_package(yaml-cpp REQUIRED)
+set(ACCT_TEST_YAMLCPP_TARGET yaml-cpp)
+if(TARGET yaml-cpp::yaml-cpp)
+    set(ACCT_TEST_YAMLCPP_TARGET yaml-cpp::yaml-cpp)
+endif()
+
 add_executable(test_order_api
     test_order_api.cpp
 )
