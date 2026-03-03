@@ -15,6 +15,8 @@ namespace acct_service {
 
 namespace {
 
+constexpr mode_t kShmCreateMode = 0660;
+
 bool report_shm_error(error_code code, std::string_view name, std::string_view detail, int err = 0) {
     error_status status = ACCT_MAKE_ERROR(error_domain::shm, code, "shm_manager", detail, err);
     if (!name.empty()) {
@@ -25,6 +27,14 @@ bool report_shm_error(error_code code, std::string_view name, std::string_view d
     record_error(status);
     ACCT_LOG_ERROR_STATUS(status);
     return false;
+}
+
+// 新创建 SHM 后强制设置权限，避免受 umask 影响导致联调进程无法 O_RDWR 打开。
+bool apply_create_mode(int fd, std::string_view name) {
+    if (fchmod(fd, kShmCreateMode) < 0) {
+        return report_shm_error(error_code::ShmOpenFailed, name, "fchmod failed", errno);
+    }
+    return true;
 }
 
 }  // namespace
@@ -85,7 +95,7 @@ void *SHMManager::open_impl(std::string_view name, std::size_t size, shm_mode mo
 
     switch (mode) {
         case shm_mode::Create:
-            fd_ = shm_open(name_str.c_str(), O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC, 0644);
+            fd_ = shm_open(name_str.c_str(), O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC, kShmCreateMode);
             if (fd_ < 0) {
                 (void)report_shm_error(error_code::ShmOpenFailed, name, "shm_open(create) failed", errno);
                 return nullptr;
@@ -101,7 +111,7 @@ void *SHMManager::open_impl(std::string_view name, std::size_t size, shm_mode mo
             is_new = false;
             break;
         case shm_mode::OpenOrCreate:
-            fd_ = shm_open(name_str.c_str(), O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC, 0644);
+            fd_ = shm_open(name_str.c_str(), O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC, kShmCreateMode);
             if (fd_ < 0) {
                 if (errno == EEXIST) {
                     fd_ = shm_open(name_str.c_str(), O_RDWR | O_CLOEXEC, 0644);
@@ -118,6 +128,11 @@ void *SHMManager::open_impl(std::string_view name, std::size_t size, shm_mode mo
                 is_new = true;
             }
             break;
+    }
+
+    if (is_new && !apply_create_mode(fd_, name)) {
+        cleanup(true);
+        return nullptr;
     }
 
     struct stat st;
