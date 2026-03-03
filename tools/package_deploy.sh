@@ -15,6 +15,8 @@ Options:
   --pkgroot <dir>         Staging directory used by DESTDIR (default: <repo>/pkg)
   --package-name <name>   Package file basename (default: account_services)
   --no-db                 Exclude *.db files under data/
+  --source-date-epoch <s> Reproducible timestamp (unix seconds, default: git commit time)
+  --native-arch           Enable -march=native for Release build (non-reproducible across machines)
   --skip-configure        Skip cmake -S/-B configure step
   --skip-build            Skip cmake --build step
   -h, --help              Show this help
@@ -68,6 +70,38 @@ infer_version() {
     return 1
 }
 
+infer_source_date_epoch() {
+    local inferred=""
+    if command -v git >/dev/null 2>&1 && git -C "${repo_root}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        inferred="$(git -C "${repo_root}" log -1 --format=%ct 2>/dev/null || true)"
+    fi
+    if [[ "${inferred}" =~ ^[0-9]+$ ]]; then
+        printf '%s\n' "${inferred}"
+        return 0
+    fi
+    printf '0\n'
+}
+
+create_reproducible_tarball() {
+    local src_dir="$1"
+    local out_file="$2"
+    local epoch="$3"
+    (
+        export LC_ALL=C
+        export TZ=UTC
+        cd "${src_dir}"
+        tar \
+            --sort=name \
+            --format=posix \
+            --mtime="@${epoch}" \
+            --owner=0 \
+            --group=0 \
+            --numeric-owner \
+            --pax-option=delete=atime,delete=ctime \
+            -cf - . | gzip -n > "${out_file}"
+    )
+}
+
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/.." && pwd)"
 
@@ -79,6 +113,8 @@ output_dir="${repo_root}"
 pkgroot="${repo_root}/pkg"
 package_name="account_services"
 include_db=1
+source_date_epoch="${SOURCE_DATE_EPOCH:-}"
+enable_native_arch=0
 skip_configure=0
 skip_build=0
 
@@ -116,6 +152,14 @@ while [[ $# -gt 0 ]]; do
             include_db=0
             shift
             ;;
+        --source-date-epoch)
+            source_date_epoch="$2"
+            shift 2
+            ;;
+        --native-arch)
+            enable_native_arch=1
+            shift
+            ;;
         --skip-configure)
             skip_configure=1
             shift
@@ -145,12 +189,27 @@ if [[ -z "${version}" ]]; then
     exit 1
 fi
 
+if [[ -z "${source_date_epoch}" ]]; then
+    source_date_epoch="$(infer_source_date_epoch)"
+fi
+if ! [[ "${source_date_epoch}" =~ ^[0-9]+$ ]]; then
+    echo "invalid --source-date-epoch: ${source_date_epoch}" >&2
+    exit 2
+fi
+
+native_arch_cmake=OFF
+if [[ "${enable_native_arch}" -eq 1 ]]; then
+    native_arch_cmake=ON
+fi
+
 install_prefix="${prefix_base%/}/${version}"
 package_arch="$(uname -m)"
 package_file="${output_dir%/}/${package_name}-${version}-linux-${package_arch}.tar.gz"
 
 if [[ "${skip_configure}" -eq 0 ]]; then
-    cmake -S "${repo_root}" -B "${build_dir}" -DCMAKE_BUILD_TYPE="${build_type}"
+    cmake -S "${repo_root}" -B "${build_dir}" \
+        -DCMAKE_BUILD_TYPE="${build_type}" \
+        -DACCT_ENABLE_NATIVE_ARCH="${native_arch_cmake}"
 fi
 
 if [[ "${skip_build}" -eq 0 ]]; then
@@ -194,7 +253,7 @@ if [[ "${installed_bin_count}" -eq 0 ]]; then
 fi
 
 mkdir -p "${output_dir}"
-tar -C "${pkgroot}" -czf "${package_file}" .
+create_reproducible_tarball "${pkgroot}" "${package_file}" "${source_date_epoch}"
 
 cat <<EOF
 Package created:
@@ -202,4 +261,8 @@ Package created:
 
 Install prefix in package:
   ${install_prefix}
+SOURCE_DATE_EPOCH:
+  ${source_date_epoch}
+ACCT_ENABLE_NATIVE_ARCH:
+  ${native_arch_cmake}
 EOF

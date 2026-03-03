@@ -8,7 +8,12 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # 编译选项
 add_compile_options(-Wall -Wextra -Wpedantic)
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -DNDEBUG")
+option(ACCT_ENABLE_NATIVE_ARCH "Enable -march=native for Release builds" OFF)
+if(ACCT_ENABLE_NATIVE_ARCH)
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -DNDEBUG")
+else()
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
+endif()
 set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g3")
 
 enable_testing()

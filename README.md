@@ -80,6 +80,12 @@ tools/package_api.sh --skip-configure --skip-build
 
 # 指定版本和输出目录
 tools/package_api.sh --version 1.0.6 --output-dir ./output
+
+# 指定统一时间戳，生成可复现 tar.gz（跨机器对比更稳定）
+tools/package_api.sh --version 1.0.6 --source-date-epoch 1700000000
+
+# 如需开启本机 CPU 优化（会降低跨机器可复现性）
+tools/package_api.sh --native-arch
 ```
 
 查看帮助：
