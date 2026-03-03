@@ -15,7 +15,7 @@ namespace acct_service {
 
 namespace {
 
-constexpr mode_t kShmCreateMode = 0660;
+constexpr mode_t kShmCreateMode = 0777;
 
 bool report_shm_error(error_code code, std::string_view name, std::string_view detail, int err = 0) {
     error_status status = ACCT_MAKE_ERROR(error_domain::shm, code, "shm_manager", detail, err);
