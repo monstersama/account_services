@@ -9,5 +9,5 @@ build-*/
 .vscode/settings.json
 .vscode/tasks.json
 output/
-pkgroot/
+pkg/
 *.tar.gz

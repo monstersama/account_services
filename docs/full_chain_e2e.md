@@ -40,7 +40,7 @@ ctest -R test_full_chain_e2e --output-on-failure --test-dir build
 仅需发单（不拉起进程）时可使用：
 
 ```bash
-./test/full_chain_submit_only.sh ./build
+./test/full_chain_submit.sh ./build
 ```
 
 脚本会自动：

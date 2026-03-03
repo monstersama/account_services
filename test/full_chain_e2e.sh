@@ -5,6 +5,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BUILD_DIR="${1:-${SOURCE_DIR}/build}"
+if [[ ! -d "${BUILD_DIR}" ]]; then
+  echo "[e2e] build dir not found: ${BUILD_DIR}" >&2
+  exit 1
+fi
+BUILD_DIR="$(cd "${BUILD_DIR}" && pwd)"
 
 RUN_ID="$(date +%Y%m%d_%H%M%S)_$$"
 TRADING_DAY="${TRADING_DAY:-19700101}"
@@ -39,7 +44,7 @@ SERVICE_BIN="${BUILD_DIR}/src/acct_service_main"
 GATEWAY_BIN="${BUILD_DIR}/gateway/acct_broker_gateway_main"
 OBSERVER_BIN="${BUILD_DIR}/tools/full_chain_e2e/full_chain_observer"
 SUBMIT_BIN="${BUILD_DIR}/tools/full_chain_e2e/order_submit_cli"
-SUBMIT_ONLY_SCRIPT="${SOURCE_DIR}/test/full_chain_submit_only.sh"
+SUBMIT_SCRIPT="${SUBMIT_SCRIPT:-${SOURCE_DIR}/test/full_chain_submit.sh}"
 
 SERVICE_CFG="${SERVICE_CFG:-${SOURCE_DIR}/config/default.yaml}"
 GATEWAY_CFG="${GATEWAY_CFG:-${SOURCE_DIR}/config/gateway.yaml}"
@@ -162,8 +167,8 @@ for cfg in "${SERVICE_CFG}" "${GATEWAY_CFG}" "${OBSERVER_CFG}"; do
     exit 1
   fi
 done
-if [[ ! -x "${SUBMIT_ONLY_SCRIPT}" ]]; then
-  echo "[e2e] missing executable script: ${SUBMIT_ONLY_SCRIPT}" >&2
+if [[ ! -x "${SUBMIT_SCRIPT}" ]]; then
+  echo "[e2e] missing executable script: ${SUBMIT_SCRIPT}" >&2
   exit 1
 fi
 
@@ -214,7 +219,7 @@ if ! [[ "${MONITOR_CONSOLE}" =~ ^[01]$ ]]; then
   exit 1
 fi
 
-# 发单细节由独立脚本 full_chain_submit_only.sh 负责。
+# 发单细节由独立脚本 full_chain_submit.sh 负责。
 
 if [[ -n "${ORDER_COUNT}" ]]; then
   min_timeout_sec="$(awk -v order_count="${ORDER_COUNT}" -v interval_sec="${SUBMIT_INTERVAL_SEC}" '
@@ -287,7 +292,7 @@ SUBMIT_LOG="${SUBMIT_LOG}" \
 ORDER_IDS_CSV="${ORDER_IDS_CSV}" \
 ORDER_IDS_TXT="${ORDER_IDS_TXT}" \
 FIRST_ORDER_ID_OUT="${RUN_DIR}/order_id.txt" \
-"${SUBMIT_ONLY_SCRIPT}" "${BUILD_DIR}"
+"${SUBMIT_SCRIPT}" "${BUILD_DIR}"
 
 submitted_count="$(wc -l < "${ORDER_IDS_TXT}")"
 submitted_count="${submitted_count//[[:space:]]/}"

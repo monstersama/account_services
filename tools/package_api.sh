@@ -4,17 +4,16 @@ set -euo pipefail
 print_usage() {
     cat <<'EOF'
 Usage:
-  tools/package_deploy.sh [options]
+  tools/package_api.sh [options]
 
 Options:
   --build-dir <dir>       CMake build directory (default: <repo>/build)
   --build-type <type>     CMake build type (default: Release)
   --version <ver>         Package version (default: parse ACCT_API_VERSION from CMakeLists.txt)
-  --prefix-base <dir>     Install prefix root on target host (default: /opt/account_services)
+  --prefix-base <dir>     Install prefix root inside package (default: /opt/account_services_api)
   --output-dir <dir>      Output directory for tar.gz (default: <repo>)
   --pkgroot <dir>         Staging directory used by DESTDIR (default: <repo>/pkg)
-  --package-name <name>   Package file basename (default: account_services)
-  --no-db                 Exclude *.db files under data/
+  --package-name <name>   Package file basename (default: account_services_api)
   --skip-configure        Skip cmake -S/-B configure step
   --skip-build            Skip cmake --build step
   -h, --help              Show this help
@@ -74,11 +73,10 @@ repo_root="$(cd "${script_dir}/.." && pwd)"
 build_dir="${repo_root}/build"
 build_type="Release"
 version=""
-prefix_base="/opt/account_services"
+prefix_base="/opt/account_services_api"
 output_dir="${repo_root}"
 pkgroot="${repo_root}/pkg"
-package_name="account_services"
-include_db=1
+package_name="account_services_api"
 skip_configure=0
 skip_build=0
 
@@ -111,10 +109,6 @@ while [[ $# -gt 0 ]]; do
         --package-name)
             package_name="$2"
             shift 2
-            ;;
-        --no-db)
-            include_db=0
-            shift
             ;;
         --skip-configure)
             skip_configure=1
@@ -161,43 +155,16 @@ rm -rf "${pkgroot}"
 DESTDIR="${pkgroot}" cmake --install "${build_dir}" --prefix "${install_prefix}"
 
 install_root="${pkgroot}${install_prefix}"
-mkdir -p "${install_root}/config" "${install_root}/data"
-
-if [[ -d "${repo_root}/config" ]]; then
-    cp -a "${repo_root}/config/." "${install_root}/config/"
-fi
-
-if [[ -d "${repo_root}/data" ]]; then
-    cp -a "${repo_root}/data/." "${install_root}/data/"
-    if [[ "${include_db}" -eq 0 ]]; then
-        find "${install_root}/data" -type f -name '*.db' -delete
-    fi
-fi
-
-mkdir -p "${install_root}/bin"
-runtime_bins=(
-    "src/acct_service_main"
-    "gateway/acct_broker_gateway_main"
-    "tools/full_chain_e2e/full_chain_observer"
-    "tools/full_chain_e2e/order_submit_cli"
-)
-installed_bin_count=0
-for rel_bin in "${runtime_bins[@]}"; do
-    src_bin="${build_dir%/}/${rel_bin}"
-    if [[ -f "${src_bin}" ]]; then
-        cp -a "${src_bin}" "${install_root}/bin/"
-        installed_bin_count=$((installed_bin_count + 1))
-    fi
-done
-if [[ "${installed_bin_count}" -eq 0 ]]; then
-    rmdir "${install_root}/bin" 2>/dev/null || true
+if [[ ! -d "${install_root}/lib" || ! -d "${install_root}/include" ]]; then
+    echo "API install artifacts are incomplete under ${install_root}; expected lib/ and include/." >&2
+    exit 1
 fi
 
 mkdir -p "${output_dir}"
 tar -C "${pkgroot}" -czf "${package_file}" .
 
 cat <<EOF
-Package created:
+API package created:
   ${package_file}
 
 Install prefix in package:
