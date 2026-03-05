@@ -9,9 +9,9 @@
 namespace acct_service {
 
 using InternalOrderId = uint32_t;
-using SecurityId = fixed_string<kSecurityIdSize>;
-using InternalSecurityId = fixed_string<kInternalSecurityIdSize>;
-using BrokerOrderId = fixed_string<kBrokerOrderIdSize>;
+using SecurityId = FixedString<kSecurityIdSize>;
+using InternalSecurityId = FixedString<kInternalSecurityIdSize>;
+using BrokerOrderId = FixedString<kBrokerOrderIdSize>;
 using Volume = uint64_t;
 using DPrice = uint64_t;   // 价格，单位：分 (2位小数精度)
 using DValue = uint64_t;   // 金额，单位：分

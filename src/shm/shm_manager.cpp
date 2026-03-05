@@ -17,10 +17,10 @@ namespace {
 
 constexpr mode_t kShmCreateMode = 0777;
 
-bool report_shm_error(error_code code, std::string_view name, std::string_view detail, int err = 0) {
-    error_status status = ACCT_MAKE_ERROR(ErrorDomain::shm, code, "shm_manager", detail, err);
+bool report_shm_error(ErrorCode code, std::string_view name, std::string_view detail, int err = 0) {
+    ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::shm, code, "shm_manager", detail, err);
     if (!name.empty()) {
-        fixed_string<192> msg;
+        FixedString<192> msg;
         std::string text = std::string(detail) + " [" + std::string(name) + "]";
         status.message.assign(text);
     }
@@ -32,7 +32,7 @@ bool report_shm_error(error_code code, std::string_view name, std::string_view d
 // 新创建 SHM 后强制设置权限，避免受 umask 影响导致联调进程无法 O_RDWR 打开。
 bool apply_create_mode(int fd, std::string_view name) {
     if (fchmod(fd, kShmCreateMode) < 0) {
-        return report_shm_error(error_code::ShmOpenFailed, name, "fchmod failed", errno);
+        return report_shm_error(ErrorCode::ShmOpenFailed, name, "fchmod failed", errno);
     }
     return true;
 }
@@ -97,7 +97,7 @@ void *SHMManager::open_impl(std::string_view name, std::size_t size, shm_mode mo
         case shm_mode::Create:
             fd_ = shm_open(name_str.c_str(), O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC, kShmCreateMode);
             if (fd_ < 0) {
-                (void)report_shm_error(error_code::ShmOpenFailed, name, "shm_open(create) failed", errno);
+                (void)report_shm_error(ErrorCode::ShmOpenFailed, name, "shm_open(create) failed", errno);
                 return nullptr;
             }
             is_new = true;
@@ -105,7 +105,7 @@ void *SHMManager::open_impl(std::string_view name, std::size_t size, shm_mode mo
         case shm_mode::Open:
             fd_ = shm_open(name_str.c_str(), O_RDWR | O_CLOEXEC, 0644);
             if (fd_ < 0) {
-                (void)report_shm_error(error_code::ShmOpenFailed, name, "shm_open(open) failed", errno);
+                (void)report_shm_error(ErrorCode::ShmOpenFailed, name, "shm_open(open) failed", errno);
                 return nullptr;
             }
             is_new = false;
@@ -116,12 +116,12 @@ void *SHMManager::open_impl(std::string_view name, std::size_t size, shm_mode mo
                 if (errno == EEXIST) {
                     fd_ = shm_open(name_str.c_str(), O_RDWR | O_CLOEXEC, 0644);
                     if (fd_ < 0) {
-                        (void)report_shm_error(error_code::ShmOpenFailed, name, "shm_open(open after exist) failed", errno);
+                        (void)report_shm_error(ErrorCode::ShmOpenFailed, name, "shm_open(open after exist) failed", errno);
                         return nullptr;
                     }
                     is_new = false;
                 } else {
-                    (void)report_shm_error(error_code::ShmOpenFailed, name, "shm_open(open_or_create) failed", errno);
+                    (void)report_shm_error(ErrorCode::ShmOpenFailed, name, "shm_open(open_or_create) failed", errno);
                     return nullptr;
                 }
             } else {
@@ -137,13 +137,13 @@ void *SHMManager::open_impl(std::string_view name, std::size_t size, shm_mode mo
 
     struct stat st;
     if (fstat(fd_, &st) < 0) {
-        (void)report_shm_error(error_code::ShmFstatFailed, name, "fstat failed", errno);
+        (void)report_shm_error(ErrorCode::ShmFstatFailed, name, "fstat failed", errno);
         cleanup(is_new);
         return nullptr;
     }
 
     if (!is_new && static_cast<std::size_t>(st.st_size) != size) {
-        (void)report_shm_error(error_code::ShmResizeFailed, name, "shm size mismatch");
+        (void)report_shm_error(ErrorCode::ShmResizeFailed, name, "shm size mismatch");
         cleanup(false);
         return nullptr;
     }
@@ -151,7 +151,7 @@ void *SHMManager::open_impl(std::string_view name, std::size_t size, shm_mode mo
     // 如果是新创建的，设置大小
     if (is_new) {
         if (ftruncate(fd_, static_cast<off_t>(size)) < 0) {
-            (void)report_shm_error(error_code::ShmResizeFailed, name, "ftruncate failed", errno);
+            (void)report_shm_error(ErrorCode::ShmResizeFailed, name, "ftruncate failed", errno);
             cleanup(true);
             return nullptr;
         }
@@ -160,7 +160,7 @@ void *SHMManager::open_impl(std::string_view name, std::size_t size, shm_mode mo
     // 映射到进程地址空间
     ptr_ = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd_, 0);
     if (ptr_ == MAP_FAILED) {
-        (void)report_shm_error(error_code::ShmMmapFailed, name, "mmap failed", errno);
+        (void)report_shm_error(ErrorCode::ShmMmapFailed, name, "mmap failed", errno);
         cleanup(is_new);
         return nullptr;
     }
@@ -184,11 +184,11 @@ void SHMManager::init_header(SHMHeader *header, AccountId account_id) {
 // 验证共享内存头部
 bool SHMManager::validate_header(const SHMHeader *header) {
     if (header->magic != SHMHeader::kMagic) {
-        (void)report_shm_error(error_code::ShmHeaderInvalid, name_, "invalid shm magic");
+        (void)report_shm_error(ErrorCode::ShmHeaderInvalid, name_, "invalid shm magic");
         return false;
     }
     if (header->version != SHMHeader::kVersion) {
-        (void)report_shm_error(error_code::ShmHeaderInvalid, name_, "invalid shm version");
+        (void)report_shm_error(ErrorCode::ShmHeaderInvalid, name_, "invalid shm version");
         return false;
     }
     return true;
@@ -291,37 +291,37 @@ orders_shm_layout* SHMManager::open_orders(std::string_view name, shm_mode mode,
         layout->header.init_state = 1;
     } else {
         if (layout->header.magic != OrdersHeader::kMagic) {
-            (void)report_shm_error(error_code::ShmHeaderInvalid, name, "invalid orders shm magic");
+            (void)report_shm_error(ErrorCode::ShmHeaderInvalid, name, "invalid orders shm magic");
             close();
             return nullptr;
         }
         if (layout->header.version != OrdersHeader::kVersion) {
-            (void)report_shm_error(error_code::ShmHeaderInvalid, name, "invalid orders shm version");
+            (void)report_shm_error(ErrorCode::ShmHeaderInvalid, name, "invalid orders shm version");
             close();
             return nullptr;
         }
         if (layout->header.header_size != static_cast<uint32_t>(sizeof(OrdersHeader))) {
-            (void)report_shm_error(error_code::ShmHeaderInvalid, name, "invalid orders shm header size");
+            (void)report_shm_error(ErrorCode::ShmHeaderInvalid, name, "invalid orders shm header size");
             close();
             return nullptr;
         }
         if (layout->header.total_size != static_cast<uint32_t>(sizeof(orders_shm_layout))) {
-            (void)report_shm_error(error_code::ShmHeaderInvalid, name, "invalid orders shm total size");
+            (void)report_shm_error(ErrorCode::ShmHeaderInvalid, name, "invalid orders shm total size");
             close();
             return nullptr;
         }
         if (layout->header.capacity != static_cast<uint32_t>(kDailyOrderPoolCapacity)) {
-            (void)report_shm_error(error_code::ShmHeaderInvalid, name, "invalid orders shm capacity");
+            (void)report_shm_error(ErrorCode::ShmHeaderInvalid, name, "invalid orders shm capacity");
             close();
             return nullptr;
         }
         if (layout->header.init_state != 1) {
-            (void)report_shm_error(error_code::ShmHeaderInvalid, name, "orders shm not initialized");
+            (void)report_shm_error(ErrorCode::ShmHeaderInvalid, name, "orders shm not initialized");
             close();
             return nullptr;
         }
         if (std::memcmp(layout->header.trading_day, expected_trading_day, 8) != 0) {
-            (void)report_shm_error(error_code::ShmHeaderInvalid, name, "orders shm trading day mismatch");
+            (void)report_shm_error(ErrorCode::ShmHeaderInvalid, name, "orders shm trading day mismatch");
             close();
             return nullptr;
         }
@@ -354,30 +354,30 @@ positions_shm_layout *SHMManager::open_positions(std::string_view name, shm_mode
         layout->position_count.store(0, std::memory_order_relaxed);
     } else {
         if (layout->header.magic != PositionsHeader::kMagic) {
-            (void)report_shm_error(error_code::ShmHeaderInvalid, name, "invalid positions shm magic");
+            (void)report_shm_error(ErrorCode::ShmHeaderInvalid, name, "invalid positions shm magic");
             close();
             return nullptr;
         }
         if (layout->header.version != PositionsHeader::kVersion) {
-            (void)report_shm_error(error_code::ShmHeaderInvalid, name, "invalid positions shm version");
+            (void)report_shm_error(ErrorCode::ShmHeaderInvalid, name, "invalid positions shm version");
             close();
             return nullptr;
         }
         const uint32_t expected_header_size = static_cast<uint32_t>(sizeof(PositionsHeader));
         if (layout->header.header_size != expected_header_size) {
-            (void)report_shm_error(error_code::ShmHeaderInvalid, name, "invalid positions header size");
+            (void)report_shm_error(ErrorCode::ShmHeaderInvalid, name, "invalid positions header size");
             close();
             return nullptr;
         }
         const uint32_t expected_total_size = static_cast<uint32_t>(sizeof(positions_shm_layout));
         if (layout->header.total_size != expected_total_size) {
-            (void)report_shm_error(error_code::ShmHeaderInvalid, name, "invalid positions total size");
+            (void)report_shm_error(ErrorCode::ShmHeaderInvalid, name, "invalid positions total size");
             close();
             return nullptr;
         }
         const uint32_t expected_capacity = static_cast<uint32_t>(kMaxPositions);
         if (layout->header.capacity != expected_capacity) {
-            (void)report_shm_error(error_code::ShmHeaderInvalid, name, "invalid positions capacity");
+            (void)report_shm_error(ErrorCode::ShmHeaderInvalid, name, "invalid positions capacity");
             close();
             return nullptr;
         }
@@ -392,7 +392,7 @@ void SHMManager::close() noexcept {
         if (munmap(ptr_, size_) < 0) {
             // Keep close() noexcept: error reporting must not leak exceptions.
             try {
-                (void)report_shm_error(error_code::ShmMmapFailed, name_, "munmap failed", errno);
+                (void)report_shm_error(ErrorCode::ShmMmapFailed, name_, "munmap failed", errno);
             } catch (...) {
             }
         }
@@ -411,7 +411,7 @@ void SHMManager::close() noexcept {
 // 删除共享内存对象
 bool SHMManager::unlink(std::string_view name) {
     if (shm_unlink(std::string(name).c_str()) < 0) {
-        (void)report_shm_error(error_code::ShmOpenFailed, name, "shm_unlink failed", errno);
+        (void)report_shm_error(ErrorCode::ShmOpenFailed, name, "shm_unlink failed", errno);
         return false;
     }
     return true;

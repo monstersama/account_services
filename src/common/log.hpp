@@ -13,7 +13,7 @@ namespace acct_service {
 
 struct LogConfig;
 
-enum class log_level : uint8_t {
+enum class LogLevel : uint8_t {
     debug = 0,
     info,
     warn,
@@ -21,38 +21,38 @@ enum class log_level : uint8_t {
     fatal,
 };
 
-struct log_record {
+struct LogRecord {
     TimestampNs ts_ns = 0;
-    log_level level = log_level::info;
-    error_severity severity = error_severity::Recoverable;
+    LogLevel level = LogLevel::info;
+    ErrorSeverity severity = ErrorSeverity::Recoverable;
     int sys_errno = 0;
     uint32_t line = 0;
-    fixed_string<24> module{};
-    fixed_string<96> file{};
-    fixed_string<256> message{};
+    FixedString<24> module{};
+    FixedString<96> file{};
+    FixedString<256> message{};
     ErrorDomain domain = ErrorDomain::none;
-    error_code code = error_code::Ok;
+    ErrorCode code = ErrorCode::Ok;
 };
 
-class async_logger {
+class AsyncLogger {
 public:
-    async_logger() = default;
-    ~async_logger() noexcept;
+    AsyncLogger() = default;
+    ~AsyncLogger() noexcept;
 
     bool init(const LogConfig& config, AccountId account_id);
     void shutdown() noexcept;
     bool flush(uint32_t timeout_ms);
-    bool log(const log_record& record);
+    bool log(const LogRecord& record);
 
     uint64_t dropped_count() const noexcept;
     bool healthy() const noexcept;
 
 private:
-    async_logger(const async_logger&) = delete;
-    async_logger& operator=(const async_logger&) = delete;
+    AsyncLogger(const AsyncLogger&) = delete;
+    AsyncLogger& operator=(const AsyncLogger&) = delete;
 
-    struct impl;
-    std::unique_ptr<impl> impl_{};
+    struct Impl;
+    std::unique_ptr<Impl> impl_{};
 };
 
 bool init_logger(const LogConfig& config, AccountId account_id);
@@ -61,33 +61,33 @@ bool flush_logger(uint32_t timeout_ms);
 bool logger_healthy() noexcept;
 uint64_t logger_dropped_count() noexcept;
 
-void log_message(log_level level, std::string_view module, std::string_view file, uint32_t line,
-    std::string_view message, const error_status* status = nullptr, int sys_errno = 0);
+void log_message(LogLevel level, std::string_view module, std::string_view file, uint32_t line,
+    std::string_view message, const ErrorStatus* status = nullptr, int sys_errno = 0);
 
-const char* to_string(log_level level) noexcept;
+const char* to_string(LogLevel level) noexcept;
 
 }  // namespace acct_service
 
 #define ACCT_LOG_DEBUG(module, message) \
     ::acct_service::log_message(        \
-        ::acct_service::log_level::debug, (module), __FILE__, static_cast<uint32_t>(__LINE__), (message))
+        ::acct_service::LogLevel::debug, (module), __FILE__, static_cast<uint32_t>(__LINE__), (message))
 
 #define ACCT_LOG_INFO(module, message) \
     ::acct_service::log_message(       \
-        ::acct_service::log_level::info, (module), __FILE__, static_cast<uint32_t>(__LINE__), (message))
+        ::acct_service::LogLevel::info, (module), __FILE__, static_cast<uint32_t>(__LINE__), (message))
 
 #define ACCT_LOG_WARN(module, message) \
     ::acct_service::log_message(       \
-        ::acct_service::log_level::warn, (module), __FILE__, static_cast<uint32_t>(__LINE__), (message))
+        ::acct_service::LogLevel::warn, (module), __FILE__, static_cast<uint32_t>(__LINE__), (message))
 
 #define ACCT_LOG_ERROR(module, message) \
     ::acct_service::log_message(        \
-        ::acct_service::log_level::error, (module), __FILE__, static_cast<uint32_t>(__LINE__), (message))
+        ::acct_service::LogLevel::error, (module), __FILE__, static_cast<uint32_t>(__LINE__), (message))
 
 #define ACCT_LOG_FATAL(module, message) \
     ::acct_service::log_message(        \
-        ::acct_service::log_level::fatal, (module), __FILE__, static_cast<uint32_t>(__LINE__), (message))
+        ::acct_service::LogLevel::fatal, (module), __FILE__, static_cast<uint32_t>(__LINE__), (message))
 
 #define ACCT_LOG_ERROR_STATUS(status)                                                               \
-    ::acct_service::log_message(::acct_service::log_level::error, (status).module.view(), __FILE__, \
+    ::acct_service::log_message(::acct_service::LogLevel::error, (status).module.view(), __FILE__, \
         static_cast<uint32_t>(__LINE__), (status).message.view(), &(status), (status).sys_errno)

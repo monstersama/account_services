@@ -9,12 +9,12 @@
 // 定长字符串模板类，用于共享内存结构
 // 不使用 std::string 以避免动态内存分配
 template <std::size_t N>
-struct fixed_string {
+struct FixedString {
     char data[N]{};
 
-    constexpr fixed_string() = default;
+    constexpr FixedString() = default;
 
-    fixed_string(std::string_view sv) { assign(sv); }
+    FixedString(std::string_view sv) { assign(sv); }
 
     void assign(std::string_view sv) {
         std::size_t len = std::min(sv.size(), N - 1);
@@ -34,20 +34,20 @@ struct fixed_string {
 
     bool empty() const { return data[0] == '\0'; }
 
-    bool operator==(const fixed_string &other) const { return std::strcmp(data, other.data) == 0; }
+    bool operator==(const FixedString &other) const { return std::strcmp(data, other.data) == 0; }
 
     bool operator==(std::string_view sv) const { return view() == sv; }
 
-    bool operator!=(const fixed_string &other) const { return !(*this == other); }
+    bool operator!=(const FixedString &other) const { return !(*this == other); }
 
-    bool operator<(const fixed_string &other) const { return std::strcmp(data, other.data) < 0; }
+    bool operator<(const FixedString &other) const { return std::strcmp(data, other.data) < 0; }
 };
 
 namespace std {
 
 template <std::size_t N>
-struct hash<fixed_string<N>> {
-    std::size_t operator()(const fixed_string<N>& value) const noexcept {
+struct hash<FixedString<N>> {
+    std::size_t operator()(const FixedString<N>& value) const noexcept {
         return std::hash<std::string_view>{}(value.view());
     }
 };

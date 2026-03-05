@@ -17,8 +17,8 @@ namespace acct_service {
 
 namespace {
 
-bool report_config_error(error_code code, std::string_view message) {
-    error_status status = ACCT_MAKE_ERROR(ErrorDomain::config, code, "ConfigManager", message, 0);
+bool report_config_error(ErrorCode code, std::string_view message) {
+    ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::config, code, "ConfigManager", message, 0);
     record_error(status);
     ACCT_LOG_ERROR_STATUS(status);
     return false;
@@ -348,7 +348,7 @@ bool report_yaml_parse_error(std::string_view path, std::string_view reason) {
     message += path;
     message += "': ";
     message += reason;
-    return report_config_error(error_code::ConfigParseFailed, message);
+    return report_config_error(ErrorCode::ConfigParseFailed, message);
 }
 
 bool read_scalar_string(const YAML::Node& node, std::string_view path, std::string& out) {
@@ -374,7 +374,7 @@ bool ensure_mapping(const YAML::Node& node, std::string_view section_name) {
     message += "section '";
     message += section_name;
     message += "' must be a map";
-    return report_config_error(error_code::ConfigParseFailed, message);
+    return report_config_error(ErrorCode::ConfigParseFailed, message);
 }
 
 bool check_allowed_keys(const YAML::Node& map_node, std::string_view section_name,
@@ -383,14 +383,14 @@ bool check_allowed_keys(const YAML::Node& map_node, std::string_view section_nam
         const YAML::Node key_node = entry.first;
         if (!key_node.IsScalar()) {
             if (section_name.empty()) {
-                return report_config_error(error_code::ConfigParseFailed, "non-scalar root key is not allowed");
+                return report_config_error(ErrorCode::ConfigParseFailed, "non-scalar root key is not allowed");
             }
             std::string message;
             message.reserve(section_name.size() + 32);
             message += "non-scalar key in section '";
             message += section_name;
             message += "' is not allowed";
-            return report_config_error(error_code::ConfigParseFailed, message);
+            return report_config_error(ErrorCode::ConfigParseFailed, message);
         }
 
         std::string key;
@@ -398,7 +398,7 @@ bool check_allowed_keys(const YAML::Node& map_node, std::string_view section_nam
             key = key_node.as<std::string>();
         } catch (const YAML::Exception& ex) {
             if (section_name.empty()) {
-                return report_config_error(error_code::ConfigParseFailed, ex.what());
+                return report_config_error(ErrorCode::ConfigParseFailed, ex.what());
             }
             return report_yaml_parse_error(section_name, ex.what());
         }
@@ -466,11 +466,11 @@ bool ConfigManager::load_from_file(const std::string& config_path) {
     try {
         root = YAML::LoadFile(config_path);
     } catch (const YAML::Exception& ex) {
-        return report_config_error(error_code::ConfigParseFailed, ex.what());
+        return report_config_error(ErrorCode::ConfigParseFailed, ex.what());
     }
 
     if (root && !root.IsNull() && !root.IsMap()) {
-        return report_config_error(error_code::ConfigParseFailed, "root YAML node must be a map");
+        return report_config_error(ErrorCode::ConfigParseFailed, "root YAML node must be a map");
     }
 
     if (root && root.IsMap()) {
@@ -558,7 +558,7 @@ bool ConfigManager::parse_command_line(int argc, char* argv[]) {
         std::string value;
         if (arg == "--config") {
             if (!consume_value(value)) {
-                return report_config_error(error_code::InvalidConfig, "missing value for --config");
+                return report_config_error(ErrorCode::InvalidConfig, "missing value for --config");
             }
             if (!load_from_file(value)) {
                 return false;
@@ -567,13 +567,13 @@ bool ConfigManager::parse_command_line(int argc, char* argv[]) {
         }
         if (arg == "--account-id") {
             if (!consume_value(value) || !apply_value(config_, "account_id", value)) {
-                return report_config_error(error_code::InvalidConfig, "invalid --account-id");
+                return report_config_error(ErrorCode::InvalidConfig, "invalid --account-id");
             }
             continue;
         }
         if (arg == "--trading-day") {
             if (!consume_value(value) || !apply_value(config_, "trading_day", value)) {
-                return report_config_error(error_code::InvalidConfig, "invalid --trading-day");
+                return report_config_error(ErrorCode::InvalidConfig, "invalid --trading-day");
             }
             continue;
         }
@@ -614,37 +614,37 @@ bool ConfigManager::parse_command_line(int argc, char* argv[]) {
         }
         if (arg == "--poll-batch") {
             if (!consume_value(value) || !apply_value(config_, "EventLoop.poll_batch_size", value)) {
-                return report_config_error(error_code::InvalidConfig, "invalid --poll-batch");
+                return report_config_error(ErrorCode::InvalidConfig, "invalid --poll-batch");
             }
             continue;
         }
         if (arg == "--idle-sleep-us") {
             if (!consume_value(value) || !apply_value(config_, "EventLoop.idle_sleep_us", value)) {
-                return report_config_error(error_code::InvalidConfig, "invalid --idle-sleep-us");
+                return report_config_error(ErrorCode::InvalidConfig, "invalid --idle-sleep-us");
             }
             continue;
         }
         if (arg == "--terminal-archive-delay-ms") {
             if (!consume_value(value) || !apply_value(config_, "EventLoop.terminal_archive_delay_ms", value)) {
-                return report_config_error(error_code::InvalidConfig, "invalid --terminal-archive-delay-ms");
+                return report_config_error(ErrorCode::InvalidConfig, "invalid --terminal-archive-delay-ms");
             }
             continue;
         }
         if (arg == "--archive-terminal-orders") {
             if (!consume_value(value) || !apply_value(config_, "EventLoop.archive_terminal_orders", value)) {
-                return report_config_error(error_code::InvalidConfig, "invalid --archive-terminal-orders");
+                return report_config_error(ErrorCode::InvalidConfig, "invalid --archive-terminal-orders");
             }
             continue;
         }
         if (arg == "--split-strategy") {
             if (!consume_value(value) || !apply_value(config_, "split.strategy", value)) {
-                return report_config_error(error_code::InvalidConfig, "invalid --split-strategy");
+                return report_config_error(ErrorCode::InvalidConfig, "invalid --split-strategy");
             }
             continue;
         }
         if (arg == "--max-child-volume") {
             if (!consume_value(value) || !apply_value(config_, "split.max_child_volume", value)) {
-                return report_config_error(error_code::InvalidConfig, "invalid --max-child-volume");
+                return report_config_error(ErrorCode::InvalidConfig, "invalid --max-child-volume");
             }
             continue;
         }
@@ -655,29 +655,29 @@ bool ConfigManager::parse_command_line(int argc, char* argv[]) {
 
 bool ConfigManager::validate() const {
     if (config_.account_id == 0) {
-        (void)report_config_error(error_code::ConfigValidateFailed, "account_id must be non-zero");
+        (void)report_config_error(ErrorCode::ConfigValidateFailed, "account_id must be non-zero");
         return false;
     }
 
     if (!is_valid_trading_day_value(config_.trading_day)) {
-        (void)report_config_error(error_code::ConfigValidateFailed, "trading_day must be YYYYMMDD");
+        (void)report_config_error(ErrorCode::ConfigValidateFailed, "trading_day must be YYYYMMDD");
         return false;
     }
 
     if (config_.shm.upstream_shm_name.empty() || config_.shm.downstream_shm_name.empty() ||
         config_.shm.trades_shm_name.empty() || config_.shm.orders_shm_name.empty() ||
         config_.shm.positions_shm_name.empty()) {
-        (void)report_config_error(error_code::ConfigValidateFailed, "shm names must be non-empty");
+        (void)report_config_error(ErrorCode::ConfigValidateFailed, "shm names must be non-empty");
         return false;
     }
 
     if (config_.EventLoop.poll_batch_size == 0) {
-        (void)report_config_error(error_code::ConfigValidateFailed, "poll_batch_size must be non-zero");
+        (void)report_config_error(ErrorCode::ConfigValidateFailed, "poll_batch_size must be non-zero");
         return false;
     }
 
     if (config_.split.strategy != SplitStrategy::None && config_.split.max_child_count == 0) {
-        (void)report_config_error(error_code::ConfigValidateFailed, "split max_child_count must be non-zero");
+        (void)report_config_error(ErrorCode::ConfigValidateFailed, "split max_child_count must be non-zero");
         return false;
     }
 
@@ -704,7 +704,7 @@ const DBConfig& ConfigManager::db() const noexcept { return config_.db; }
 
 bool ConfigManager::reload() {
     if (config_path_.empty()) {
-        return report_config_error(error_code::InvalidState, "reload requested before load_from_file");
+        return report_config_error(ErrorCode::InvalidState, "reload requested before load_from_file");
     }
     return load_from_file(config_path_);
 }
@@ -712,7 +712,7 @@ bool ConfigManager::reload() {
 bool ConfigManager::export_to_file(const std::string& path) const {
     std::ofstream out(path);
     if (!out.is_open()) {
-        return report_config_error(error_code::InvalidConfig, "failed to open config export path");
+        return report_config_error(ErrorCode::InvalidConfig, "failed to open config export path");
     }
 
     out << "account_id: " << config_.account_id << "\n\n";

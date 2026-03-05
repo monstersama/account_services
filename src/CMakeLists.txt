@@ -9,7 +9,7 @@ endif()
 
 # ============ 核心库 ============
 
-# common 库 (spinlock, time_utils)
+# common 库 (SpinLock, time_utils)
 add_library(acct_common STATIC
     common/spinlock.cpp
     common/time_utils.cpp

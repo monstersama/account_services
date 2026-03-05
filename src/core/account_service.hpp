@@ -61,7 +61,7 @@ public:
     void print_stats() const;
 
     bool has_fatal_error() const noexcept;
-    const error_status& last_error() const noexcept;
+    const ErrorStatus& last_error() const noexcept;
 
 private:
     // 初始化各组件
@@ -80,11 +80,11 @@ private:
 
     // 清理资源
     void cleanup();
-    void raise_service_error(const error_status& status);
+    void raise_service_error(const ErrorStatus& status);
     bool should_terminate_due_to_error() const noexcept;
 
-    mutable error_status last_error_{};
-    std::atomic<error_severity> shutdown_reason_{error_severity::Recoverable};
+    mutable ErrorStatus last_error_{};
+    std::atomic<ErrorSeverity> shutdown_reason_{ErrorSeverity::Recoverable};
 
     std::atomic<ServiceState> state_{ServiceState::Created};
 

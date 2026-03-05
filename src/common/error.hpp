@@ -25,7 +25,7 @@ enum class ErrorDomain : uint8_t {
     api,         // 对外 C API 适配层
 };
 
-enum class error_code : uint16_t {
+enum class ErrorCode : uint16_t {
     Ok = 0,  // 成功，无错误
 
     // [1000, 1099] 通用/核心基础错误码
@@ -70,68 +70,68 @@ enum class error_code : uint16_t {
     LoggerQueueFull = 7002,     // 日志队列已满（可降级）
 };
 
-enum class error_severity : uint8_t {
+enum class ErrorSeverity : uint8_t {
     Recoverable = 0,  // 可恢复：记录后继续运行
     Critical = 1,     // 关键：应停服并退出主进程
     Fatal = 2,        // 致命：状态不可信，最高优先级停服退出
 };
 
-struct error_policy {
-    error_severity severity = error_severity::Recoverable;
+struct ErrorPolicy {
+    ErrorSeverity severity = ErrorSeverity::Recoverable;
     bool stop_service = false;
     bool exit_process = false;
 };
 
-struct error_status {
+struct ErrorStatus {
     ErrorDomain domain = ErrorDomain::none;
-    error_code code = error_code::Ok;
+    ErrorCode code = ErrorCode::Ok;
     int sys_errno = 0;
     TimestampNs ts_ns = 0;
     uint32_t line = 0;
-    fixed_string<24> module{};
-    fixed_string<96> file{};
-    fixed_string<192> message{};
+    FixedString<24> module{};
+    FixedString<96> file{};
+    FixedString<192> message{};
 
     bool ok() const noexcept;
 };
 
 const char* to_string(ErrorDomain domain) noexcept;
-const char* to_string(error_code code) noexcept;
-const char* to_string(error_severity severity) noexcept;
-const error_policy& classify(ErrorDomain domain, error_code code) noexcept;
+const char* to_string(ErrorCode code) noexcept;
+const char* to_string(ErrorSeverity severity) noexcept;
+const ErrorPolicy& classify(ErrorDomain domain, ErrorCode code) noexcept;
 
-error_status make_error_status(ErrorDomain domain, error_code code, std::string_view module, std::string_view file,
+ErrorStatus make_error_status(ErrorDomain domain, ErrorCode code, std::string_view module, std::string_view file,
     uint32_t line, std::string_view message, int sys_errno = 0);
 
-class error_registry {
+class ErrorRegistry {
 public:
     static constexpr std::size_t kHistoryCapacity = 4096;
 
-    void record(const error_status& status);
-    uint64_t count(error_code code) const;
-    std::vector<error_status> recent_errors() const;
+    void record(const ErrorStatus& status);
+    uint64_t count(ErrorCode code) const;
+    std::vector<ErrorStatus> recent_errors() const;
     void reset();
 
 private:
-    struct error_code_hash {
-        std::size_t operator()(error_code code) const noexcept { return static_cast<std::size_t>(code); }
+    struct ErrorCodeHash {
+        std::size_t operator()(ErrorCode code) const noexcept { return static_cast<std::size_t>(code); }
     };
 
-    mutable spinlock lock_;
-    std::unordered_map<error_code, uint64_t, error_code_hash> counters_;
-    std::array<error_status, kHistoryCapacity> history_{};
+    mutable SpinLock lock_;
+    std::unordered_map<ErrorCode, uint64_t, ErrorCodeHash> counters_;
+    std::array<ErrorStatus, kHistoryCapacity> history_{};
     std::size_t history_pos_ = 0;
     std::size_t history_size_ = 0;
 };
 
-error_registry& global_error_registry();
-void record_error(const error_status& status);
-const error_status& last_error() noexcept;
-const error_status& latest_error() noexcept;
+ErrorRegistry& global_error_registry();
+void record_error(const ErrorStatus& status);
+const ErrorStatus& last_error() noexcept;
+const ErrorStatus& latest_error() noexcept;
 void clear_last_error() noexcept;
 
-void request_shutdown(error_severity severity) noexcept;
-error_severity shutdown_reason() noexcept;
+void request_shutdown(ErrorSeverity severity) noexcept;
+ErrorSeverity shutdown_reason() noexcept;
 void clear_shutdown_reason() noexcept;
 bool should_stop_service() noexcept;
 bool should_exit_process() noexcept;

@@ -82,7 +82,7 @@ int main(int argc, char* argv[]) {
 
     acct_service::AccountService service;
     if (!service.initialize(config_path)) {
-        const acct_service::error_status& status = service.last_error();
+        const acct_service::ErrorStatus& status = service.last_error();
         std::fprintf(stderr,
             "failed to initialize AccountService with config '%s': severity=%s domain=%s code=%s msg=%s\n",
             config_path.c_str(),
@@ -94,10 +94,10 @@ int main(int argc, char* argv[]) {
     const int run_rc = service.run();
     service.print_stats();
 
-    const acct_service::error_severity reason = acct_service::shutdown_reason();
-    if (reason >= acct_service::error_severity::Critical) {
+    const acct_service::ErrorSeverity reason = acct_service::shutdown_reason();
+    if (reason >= acct_service::ErrorSeverity::Critical) {
         (void)acct_service::flush_logger(200);
-        const acct_service::error_status& status = service.last_error();
+        const acct_service::ErrorStatus& status = service.last_error();
         std::fprintf(stderr,
             "AccountService terminated by policy: severity=%s domain=%s code=%s msg=%s\n",
             acct_service::to_string(acct_service::classify(status.domain, status.code).severity),

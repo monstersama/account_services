@@ -111,8 +111,8 @@ PositionManager::PositionManager(
 bool PositionManager::initialize(AccountId account_id) {
 
     if (!shm_) {
-        error_status status = ACCT_MAKE_ERROR(
-            ErrorDomain::portfolio, error_code::ComponentUnavailable, "PositionManager", "positions shm is null", 0);
+        ErrorStatus status = ACCT_MAKE_ERROR(
+            ErrorDomain::portfolio, ErrorCode::ComponentUnavailable, "PositionManager", "positions shm is null", 0);
         record_error(status);
         ACCT_LOG_ERROR_STATUS(status);
         return false;
@@ -121,8 +121,8 @@ bool PositionManager::initialize(AccountId account_id) {
     security_to_row_.clear();
 
     if (!header_compatible(shm_->header)) {
-        error_status status = ACCT_MAKE_ERROR(
-            ErrorDomain::portfolio, error_code::ShmHeaderInvalid, "PositionManager", "positions shm header incompatible", 0);
+        ErrorStatus status = ACCT_MAKE_ERROR(
+            ErrorDomain::portfolio, ErrorCode::ShmHeaderInvalid, "PositionManager", "positions shm header incompatible", 0);
         record_error(status);
         ACCT_LOG_ERROR_STATUS(status);
         return false;
@@ -131,7 +131,7 @@ bool PositionManager::initialize(AccountId account_id) {
     if (shm_->header.init_state != 1) {
         const std::size_t existing = shm_->position_count.load(std::memory_order_relaxed);
         if (existing != 0) {
-            error_status status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, error_code::ShmHeaderCorrupted,
+            ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::ShmHeaderCorrupted,
                 "PositionManager", "positions init_state is 0 while count is non-zero", 0);
             record_error(status);
             ACCT_LOG_ERROR_STATUS(status);
@@ -154,7 +154,7 @@ bool PositionManager::initialize(AccountId account_id) {
 
         position* fund_pos = fund_position(shm_);
         if (!fund_pos) {
-            error_status status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, error_code::ShmHeaderCorrupted,
+            ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::ShmHeaderCorrupted,
                 "PositionManager", "fund position row is unavailable", 0);
             record_error(status);
             ACCT_LOG_ERROR_STATUS(status);
@@ -173,7 +173,7 @@ bool PositionManager::initialize(AccountId account_id) {
             return loader.load(account_id, *this);
         }();
         if (!load_ok) {
-            error_status status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, error_code::PositionUpdateFailed,
+            ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::PositionUpdateFailed,
                 "PositionManager", "position init loader failed on fresh shm", 0);
             record_error(status);
             ACCT_LOG_ERROR_STATUS(status);
@@ -189,7 +189,7 @@ bool PositionManager::initialize(AccountId account_id) {
 
     position* fund_pos = fund_position(shm_);
     if (!fund_pos) {
-        error_status status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, error_code::ShmHeaderCorrupted,
+        ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::ShmHeaderCorrupted,
             "PositionManager", "fund position row is unavailable in initialized shm", 0);
         record_error(status);
         ACCT_LOG_ERROR_STATUS(status);

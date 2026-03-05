@@ -6,23 +6,23 @@ namespace acct_service {
 
 namespace {
 
-thread_local error_status g_thread_last_error{};
-error_status g_latest_error{};
-spinlock g_latest_error_lock;
+thread_local ErrorStatus g_thread_last_error{};
+ErrorStatus g_latest_error{};
+SpinLock g_latest_error_lock;
 
 std::atomic<int> g_shutdown_reason{-1};
 
-const error_policy kRecoverablePolicy{error_severity::Recoverable, false, false};
-const error_policy kCriticalPolicy{error_severity::Critical, true, true};
-const error_policy kFatalPolicy{error_severity::Fatal, true, true};
+const ErrorPolicy kRecoverablePolicy{ErrorSeverity::Recoverable, false, false};
+const ErrorPolicy kCriticalPolicy{ErrorSeverity::Critical, true, true};
+const ErrorPolicy kFatalPolicy{ErrorSeverity::Fatal, true, true};
 
 // API 域保留严重级别，但不替调用方做进程级停服/退出。
-const error_policy kApiCriticalPolicy{error_severity::Critical, false, false};
-const error_policy kApiFatalPolicy{error_severity::Fatal, false, false};
+const ErrorPolicy kApiCriticalPolicy{ErrorSeverity::Critical, false, false};
+const ErrorPolicy kApiFatalPolicy{ErrorSeverity::Fatal, false, false};
 
 }  // namespace
 
-bool error_status::ok() const noexcept { return code == error_code::Ok; }
+bool ErrorStatus::ok() const noexcept { return code == ErrorCode::Ok; }
 
 const char* to_string(ErrorDomain domain) noexcept {
     switch (domain) {
@@ -46,81 +46,81 @@ const char* to_string(ErrorDomain domain) noexcept {
     return "unknown";
 }
 
-const char* to_string(error_code code) noexcept {
+const char* to_string(ErrorCode code) noexcept {
     switch (code) {
-        case error_code::Ok:
+        case ErrorCode::Ok:
             return "Ok";
         // Critical: 服务关键路径异常，继续运行可能扩大影响，需要停服并退出主进程。
-        case error_code::InvalidConfig:
+        case ErrorCode::InvalidConfig:
             return "InvalidConfig";
-        case error_code::InvalidParam:
+        case ErrorCode::InvalidParam:
             return "InvalidParam";
-        case error_code::ConfigParseFailed:
+        case ErrorCode::ConfigParseFailed:
             return "ConfigParseFailed";
-        case error_code::ConfigValidateFailed:
+        case ErrorCode::ConfigValidateFailed:
             return "ConfigValidateFailed";
-        case error_code::InvalidState:
+        case ErrorCode::InvalidState:
             return "InvalidState";
-        case error_code::InvalidOrderId:
+        case ErrorCode::InvalidOrderId:
             return "InvalidOrderId";
-        case error_code::DuplicateOrder:
+        case ErrorCode::DuplicateOrder:
             return "DuplicateOrder";
-        case error_code::OrderBookFull:
+        case ErrorCode::OrderBookFull:
             return "OrderBookFull";
-        case error_code::OrderNotFound:
+        case ErrorCode::OrderNotFound:
             return "OrderNotFound";
-        case error_code::QueueFull:
+        case ErrorCode::QueueFull:
             return "QueueFull";
-        case error_code::QueuePushFailed:
+        case ErrorCode::QueuePushFailed:
             return "QueuePushFailed";
-        case error_code::QueuePopFailed:
+        case ErrorCode::QueuePopFailed:
             return "QueuePopFailed";
-        case error_code::RouteFailed:
+        case ErrorCode::RouteFailed:
             return "RouteFailed";
-        case error_code::SplitFailed:
+        case ErrorCode::SplitFailed:
             return "SplitFailed";
         // Fatal: 一致性/状态已不可信，必须最高优先级停服并退出。
-        case error_code::PositionUpdateFailed:
+        case ErrorCode::PositionUpdateFailed:
             return "PositionUpdateFailed";
-        case error_code::OrderInvariantBroken:
+        case ErrorCode::OrderInvariantBroken:
             return "OrderInvariantBroken";
-        case error_code::OrderPoolFull:
+        case ErrorCode::OrderPoolFull:
             return "OrderPoolFull";
-        case error_code::ComponentUnavailable:
+        case ErrorCode::ComponentUnavailable:
             return "ComponentUnavailable";
-        case error_code::ShmOpenFailed:
+        case ErrorCode::ShmOpenFailed:
             return "ShmOpenFailed";
-        case error_code::ShmFstatFailed:
+        case ErrorCode::ShmFstatFailed:
             return "ShmFstatFailed";
-        case error_code::ShmResizeFailed:
+        case ErrorCode::ShmResizeFailed:
             return "ShmResizeFailed";
-        case error_code::ShmMmapFailed:
+        case ErrorCode::ShmMmapFailed:
             return "ShmMmapFailed";
-        case error_code::ShmHeaderInvalid:
+        case ErrorCode::ShmHeaderInvalid:
             return "ShmHeaderInvalid";
-        case error_code::ShmHeaderCorrupted:
+        case ErrorCode::ShmHeaderCorrupted:
             return "ShmHeaderCorrupted";
-        case error_code::HealthCheckFailed:
+        case ErrorCode::HealthCheckFailed:
             return "HealthCheckFailed";
-        case error_code::LoggerInitFailed:
+        case ErrorCode::LoggerInitFailed:
             return "LoggerInitFailed";
-        case error_code::LoggerThreadFailed:
+        case ErrorCode::LoggerThreadFailed:
             return "LoggerThreadFailed";
-        case error_code::LoggerQueueFull:
+        case ErrorCode::LoggerQueueFull:
             return "LoggerQueueFull";
-        case error_code::InternalError:
+        case ErrorCode::InternalError:
             return "InternalError";
     }
     return "Unknown";
 }
 
-const char* to_string(error_severity severity) noexcept {
+const char* to_string(ErrorSeverity severity) noexcept {
     switch (severity) {
-        case error_severity::Recoverable:
+        case ErrorSeverity::Recoverable:
             return "Recoverable";
-        case error_severity::Critical:
+        case ErrorSeverity::Critical:
             return "Critical";
-        case error_severity::Fatal:
+        case ErrorSeverity::Fatal:
             return "Fatal";
     }
     return "Recoverable";
@@ -128,60 +128,60 @@ const char* to_string(error_severity severity) noexcept {
 
 namespace {
 
-constexpr bool code_in_range(error_code code, uint16_t begin, uint16_t end) noexcept {
+constexpr bool code_in_range(ErrorCode code, uint16_t begin, uint16_t end) noexcept {
     const uint16_t value = static_cast<uint16_t>(code);
     return value >= begin && value <= end;
 }
 
-const error_policy& classify_by_code(error_code code) noexcept {
+const ErrorPolicy& classify_by_code(ErrorCode code) noexcept {
     switch (code) {
-        case error_code::Ok:
-        case error_code::InvalidOrderId:
-        case error_code::DuplicateOrder:
-        case error_code::InvalidParam:
-        case error_code::OrderBookFull:
-        case error_code::OrderNotFound:
-        case error_code::QueueFull:
-        case error_code::QueuePushFailed:
-        case error_code::QueuePopFailed:
-        case error_code::RouteFailed:
-        case error_code::SplitFailed:
-        case error_code::OrderPoolFull:
-        case error_code::HealthCheckFailed:
-        case error_code::LoggerQueueFull:
+        case ErrorCode::Ok:
+        case ErrorCode::InvalidOrderId:
+        case ErrorCode::DuplicateOrder:
+        case ErrorCode::InvalidParam:
+        case ErrorCode::OrderBookFull:
+        case ErrorCode::OrderNotFound:
+        case ErrorCode::QueueFull:
+        case ErrorCode::QueuePushFailed:
+        case ErrorCode::QueuePopFailed:
+        case ErrorCode::RouteFailed:
+        case ErrorCode::SplitFailed:
+        case ErrorCode::OrderPoolFull:
+        case ErrorCode::HealthCheckFailed:
+        case ErrorCode::LoggerQueueFull:
             return kRecoverablePolicy;
 
-        case error_code::InvalidConfig:
-        case error_code::ConfigParseFailed:
-        case error_code::ConfigValidateFailed:
-        case error_code::InvalidState:
-        case error_code::ComponentUnavailable:
-        case error_code::ShmOpenFailed:
-        case error_code::ShmFstatFailed:
-        case error_code::ShmResizeFailed:
-        case error_code::ShmMmapFailed:
-        case error_code::ShmHeaderInvalid:
-        case error_code::LoggerInitFailed:
-        case error_code::LoggerThreadFailed:
+        case ErrorCode::InvalidConfig:
+        case ErrorCode::ConfigParseFailed:
+        case ErrorCode::ConfigValidateFailed:
+        case ErrorCode::InvalidState:
+        case ErrorCode::ComponentUnavailable:
+        case ErrorCode::ShmOpenFailed:
+        case ErrorCode::ShmFstatFailed:
+        case ErrorCode::ShmResizeFailed:
+        case ErrorCode::ShmMmapFailed:
+        case ErrorCode::ShmHeaderInvalid:
+        case ErrorCode::LoggerInitFailed:
+        case ErrorCode::LoggerThreadFailed:
             return kCriticalPolicy;
 
-        case error_code::PositionUpdateFailed:
-        case error_code::OrderInvariantBroken:
-        case error_code::ShmHeaderCorrupted:
-        case error_code::InternalError:
+        case ErrorCode::PositionUpdateFailed:
+        case ErrorCode::OrderInvariantBroken:
+        case ErrorCode::ShmHeaderCorrupted:
+        case ErrorCode::InternalError:
             return kFatalPolicy;
     }
     return kRecoverablePolicy;
 }
 
-const error_policy& classify_for_api(error_code code) noexcept {
-    const error_severity severity = classify_by_code(code).severity;
+const ErrorPolicy& classify_for_api(ErrorCode code) noexcept {
+    const ErrorSeverity severity = classify_by_code(code).severity;
     switch (severity) {
-        case error_severity::Recoverable:
+        case ErrorSeverity::Recoverable:
             return kRecoverablePolicy;
-        case error_severity::Critical:
+        case ErrorSeverity::Critical:
             return kApiCriticalPolicy;
-        case error_severity::Fatal:
+        case ErrorSeverity::Fatal:
             return kApiFatalPolicy;
     }
     return kRecoverablePolicy;
@@ -189,7 +189,7 @@ const error_policy& classify_for_api(error_code code) noexcept {
 
 }  // namespace
 
-const error_policy& classify(ErrorDomain domain, error_code code) noexcept {
+const ErrorPolicy& classify(ErrorDomain domain, ErrorCode code) noexcept {
     switch (domain) {
         case ErrorDomain::api:
             // C API 场景下不替调用方进程做停服/退出决策：
@@ -204,7 +204,7 @@ const error_policy& classify(ErrorDomain domain, error_code code) noexcept {
             break;
 
         case ErrorDomain::shm:
-            if (code == error_code::ShmHeaderCorrupted) {
+            if (code == ErrorCode::ShmHeaderCorrupted) {
                 return kFatalPolicy;
             }
             if (code_in_range(code, 3000, 3099)) {
@@ -213,7 +213,7 @@ const error_policy& classify(ErrorDomain domain, error_code code) noexcept {
             break;
 
         case ErrorDomain::order:
-            if (code == error_code::OrderInvariantBroken) {
+            if (code == ErrorCode::OrderInvariantBroken) {
                 return kFatalPolicy;
             }
             if (code_in_range(code, 4000, 4099)) {
@@ -222,10 +222,10 @@ const error_policy& classify(ErrorDomain domain, error_code code) noexcept {
             break;
 
         case ErrorDomain::portfolio:
-            if (code == error_code::PositionUpdateFailed || code == error_code::ShmHeaderCorrupted) {
+            if (code == ErrorCode::PositionUpdateFailed || code == ErrorCode::ShmHeaderCorrupted) {
                 return kFatalPolicy;
             }
-            if (code == error_code::ComponentUnavailable || code == error_code::ShmHeaderInvalid) {
+            if (code == ErrorCode::ComponentUnavailable || code == ErrorCode::ShmHeaderInvalid) {
                 return kCriticalPolicy;
             }
             break;
@@ -240,9 +240,9 @@ const error_policy& classify(ErrorDomain domain, error_code code) noexcept {
     return classify_by_code(code);
 }
 
-error_status make_error_status(ErrorDomain domain, error_code code, std::string_view module, std::string_view file,
+ErrorStatus make_error_status(ErrorDomain domain, ErrorCode code, std::string_view module, std::string_view file,
     uint32_t line, std::string_view message, int sys_errno) {
-    error_status status;
+    ErrorStatus status;
     status.domain = domain;
     status.code = code;
     status.sys_errno = sys_errno;
@@ -254,8 +254,8 @@ error_status make_error_status(ErrorDomain domain, error_code code, std::string_
     return status;
 }
 
-void error_registry::record(const error_status& status) {
-    lock_guard<spinlock> guard(lock_);
+void ErrorRegistry::record(const ErrorStatus& status) {
+    LockGuard<SpinLock> guard(lock_);
 
     ++counters_[status.code];
     history_[history_pos_] = status;
@@ -265,8 +265,8 @@ void error_registry::record(const error_status& status) {
     }
 }
 
-uint64_t error_registry::count(error_code code) const {
-    lock_guard<spinlock> guard(lock_);
+uint64_t ErrorRegistry::count(ErrorCode code) const {
+    LockGuard<SpinLock> guard(lock_);
     const auto it = counters_.find(code);
     if (it == counters_.end()) {
         return 0;
@@ -274,10 +274,10 @@ uint64_t error_registry::count(error_code code) const {
     return it->second;
 }
 
-std::vector<error_status> error_registry::recent_errors() const {
-    lock_guard<spinlock> guard(lock_);
+std::vector<ErrorStatus> ErrorRegistry::recent_errors() const {
+    LockGuard<SpinLock> guard(lock_);
 
-    std::vector<error_status> errors;
+    std::vector<ErrorStatus> errors;
     errors.reserve(history_size_);
 
     std::size_t start = 0;
@@ -292,29 +292,29 @@ std::vector<error_status> error_registry::recent_errors() const {
     return errors;
 }
 
-void error_registry::reset() {
-    lock_guard<spinlock> guard(lock_);
+void ErrorRegistry::reset() {
+    LockGuard<SpinLock> guard(lock_);
     counters_.clear();
     history_pos_ = 0;
     history_size_ = 0;
 }
 
-error_registry& global_error_registry() {
-    static error_registry registry;
+ErrorRegistry& global_error_registry() {
+    static ErrorRegistry registry;
     return registry;
 }
 
-void record_error(const error_status& status) {
+void record_error(const ErrorStatus& status) {
     g_thread_last_error = status;
 
     {
-        lock_guard<spinlock> guard(g_latest_error_lock);
+        LockGuard<SpinLock> guard(g_latest_error_lock);
         g_latest_error = status;
     }
 
     if (!status.ok()) {
         global_error_registry().record(status);
-        const error_policy& policy = classify(status.domain, status.code);
+        const ErrorPolicy& policy = classify(status.domain, status.code);
         if (policy.stop_service || policy.exit_process) {
             // 统一在这里触发 shutdown 闩锁：
             // 仅当 policy.stop_service / policy.exit_process 为 true 时才停服退出。
@@ -324,18 +324,18 @@ void record_error(const error_status& status) {
     }
 }
 
-const error_status& last_error() noexcept { return g_thread_last_error; }
+const ErrorStatus& last_error() noexcept { return g_thread_last_error; }
 
-const error_status& latest_error() noexcept {
-    static thread_local error_status snapshot{};
-    lock_guard<spinlock> guard(g_latest_error_lock);
+const ErrorStatus& latest_error() noexcept {
+    static thread_local ErrorStatus snapshot{};
+    LockGuard<SpinLock> guard(g_latest_error_lock);
     snapshot = g_latest_error;
     return snapshot;
 }
 
-void clear_last_error() noexcept { g_thread_last_error = error_status{}; }
+void clear_last_error() noexcept { g_thread_last_error = ErrorStatus{}; }
 
-void request_shutdown(error_severity severity) noexcept {
+void request_shutdown(ErrorSeverity severity) noexcept {
     int expected = g_shutdown_reason.load(std::memory_order_acquire);
     const int desired = static_cast<int>(severity);
 
@@ -347,25 +347,25 @@ void request_shutdown(error_severity severity) noexcept {
     }
 }
 
-error_severity shutdown_reason() noexcept {
+ErrorSeverity shutdown_reason() noexcept {
     const int value = g_shutdown_reason.load(std::memory_order_acquire);
-    if (value <= static_cast<int>(error_severity::Recoverable)) {
-        return error_severity::Recoverable;
+    if (value <= static_cast<int>(ErrorSeverity::Recoverable)) {
+        return ErrorSeverity::Recoverable;
     }
-    if (value >= static_cast<int>(error_severity::Fatal)) {
-        return error_severity::Fatal;
+    if (value >= static_cast<int>(ErrorSeverity::Fatal)) {
+        return ErrorSeverity::Fatal;
     }
-    return error_severity::Critical;
+    return ErrorSeverity::Critical;
 }
 
 void clear_shutdown_reason() noexcept { g_shutdown_reason.store(-1, std::memory_order_release); }
 
 bool should_stop_service() noexcept {
-    return g_shutdown_reason.load(std::memory_order_acquire) >= static_cast<int>(error_severity::Critical);
+    return g_shutdown_reason.load(std::memory_order_acquire) >= static_cast<int>(ErrorSeverity::Critical);
 }
 
 bool should_exit_process() noexcept {
-    return g_shutdown_reason.load(std::memory_order_acquire) >= static_cast<int>(error_severity::Critical);
+    return g_shutdown_reason.load(std::memory_order_acquire) >= static_cast<int>(ErrorSeverity::Critical);
 }
 
 }  // namespace acct_service

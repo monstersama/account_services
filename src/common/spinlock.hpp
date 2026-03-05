@@ -5,11 +5,11 @@
 namespace acct_service {
 
 // 高性能自旋锁（64字节对齐避免false sharing）
-class alignas(64) spinlock {
+class alignas(64) SpinLock {
 public:
-    spinlock() noexcept = default;
-    spinlock(const spinlock&) = delete;
-    spinlock& operator=(const spinlock&) = delete;
+    SpinLock() noexcept = default;
+    SpinLock(const SpinLock&) = delete;
+    SpinLock& operator=(const SpinLock&) = delete;
 
     void lock() noexcept;
     bool try_lock() noexcept;
@@ -23,12 +23,12 @@ private:
 
 // RAII锁守卫
 template <typename Lock>
-class lock_guard {
+class LockGuard {
 public:
-    explicit lock_guard(Lock& lock);
-    ~lock_guard();
-    lock_guard(const lock_guard&) = delete;
-    lock_guard& operator=(const lock_guard&) = delete;
+    explicit LockGuard(Lock& lock);
+    ~LockGuard();
+    LockGuard(const LockGuard&) = delete;
+    LockGuard& operator=(const LockGuard&) = delete;
 
 private:
     Lock& lock_;
@@ -36,14 +36,14 @@ private:
 
 // 可选的RAII锁守卫（支持try_lock）
 template <typename Lock>
-class unique_lock {
+class UniqueLock {
 public:
-    explicit unique_lock(Lock& lock, bool try_lock = false);
-    ~unique_lock();
+    explicit UniqueLock(Lock& lock, bool try_lock = false);
+    ~UniqueLock();
     bool owns_lock() const noexcept;
     void unlock();
-    unique_lock(const unique_lock&) = delete;
-    unique_lock& operator=(const unique_lock&) = delete;
+    UniqueLock(const UniqueLock&) = delete;
+    UniqueLock& operator=(const UniqueLock&) = delete;
 
 private:
     Lock* lock_;

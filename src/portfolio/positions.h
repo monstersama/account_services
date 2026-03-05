@@ -26,8 +26,8 @@ struct position {
     uint64_t volume_sell_traded{0};  // 今日卖成交量
     uint64_t dvalue_sell_traded{0};  // 今日卖成交额
     uint64_t count_order{0};         // 累计订单数量
-    fixed_string<16> id{};  // 资金:"FUND", 股票:"000001"等
-    fixed_string<16> name{}; // 名称：market.code
+    FixedString<16> id{};  // 资金:"FUND", 股票:"000001"等
+    FixedString<16> name{}; // 名称：market.code
 };
 
 // 资金结构

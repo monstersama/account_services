@@ -27,8 +27,8 @@ struct entrust_record {
     MdTime time_entrust;
     MdTime time_first_trade;
     MdTime time_last_update;
-    fixed_string<32> broker_order_id;
-    fixed_string<16> security_code;
+    FixedString<32> broker_order_id;
+    FixedString<16> security_code;
 
     // 从 order_request 转换
     static entrust_record from_order_request(const OrderRequest& req);

@@ -42,7 +42,7 @@ TEST(queue_full_drop_counter) {
 
     assert(init_logger(cfg, 1000));
     for (int i = 0; i < 5000; ++i) {
-        log_message(log_level::debug, "test_logger", __FILE__, static_cast<uint32_t>(__LINE__), "drop pressure");
+        log_message(LogLevel::debug, "test_logger", __FILE__, static_cast<uint32_t>(__LINE__), "drop pressure");
     }
 
     (void)flush_logger(500);

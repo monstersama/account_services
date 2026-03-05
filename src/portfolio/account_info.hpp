@@ -13,9 +13,9 @@ struct account_info {
     AccountId account_id = 0;
     AccountType account_type = AccountType::Stock;
     AccountState state = AccountState::Initializing;
-    fixed_string<32> account_name;
-    fixed_string<32> broker_account;
-    fixed_string<16> broker_code;
+    FixedString<32> account_name;
+    FixedString<32> broker_account;
+    FixedString<16> broker_code;
 
     // 交易权限
     bool can_buy = true;

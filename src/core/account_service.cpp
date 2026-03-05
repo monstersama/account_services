@@ -11,7 +11,7 @@ namespace acct_service {
 
 namespace {
 
-error_status make_service_error(error_code code, std::string_view message, int sys_errno = 0) {
+ErrorStatus make_service_error(ErrorCode code, std::string_view message, int sys_errno = 0) {
     return ACCT_MAKE_ERROR(ErrorDomain::core, code, "AccountService", message, sys_errno);
 }
 
@@ -33,7 +33,7 @@ bool AccountService::initialize(const std::string& config_path) {
 
     const ServiceState current = state();
     if (current == ServiceState::Initializing || current == ServiceState::Running) {
-        raise_service_error(make_service_error(error_code::InvalidState, "initialize called in invalid state"));
+        raise_service_error(make_service_error(ErrorCode::InvalidState, "initialize called in invalid state"));
         return false;
     }
 
@@ -47,7 +47,7 @@ bool AccountService::initialize(const std::string& config_path) {
     }
 
     if (!init_logger(config_manager_.log(), config_manager_.account_id())) {
-        raise_service_error(make_service_error(error_code::LoggerInitFailed, "failed to initialize logger"));
+        raise_service_error(make_service_error(ErrorCode::LoggerInitFailed, "failed to initialize logger"));
         state_.store(ServiceState::Error, std::memory_order_release);
         cleanup();
         return false;
@@ -67,13 +67,13 @@ bool AccountService::initialize(const std::string& config_path) {
 
 int AccountService::run() {
     if (!event_loop_) {
-        raise_service_error(make_service_error(error_code::ComponentUnavailable, "event loop not initialized"));
+        raise_service_error(make_service_error(ErrorCode::ComponentUnavailable, "event loop not initialized"));
         return -1;
     }
 
     const ServiceState current = state();
     if (current != ServiceState::Ready && current != ServiceState::Stopped) {
-        raise_service_error(make_service_error(error_code::InvalidState, "run called in invalid state"));
+        raise_service_error(make_service_error(ErrorCode::InvalidState, "run called in invalid state"));
         return -1;
     }
 
@@ -107,10 +107,10 @@ void AccountService::stop() {
 }
 
 bool AccountService::has_fatal_error() const noexcept {
-    return shutdown_reason_.load(std::memory_order_acquire) == error_severity::Fatal;
+    return shutdown_reason_.load(std::memory_order_acquire) == ErrorSeverity::Fatal;
 }
 
-const error_status& AccountService::last_error() const noexcept { return last_error_; }
+const ErrorStatus& AccountService::last_error() const noexcept { return last_error_; }
 
 ServiceState AccountService::state() const noexcept { return state_.load(std::memory_order_acquire); }
 
@@ -155,12 +155,12 @@ void AccountService::print_stats() const {
 
 bool AccountService::init_config(const std::string& config_path) {
     if (config_path.empty()) {
-        raise_service_error(make_service_error(error_code::InvalidConfig, "config path must not be empty"));
+        raise_service_error(make_service_error(ErrorCode::InvalidConfig, "config path must not be empty"));
         return false;
     }
 
     if (!config_manager_.load_from_file(config_path)) {
-        raise_service_error(make_service_error(error_code::ConfigParseFailed, "failed to load config file"));
+        raise_service_error(make_service_error(ErrorCode::ConfigParseFailed, "failed to load config file"));
         return false;
     }
 
@@ -175,32 +175,32 @@ bool AccountService::init_shared_memory() {
 
     upstream_shm_ = upstream_shm_manager_.open_upstream(shm_cfg.upstream_shm_name, mode, account_id);
     if (!upstream_shm_) {
-        raise_service_error(make_service_error(error_code::ShmOpenFailed, "failed to open upstream shm"));
+        raise_service_error(make_service_error(ErrorCode::ShmOpenFailed, "failed to open upstream shm"));
         return false;
     }
 
     downstream_shm_ = downstream_shm_manager_.open_downstream(shm_cfg.downstream_shm_name, mode, account_id);
     if (!downstream_shm_) {
-        raise_service_error(make_service_error(error_code::ShmOpenFailed, "failed to open downstream shm"));
+        raise_service_error(make_service_error(ErrorCode::ShmOpenFailed, "failed to open downstream shm"));
         return false;
     }
 
     trades_shm_ = trades_shm_manager_.open_trades(shm_cfg.trades_shm_name, mode, account_id);
     if (!trades_shm_) {
-        raise_service_error(make_service_error(error_code::ShmOpenFailed, "failed to open trades shm"));
+        raise_service_error(make_service_error(ErrorCode::ShmOpenFailed, "failed to open trades shm"));
         return false;
     }
 
     const std::string dated_orders_name = make_orders_shm_name(shm_cfg.orders_shm_name, cfg.trading_day);
     orders_shm_ = orders_shm_manager_.open_orders(dated_orders_name, mode, account_id);
     if (!orders_shm_) {
-        raise_service_error(make_service_error(error_code::ShmOpenFailed, "failed to open orders shm"));
+        raise_service_error(make_service_error(ErrorCode::ShmOpenFailed, "failed to open orders shm"));
         return false;
     }
 
     positions_shm_ = positions_shm_manager_.open_positions(shm_cfg.positions_shm_name, mode, account_id);
     if (!positions_shm_) {
-        raise_service_error(make_service_error(error_code::ShmOpenFailed, "failed to open positions shm"));
+        raise_service_error(make_service_error(ErrorCode::ShmOpenFailed, "failed to open positions shm"));
         return false;
     }
 
@@ -217,7 +217,7 @@ bool AccountService::init_portfolio() {
         std::make_unique<PositionManager>(positions_shm_, cfg.config_file, cfg.db.db_path, cfg.db.enable_persistence);
     if (!position_manager_ || !position_manager_->initialize(config_manager_.account_id())) {
         raise_service_error(
-            make_service_error(error_code::ComponentUnavailable, "failed to initialize position manager"));
+            make_service_error(ErrorCode::ComponentUnavailable, "failed to initialize position manager"));
         return false;
     }
 
@@ -226,12 +226,12 @@ bool AccountService::init_portfolio() {
 
 bool AccountService::init_risk_manager() {
     if (!position_manager_) {
-        raise_service_error(make_service_error(error_code::ComponentUnavailable, "position manager unavailable"));
+        raise_service_error(make_service_error(ErrorCode::ComponentUnavailable, "position manager unavailable"));
         return false;
     }
     risk_manager_ = std::make_unique<RiskManager>(*position_manager_, config_manager_.risk());
     if (!risk_manager_) {
-        raise_service_error(make_service_error(error_code::ComponentUnavailable, "failed to create risk manager"));
+        raise_service_error(make_service_error(ErrorCode::ComponentUnavailable, "failed to create risk manager"));
         return false;
     }
     return true;
@@ -239,7 +239,7 @@ bool AccountService::init_risk_manager() {
 
 bool AccountService::init_order_components() {
     if (!downstream_shm_ || !orders_shm_) {
-        raise_service_error(make_service_error(error_code::ComponentUnavailable, "downstream/orders shm unavailable"));
+        raise_service_error(make_service_error(ErrorCode::ComponentUnavailable, "downstream/orders shm unavailable"));
         return false;
     }
 
@@ -247,11 +247,11 @@ bool AccountService::init_order_components() {
     order_router_ = std::make_unique<order_router>(*order_book_, downstream_shm_, orders_shm_, config_manager_.split());
     if (!order_book_ || !order_router_) {
         raise_service_error(
-            make_service_error(error_code::ComponentUnavailable, "failed to initialize order components"));
+            make_service_error(ErrorCode::ComponentUnavailable, "failed to initialize order components"));
         return false;
     }
     if (!order_router_->recover_downstream_active_orders(upstream_shm_)) {
-        raise_service_error(make_service_error(error_code::ComponentUnavailable, "failed to recover downstream active orders"));
+        raise_service_error(make_service_error(ErrorCode::ComponentUnavailable, "failed to recover downstream active orders"));
         return false;
     }
     return true;
@@ -261,14 +261,14 @@ bool AccountService::init_event_loop() {
     if (!upstream_shm_ || !downstream_shm_ || !trades_shm_ || !orders_shm_ || !order_book_ || !order_router_ ||
         !position_manager_ || !risk_manager_) {
         raise_service_error(
-            make_service_error(error_code::ComponentUnavailable, "event loop dependencies unavailable"));
+            make_service_error(ErrorCode::ComponentUnavailable, "event loop dependencies unavailable"));
         return false;
     }
 
     event_loop_ = std::make_unique<EventLoop>(config_manager_.EventLoop(), upstream_shm_, downstream_shm_, trades_shm_,
         orders_shm_, *order_book_, *order_router_, *position_manager_, *risk_manager_);
     if (!event_loop_) {
-        raise_service_error(make_service_error(error_code::ComponentUnavailable, "failed to initialize event loop"));
+        raise_service_error(make_service_error(ErrorCode::ComponentUnavailable, "failed to initialize event loop"));
         return false;
     }
     return true;
@@ -276,7 +276,7 @@ bool AccountService::init_event_loop() {
 
 bool AccountService::load_account_info() {
     if (!account_info_) {
-        raise_service_error(make_service_error(error_code::ComponentUnavailable, "account info manager unavailable"));
+        raise_service_error(make_service_error(ErrorCode::ComponentUnavailable, "account info manager unavailable"));
         return false;
     }
 
@@ -303,7 +303,7 @@ bool AccountService::load_account_info() {
 bool AccountService::load_positions() {
     if (!position_manager_) {
         raise_service_error(make_service_error(
-            error_code::ComponentUnavailable, "position manager unavailable while loading positions"));
+            ErrorCode::ComponentUnavailable, "position manager unavailable while loading positions"));
         return false;
     }
     return true;
@@ -311,7 +311,7 @@ bool AccountService::load_positions() {
 
 bool AccountService::load_today_trades() {
     if (!trade_records_) {
-        raise_service_error(make_service_error(error_code::ComponentUnavailable, "trade record manager unavailable"));
+        raise_service_error(make_service_error(ErrorCode::ComponentUnavailable, "trade record manager unavailable"));
         return false;
     }
 
@@ -321,7 +321,7 @@ bool AccountService::load_today_trades() {
     }
 
     if (!trade_records_->load_today_trades(cfg.db.db_path, cfg.account_id)) {
-        raise_service_error(make_service_error(error_code::InternalError, "failed to load today trades"));
+        raise_service_error(make_service_error(ErrorCode::InternalError, "failed to load today trades"));
         return false;
     }
     return true;
@@ -329,7 +329,7 @@ bool AccountService::load_today_trades() {
 
 bool AccountService::load_today_entrusts() {
     if (!entrust_records_) {
-        raise_service_error(make_service_error(error_code::ComponentUnavailable, "entrust record manager unavailable"));
+        raise_service_error(make_service_error(ErrorCode::ComponentUnavailable, "entrust record manager unavailable"));
         return false;
     }
 
@@ -339,7 +339,7 @@ bool AccountService::load_today_entrusts() {
     }
 
     if (!entrust_records_->load_today_entrusts(cfg.db.db_path, cfg.account_id)) {
-        raise_service_error(make_service_error(error_code::InternalError, "failed to load today entrusts"));
+        raise_service_error(make_service_error(ErrorCode::InternalError, "failed to load today entrusts"));
         return false;
     }
     return true;
@@ -370,13 +370,13 @@ void AccountService::cleanup() {
     positions_shm_manager_.close();
 }
 
-void AccountService::raise_service_error(const error_status& status) {
+void AccountService::raise_service_error(const ErrorStatus& status) {
     last_error_ = status;
     record_error(status);
     ACCT_LOG_ERROR_STATUS(status);
 
-    const error_policy& policy = classify(status.domain, status.code);
-    error_severity expected = shutdown_reason_.load(std::memory_order_acquire);
+    const ErrorPolicy& policy = classify(status.domain, status.code);
+    ErrorSeverity expected = shutdown_reason_.load(std::memory_order_acquire);
     while (expected < policy.severity) {
         if (shutdown_reason_.compare_exchange_weak(
                 expected, policy.severity, std::memory_order_acq_rel, std::memory_order_acquire)) {
@@ -386,7 +386,7 @@ void AccountService::raise_service_error(const error_status& status) {
 }
 
 bool AccountService::should_terminate_due_to_error() const noexcept {
-    return shutdown_reason_.load(std::memory_order_acquire) >= error_severity::Critical;
+    return shutdown_reason_.load(std::memory_order_acquire) >= ErrorSeverity::Critical;
 }
 
 }  // namespace acct_service

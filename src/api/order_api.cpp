@@ -47,8 +47,8 @@ std::string default_trading_day() {
     return "19700101";
 }
 
-acct_error_t api_error(acct_error_t rc, acct_service::error_code code, std::string_view message, int sys_errno = 0) {
-    acct_service::error_status status =
+acct_error_t api_error(acct_error_t rc, acct_service::ErrorCode code, std::string_view message, int sys_errno = 0) {
+    acct_service::ErrorStatus status =
         ACCT_MAKE_ERROR(acct_service::ErrorDomain::api, code, "order_api", message, sys_errno);
     acct_service::record_error(status);
     ACCT_LOG_ERROR_STATUS(status);
@@ -86,8 +86,8 @@ bool resolve_init_options(const acct_init_options_t* options, std::string& upstr
     return true;
 }
 
-bool should_recreate_shm_on_init_failure(acct_service::error_code code) {
-    return code == acct_service::error_code::ShmResizeFailed || code == acct_service::error_code::ShmHeaderInvalid;
+bool should_recreate_shm_on_init_failure(acct_service::ErrorCode code) {
+    return code == acct_service::ErrorCode::ShmResizeFailed || code == acct_service::ErrorCode::ShmHeaderInvalid;
 }
 
 }  // namespace
@@ -118,18 +118,18 @@ namespace {
 acct_error_t enqueue_order(
     acct_context* context, const OrderRequest& request, order_slot_source_t source, OrderIndex* out_index = nullptr) {
     if (!context || !context->upstream_shm || !context->orders_shm) {
-        return api_error(ACCT_ERR_NOT_INITIALIZED, error_code::InvalidState, "enqueue called before init");
+        return api_error(ACCT_ERR_NOT_INITIALIZED, ErrorCode::InvalidState, "enqueue called before init");
     }
 
     OrderIndex index = kInvalidOrderIndex;
     if (!orders_shm_append(
             context->orders_shm, request, OrderSlotState::UpstreamQueued, source, now_ns(), index)) {
-        return api_error(ACCT_ERR_ORDER_POOL_FULL, error_code::OrderPoolFull, "orders shm pool full");
+        return api_error(ACCT_ERR_ORDER_POOL_FULL, ErrorCode::OrderPoolFull, "orders shm pool full");
     }
 
     if (!context->upstream_shm->strategy_order_queue.try_push(index)) {
         (void)orders_shm_update_stage(context->orders_shm, index, OrderSlotState::QueuePushFailed, now_ns());
-        return api_error(ACCT_ERR_QUEUE_FULL, error_code::QueuePushFailed, "enqueue upstream queue push failed");
+        return api_error(ACCT_ERR_QUEUE_FULL, ErrorCode::QueuePushFailed, "enqueue upstream queue push failed");
     }
 
     context->upstream_shm->header.last_update = now_ns();
@@ -147,7 +147,7 @@ ACCT_API acct_error_t acct_init(acct_ctx_t* out_ctx) { return acct_init_ex(nullp
 
 ACCT_API acct_error_t acct_init_ex(const acct_init_options_t* options, acct_ctx_t* out_ctx) {
     if (!out_ctx) {
-        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_init_ex out_ctx is null");
+        return api_error(ACCT_ERR_INVALID_PARAM, ErrorCode::InvalidParam, "acct_init_ex out_ctx is null");
     }
     *out_ctx = nullptr;
 
@@ -156,12 +156,12 @@ ACCT_API acct_error_t acct_init_ex(const acct_init_options_t* options, acct_ctx_
     std::string trading_day;
     bool create_if_not_exist = true;
     if (!resolve_init_options(options, upstream_name, orders_base_name, trading_day, create_if_not_exist)) {
-        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "invalid acct_init_ex options");
+        return api_error(ACCT_ERR_INVALID_PARAM, ErrorCode::InvalidParam, "invalid acct_init_ex options");
     }
 
     auto ctx = std::unique_ptr<acct_context>(new (std::nothrow) acct_context());
     if (!ctx) {
-        return api_error(ACCT_ERR_INTERNAL, error_code::InternalError, "acct_context allocation failed");
+        return api_error(ACCT_ERR_INTERNAL, ErrorCode::InternalError, "acct_context allocation failed");
     }
 
     const shm_mode mode = create_if_not_exist ? shm_mode::OpenOrCreate : shm_mode::Open;
@@ -172,7 +172,7 @@ ACCT_API acct_error_t acct_init_ex(const acct_init_options_t* options, acct_ctx_
         ctx->upstream_shm = ctx->upstream_shm_manager.open_upstream(upstream_name, shm_mode::Create, 0);
     }
     if (!ctx->upstream_shm) {
-        return api_error(ACCT_ERR_SHM_FAILED, error_code::ShmOpenFailed, "acct_init_ex open upstream shm failed");
+        return api_error(ACCT_ERR_SHM_FAILED, ErrorCode::ShmOpenFailed, "acct_init_ex open upstream shm failed");
     }
 
     ctx->orders_dated_name = make_orders_shm_name(orders_base_name, trading_day);
@@ -183,7 +183,7 @@ ACCT_API acct_error_t acct_init_ex(const acct_init_options_t* options, acct_ctx_
         ctx->orders_shm = ctx->orders_shm_manager.open_orders(ctx->orders_dated_name, shm_mode::Create, 0);
     }
     if (!ctx->orders_shm) {
-        return api_error(ACCT_ERR_SHM_FAILED, error_code::ShmOpenFailed, "acct_init_ex open orders shm failed");
+        return api_error(ACCT_ERR_SHM_FAILED, ErrorCode::ShmOpenFailed, "acct_init_ex open orders shm failed");
     }
 
     ctx->upstream_shm_name = upstream_name;
@@ -196,7 +196,7 @@ ACCT_API acct_error_t acct_init_ex(const acct_init_options_t* options, acct_ctx_
 
 ACCT_API acct_error_t acct_destroy(acct_ctx_t ctx) {
     if (!ctx) {
-        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_destroy ctx is null");
+        return api_error(ACCT_ERR_INVALID_PARAM, ErrorCode::InvalidParam, "acct_destroy ctx is null");
     }
 
     auto* context = ctx;
@@ -209,36 +209,36 @@ ACCT_API acct_error_t acct_destroy(acct_ctx_t ctx) {
 ACCT_API acct_error_t acct_new_order(acct_ctx_t ctx, const char* security_id, uint8_t side, uint8_t market,
     uint64_t volume, double price, uint32_t valid_sec, uint32_t* out_order_id) {
     if (!out_order_id) {
-        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_new_order out_order_id is null");
+        return api_error(ACCT_ERR_INVALID_PARAM, ErrorCode::InvalidParam, "acct_new_order out_order_id is null");
     }
     *out_order_id = 0;
 
     if (!ctx || !security_id) {
-        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_new_order invalid ctx/security_id");
+        return api_error(ACCT_ERR_INVALID_PARAM, ErrorCode::InvalidParam, "acct_new_order invalid ctx/security_id");
     }
 
     auto* context = ctx;
     if (!context->initialized || !context->upstream_shm) {
-        return api_error(ACCT_ERR_NOT_INITIALIZED, error_code::InvalidState, "acct_new_order called before init");
+        return api_error(ACCT_ERR_NOT_INITIALIZED, ErrorCode::InvalidState, "acct_new_order called before init");
     }
 
     if (side != ACCT_SIDE_BUY && side != ACCT_SIDE_SELL) {
-        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_new_order invalid side");
+        return api_error(ACCT_ERR_INVALID_PARAM, ErrorCode::InvalidParam, "acct_new_order invalid side");
     }
     if (market < ACCT_MARKET_SZ || market > ACCT_MARKET_HK) {
-        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_new_order invalid market");
+        return api_error(ACCT_ERR_INVALID_PARAM, ErrorCode::InvalidParam, "acct_new_order invalid market");
     }
     if (volume == 0) {
-        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_new_order zero volume");
+        return api_error(ACCT_ERR_INVALID_PARAM, ErrorCode::InvalidParam, "acct_new_order zero volume");
     }
 
     InternalSecurityId internal_security_id;
     if (!build_internal_security_id(static_cast<Market>(market), std::string_view(security_id), internal_security_id)) {
-        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_new_order invalid security_id length/market");
+        return api_error(ACCT_ERR_INVALID_PARAM, ErrorCode::InvalidParam, "acct_new_order invalid security_id length/market");
     }
 
     if (context->cached_orders.size() >= kMaxCachedOrders) {
-        return api_error(ACCT_ERR_CACHE_FULL, error_code::QueueFull, "acct_new_order cache full");
+        return api_error(ACCT_ERR_CACHE_FULL, ErrorCode::QueueFull, "acct_new_order cache full");
     }
 
     uint32_t order_id = context->upstream_shm->header.next_order_id.fetch_add(1, std::memory_order_relaxed);
@@ -259,17 +259,17 @@ ACCT_API acct_error_t acct_new_order(acct_ctx_t ctx, const char* security_id, ui
 
 ACCT_API acct_error_t acct_send_order(acct_ctx_t ctx, uint32_t order_id) {
     if (!ctx) {
-        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_send_order ctx is null");
+        return api_error(ACCT_ERR_INVALID_PARAM, ErrorCode::InvalidParam, "acct_send_order ctx is null");
     }
 
     auto* context = ctx;
     if (!context->initialized) {
-        return api_error(ACCT_ERR_NOT_INITIALIZED, error_code::InvalidState, "acct_send_order called before init");
+        return api_error(ACCT_ERR_NOT_INITIALIZED, ErrorCode::InvalidState, "acct_send_order called before init");
     }
 
     auto it = context->cached_orders.find(order_id);
     if (it == context->cached_orders.end()) {
-        return api_error(ACCT_ERR_ORDER_NOT_FOUND, error_code::OrderNotFound, "acct_send_order order not cached");
+        return api_error(ACCT_ERR_ORDER_NOT_FOUND, ErrorCode::OrderNotFound, "acct_send_order order not cached");
     }
 
     it->second.order_state.store(OrderState::StrategySubmitted, std::memory_order_release);
@@ -285,33 +285,33 @@ ACCT_API acct_error_t acct_send_order(acct_ctx_t ctx, uint32_t order_id) {
 ACCT_API acct_error_t acct_submit_order(acct_ctx_t ctx, const char* security_id, uint8_t side, uint8_t market,
     uint64_t volume, double price, uint32_t valid_sec, uint32_t* out_order_id) {
     if (!out_order_id) {
-        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_submit_order out_order_id is null");
+        return api_error(ACCT_ERR_INVALID_PARAM, ErrorCode::InvalidParam, "acct_submit_order out_order_id is null");
     }
     *out_order_id = 0;
 
     if (!ctx || !security_id) {
-        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_submit_order invalid ctx/security_id");
+        return api_error(ACCT_ERR_INVALID_PARAM, ErrorCode::InvalidParam, "acct_submit_order invalid ctx/security_id");
     }
 
     auto* context = ctx;
     if (!context->initialized || !context->upstream_shm) {
-        return api_error(ACCT_ERR_NOT_INITIALIZED, error_code::InvalidState, "acct_submit_order called before init");
+        return api_error(ACCT_ERR_NOT_INITIALIZED, ErrorCode::InvalidState, "acct_submit_order called before init");
     }
 
     if (side != ACCT_SIDE_BUY && side != ACCT_SIDE_SELL) {
-        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_submit_order invalid side");
+        return api_error(ACCT_ERR_INVALID_PARAM, ErrorCode::InvalidParam, "acct_submit_order invalid side");
     }
     if (market < ACCT_MARKET_SZ || market > ACCT_MARKET_HK) {
-        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_submit_order invalid market");
+        return api_error(ACCT_ERR_INVALID_PARAM, ErrorCode::InvalidParam, "acct_submit_order invalid market");
     }
     if (volume == 0) {
-        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_submit_order zero volume");
+        return api_error(ACCT_ERR_INVALID_PARAM, ErrorCode::InvalidParam, "acct_submit_order zero volume");
     }
 
     InternalSecurityId internal_security_id;
     if (!build_internal_security_id(static_cast<Market>(market), std::string_view(security_id), internal_security_id)) {
         return api_error(
-            ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_submit_order invalid security_id length/market");
+            ACCT_ERR_INVALID_PARAM, ErrorCode::InvalidParam, "acct_submit_order invalid security_id length/market");
     }
 
     const uint32_t order_id = context->upstream_shm->header.next_order_id.fetch_add(1, std::memory_order_relaxed);
@@ -337,17 +337,17 @@ ACCT_API acct_error_t acct_submit_order(acct_ctx_t ctx, const char* security_id,
 ACCT_API acct_error_t acct_cancel_order(
     acct_ctx_t ctx, uint32_t orig_order_id, uint32_t valid_sec, uint32_t* out_cancel_id) {
     if (!out_cancel_id) {
-        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_cancel_order out_cancel_id is null");
+        return api_error(ACCT_ERR_INVALID_PARAM, ErrorCode::InvalidParam, "acct_cancel_order out_cancel_id is null");
     }
     *out_cancel_id = 0;
 
     if (!ctx) {
-        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_cancel_order ctx is null");
+        return api_error(ACCT_ERR_INVALID_PARAM, ErrorCode::InvalidParam, "acct_cancel_order ctx is null");
     }
 
     auto* context = ctx;
     if (!context->initialized || !context->upstream_shm) {
-        return api_error(ACCT_ERR_NOT_INITIALIZED, error_code::InvalidState, "acct_cancel_order called before init");
+        return api_error(ACCT_ERR_NOT_INITIALIZED, ErrorCode::InvalidState, "acct_cancel_order called before init");
     }
 
     const uint32_t cancel_id = context->upstream_shm->header.next_order_id.fetch_add(1, std::memory_order_relaxed);
@@ -370,17 +370,17 @@ ACCT_API acct_error_t acct_cancel_order(
 
 ACCT_API acct_error_t acct_queue_size(acct_ctx_t ctx, size_t* out_size) {
     if (!out_size) {
-        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_queue_size out_size is null");
+        return api_error(ACCT_ERR_INVALID_PARAM, ErrorCode::InvalidParam, "acct_queue_size out_size is null");
     }
     *out_size = 0;
 
     if (!ctx) {
-        return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_queue_size ctx is null");
+        return api_error(ACCT_ERR_INVALID_PARAM, ErrorCode::InvalidParam, "acct_queue_size ctx is null");
     }
 
     auto* context = ctx;
     if (!context->initialized || !context->upstream_shm) {
-        return api_error(ACCT_ERR_NOT_INITIALIZED, error_code::InvalidState, "acct_queue_size called before init");
+        return api_error(ACCT_ERR_NOT_INITIALIZED, ErrorCode::InvalidState, "acct_queue_size called before init");
     }
 
     *out_size = context->upstream_shm->strategy_order_queue.size();
@@ -416,13 +416,13 @@ ACCT_API const char* acct_version(void) { return ACCT_API_VERSION; }
 
 ACCT_API acct_error_t acct_cleanup_shm(void) {
     if (shm_unlink(acct_service::kStrategyOrderShmName) < 0 && errno != ENOENT) {
-        return api_error(ACCT_ERR_SHM_FAILED, error_code::ShmOpenFailed, "acct_cleanup_shm upstream failed", errno);
+        return api_error(ACCT_ERR_SHM_FAILED, ErrorCode::ShmOpenFailed, "acct_cleanup_shm upstream failed", errno);
     }
 
     const std::string orders_default =
         make_orders_shm_name(acct_service::kOrdersShmName, default_trading_day());
     if (shm_unlink(orders_default.c_str()) < 0 && errno != ENOENT) {
-        return api_error(ACCT_ERR_SHM_FAILED, error_code::ShmOpenFailed, "acct_cleanup_shm orders failed", errno);
+        return api_error(ACCT_ERR_SHM_FAILED, ErrorCode::ShmOpenFailed, "acct_cleanup_shm orders failed", errno);
     }
 
     return ACCT_OK;

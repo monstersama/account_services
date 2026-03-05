@@ -135,9 +135,9 @@ TEST(size_mismatch) {
     auto* layout = mgr.open_upstream(name, shm_mode::Open, 1);
     assert(layout == nullptr);
     assert(!acct_service::last_error().ok());
-    assert(acct_service::last_error().code == acct_service::error_code::ShmResizeFailed);
+    assert(acct_service::last_error().code == acct_service::ErrorCode::ShmResizeFailed);
     assert(acct_service::classify(acct_service::last_error().domain, acct_service::last_error().code).severity ==
-           acct_service::error_severity::Critical);
+           acct_service::ErrorSeverity::Critical);
 
     mgr.close();
     cleanup_shm(name);

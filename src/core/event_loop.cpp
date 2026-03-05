@@ -167,7 +167,7 @@ std::size_t EventLoop::process_upstream_orders() {
     while (processed < batch_limit && upstream_shm_->strategy_order_queue.try_pop(order_index)) {
         order_slot_snapshot snapshot;
         if (!orders_shm_read_snapshot(orders_shm_, order_index, snapshot)) {
-            error_status status = ACCT_MAKE_ERROR(ErrorDomain::order, error_code::OrderNotFound, "EventLoop",
+            ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::order, ErrorCode::OrderNotFound, "EventLoop",
                 "failed to read order slot from upstream index", 0);
             record_error(status);
             ACCT_LOG_ERROR_STATUS(status);
@@ -215,8 +215,8 @@ void EventLoop::handle_order_request(OrderIndex index, OrderRequest& request) {
             request.order_state.store(OrderState::TraderError, std::memory_order_release);
             (void)orders_shm_sync_order(orders_shm_, index, request, now_ns());
             (void)orders_shm_update_stage(orders_shm_, index, OrderSlotState::QueuePushFailed, now_ns());
-            error_status status = ACCT_MAKE_ERROR(
-                ErrorDomain::order, error_code::InvalidParam, "EventLoop", "invalid market/security_id for internal key", 0);
+            ErrorStatus status = ACCT_MAKE_ERROR(
+                ErrorDomain::order, ErrorCode::InvalidParam, "EventLoop", "invalid market/security_id for internal key", 0);
             record_error(status);
             ACCT_LOG_ERROR_STATUS(status);
             return;
@@ -241,8 +241,8 @@ void EventLoop::handle_order_request(OrderIndex index, OrderRequest& request) {
 
     if (!order_book_.add_order(entry)) {
         (void)orders_shm_update_stage(orders_shm_, index, OrderSlotState::QueuePushFailed, now_ns());
-        error_status status = ACCT_MAKE_ERROR(
-            ErrorDomain::order, error_code::OrderBookFull, "EventLoop", "OrderBook add_order failed", 0);
+        ErrorStatus status = ACCT_MAKE_ERROR(
+            ErrorDomain::order, ErrorCode::OrderBookFull, "EventLoop", "OrderBook add_order failed", 0);
         record_error(status);
         ACCT_LOG_ERROR_STATUS(status);
         return;
@@ -273,8 +273,8 @@ void EventLoop::handle_order_request(OrderIndex index, OrderRequest& request) {
     if (!active || !router_.route_order(*active)) {
         order_book_.update_state(request.internal_order_id, OrderState::TraderError);
         (void)orders_shm_update_stage(orders_shm_, index, OrderSlotState::QueuePushFailed, now_ns());
-        error_status status = ACCT_MAKE_ERROR(
-            ErrorDomain::order, error_code::RouteFailed, "EventLoop", "route_order failed", 0);
+        ErrorStatus status = ACCT_MAKE_ERROR(
+            ErrorDomain::order, ErrorCode::RouteFailed, "EventLoop", "route_order failed", 0);
         record_error(status);
         ACCT_LOG_ERROR_STATUS(status);
     }
@@ -300,8 +300,8 @@ void EventLoop::on_order_book_changed(const OrderEntry& entry, order_book_event_
     }
 
     if (!synced) {
-        error_status status_err = ACCT_MAKE_ERROR(
-            ErrorDomain::order, error_code::OrderNotFound, "EventLoop", "failed to sync order book snapshot to orders shm", 0);
+        ErrorStatus status_err = ACCT_MAKE_ERROR(
+            ErrorDomain::order, ErrorCode::OrderNotFound, "EventLoop", "failed to sync order book snapshot to orders shm", 0);
         record_error(status_err);
         ACCT_LOG_ERROR_STATUS(status_err);
     }
@@ -322,14 +322,14 @@ void EventLoop::handle_trade_response(const TradeResponse& response) {
         if (order && order->request.order_type == OrderType::New) {
             if (response.trade_side == TradeSide::Buy) {
                 if (!positions_.apply_buy_trade_fund(response.dvalue_traded, response.dfee, response.internal_order_id)) {
-                    error_status status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, error_code::PositionUpdateFailed,
+                    ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::PositionUpdateFailed,
                         "EventLoop", "failed to settle buy fund from trade response", 0);
                     record_error(status);
                     ACCT_LOG_ERROR_STATUS(status);
                 }
             } else if (response.trade_side == TradeSide::Sell) {
                 if (!positions_.apply_sell_trade_fund(response.dvalue_traded, response.dfee, response.internal_order_id)) {
-                    error_status status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, error_code::PositionUpdateFailed,
+                    ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::PositionUpdateFailed,
                         "EventLoop", "failed to settle sell fund from trade response", 0);
                     record_error(status);
                     ACCT_LOG_ERROR_STATUS(status);
@@ -347,12 +347,12 @@ void EventLoop::handle_trade_response(const TradeResponse& response) {
                     const InternalSecurityId added =
                         positions_.add_security(order->request.security_id.view(), position_name, order->request.market);
                     if (added.empty()) {
-                        error_status status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, error_code::PositionUpdateFailed,
+                        ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::PositionUpdateFailed,
                             "EventLoop", "failed to create missing position row", 0);
                         record_error(status);
                         ACCT_LOG_ERROR_STATUS(status);
                     } else if (added != security_id) {
-                        error_status status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, error_code::OrderInvariantBroken,
+                        ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::OrderInvariantBroken,
                             "EventLoop", "security id mismatch while creating position row", 0);
                         record_error(status);
                         ACCT_LOG_ERROR_STATUS(status);
@@ -362,7 +362,7 @@ void EventLoop::handle_trade_response(const TradeResponse& response) {
                 if (response.trade_side == TradeSide::Buy) {
                     if (!positions_.add_position(
                             security_id, response.volume_traded, response.dprice_traded, response.internal_order_id)) {
-                        error_status status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, error_code::PositionUpdateFailed,
+                        ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::PositionUpdateFailed,
                             "EventLoop", "failed to add position from trade response", 0);
                         record_error(status);
                         ACCT_LOG_ERROR_STATUS(status);
@@ -370,7 +370,7 @@ void EventLoop::handle_trade_response(const TradeResponse& response) {
                 } else if (response.trade_side == TradeSide::Sell) {
                     if (!positions_.deduct_position(
                             security_id, response.volume_traded, response.dvalue_traded, response.internal_order_id)) {
-                        error_status status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, error_code::PositionUpdateFailed,
+                        ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::PositionUpdateFailed,
                             "EventLoop", "failed to deduct position from trade response", 0);
                         record_error(status);
                         ACCT_LOG_ERROR_STATUS(status);

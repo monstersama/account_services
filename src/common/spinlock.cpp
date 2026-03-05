@@ -15,7 +15,7 @@
 
 namespace acct_service {
 
-void spinlock::lock() noexcept {
+void SpinLock::lock() noexcept {
     // TTAS (Test-And-Test-And-Set) + compare_exchange_weak + 指数退避优化
     // compare_exchange_weak 在失败时只读，减少缓存一致性流量
 
@@ -51,30 +51,30 @@ void spinlock::lock() noexcept {
     }
 }
 
-bool spinlock::try_lock() noexcept {
+bool SpinLock::try_lock() noexcept {
     // 使用 compare_exchange_weak 尝试获取锁
     bool expected = false;
     return flag_.compare_exchange_weak(expected, true, std::memory_order_acquire, std::memory_order_relaxed);
 }
 
-void spinlock::unlock() noexcept { flag_.store(false, std::memory_order_release); }
+void SpinLock::unlock() noexcept { flag_.store(false, std::memory_order_release); }
 
-bool spinlock::is_locked() const noexcept { return flag_.load(std::memory_order_relaxed); }
+bool SpinLock::is_locked() const noexcept { return flag_.load(std::memory_order_relaxed); }
 
-// lock_guard 实现
+// LockGuard 实现
 template <typename Lock>
-lock_guard<Lock>::lock_guard(Lock& lock) : lock_(lock) {
+LockGuard<Lock>::LockGuard(Lock& lock) : lock_(lock) {
     lock_.lock();
 }
 
 template <typename Lock>
-lock_guard<Lock>::~lock_guard() {
+LockGuard<Lock>::~LockGuard() {
     lock_.unlock();
 }
 
-// unique_lock 实现
+// UniqueLock 实现
 template <typename Lock>
-unique_lock<Lock>::unique_lock(Lock& lock, bool try_lock) : lock_(&lock), owns_lock_(false) {
+UniqueLock<Lock>::UniqueLock(Lock& lock, bool try_lock) : lock_(&lock), owns_lock_(false) {
     if (try_lock) {
         owns_lock_ = lock_->try_lock();
     } else {
@@ -84,19 +84,19 @@ unique_lock<Lock>::unique_lock(Lock& lock, bool try_lock) : lock_(&lock), owns_l
 }
 
 template <typename Lock>
-unique_lock<Lock>::~unique_lock() {
+UniqueLock<Lock>::~UniqueLock() {
     if (owns_lock_) {
         lock_->unlock();
     }
 }
 
 template <typename Lock>
-bool unique_lock<Lock>::owns_lock() const noexcept {
+bool UniqueLock<Lock>::owns_lock() const noexcept {
     return owns_lock_;
 }
 
 template <typename Lock>
-void unique_lock<Lock>::unlock() {
+void UniqueLock<Lock>::unlock() {
     if (owns_lock_) {
         lock_->unlock();
         owns_lock_ = false;
@@ -104,7 +104,7 @@ void unique_lock<Lock>::unlock() {
 }
 
 // 显式实例化
-template class lock_guard<spinlock>;
-template class unique_lock<spinlock>;
+template class LockGuard<SpinLock>;
+template class UniqueLock<SpinLock>;
 
 }  // namespace acct_service

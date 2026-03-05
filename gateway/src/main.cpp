@@ -60,7 +60,7 @@ int main(int argc, char* argv[]) {
     downstream_shm_layout* downstream =
         downstream_manager.open_downstream(config.downstream_shm_name, mode, config.account_id);
     if (!downstream) {
-        const error_status& status = latest_error();
+        const ErrorStatus& status = latest_error();
         std::fprintf(stderr,
             "failed to open downstream shm: domain=%s code=%s msg=%s\n",
             to_string(status.domain), to_string(status.code), status.message.c_str());
@@ -69,7 +69,7 @@ int main(int argc, char* argv[]) {
 
     trades_shm_layout* trades = trades_manager.open_trades(config.trades_shm_name, mode, config.account_id);
     if (!trades) {
-        const error_status& status = latest_error();
+        const ErrorStatus& status = latest_error();
         std::fprintf(stderr,
             "failed to open trades shm: domain=%s code=%s msg=%s\n",
             to_string(status.domain), to_string(status.code), status.message.c_str());
@@ -79,7 +79,7 @@ int main(int argc, char* argv[]) {
     const std::string dated_orders_name = make_orders_shm_name(config.orders_shm_name, config.trading_day);
     orders_shm_layout* orders = orders_manager.open_orders(dated_orders_name, mode, config.account_id);
     if (!orders) {
-        const error_status& status = latest_error();
+        const ErrorStatus& status = latest_error();
         std::fprintf(stderr,
             "failed to open orders shm: domain=%s code=%s msg=%s\n",
             to_string(status.domain), to_string(status.code), status.message.c_str());

@@ -33,8 +33,8 @@ gateway_loop::gateway_loop(const gateway_config& config, downstream_shm_layout* 
 int gateway_loop::run() {
     // 启动前先校验共享内存依赖。
     if (!downstream_shm_ || !trades_shm_ || !orders_shm_) {
-        error_status status = ACCT_MAKE_ERROR(
-            ErrorDomain::core, error_code::ComponentUnavailable, "gateway_loop", "shared memory not available", 0);
+        ErrorStatus status = ACCT_MAKE_ERROR(
+            ErrorDomain::core, ErrorCode::ComponentUnavailable, "gateway_loop", "shared memory not available", 0);
         record_error(status);
         ACCT_LOG_ERROR_STATUS(status);
         return 1;
@@ -122,7 +122,7 @@ bool gateway_loop::process_orders(std::size_t batch_limit) {
         order_slot_snapshot snapshot;
         if (!orders_shm_read_snapshot(orders_shm_, index, snapshot)) {
             ++stats_.orders_failed;
-            error_status status = ACCT_MAKE_ERROR(ErrorDomain::order, error_code::OrderNotFound, "gateway_loop",
+            ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::order, ErrorCode::OrderNotFound, "gateway_loop",
                 "failed to read downstream order slot", 0);
             record_error(status);
             ACCT_LOG_ERROR_STATUS(status);
@@ -171,8 +171,8 @@ bool gateway_loop::process_events(std::size_t batch_limit) {
         if (!push_response(response)) {
             ++stats_.responses_dropped;
             stop();
-            error_status status = ACCT_MAKE_ERROR(
-                ErrorDomain::order, error_code::QueuePushFailed, "gateway_loop", "failed to push trade response", 0);
+            ErrorStatus status = ACCT_MAKE_ERROR(
+                ErrorDomain::order, ErrorCode::QueuePushFailed, "gateway_loop", "failed to push trade response", 0);
             record_error(status);
             ACCT_LOG_ERROR_STATUS(status);
             break;

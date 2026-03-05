@@ -114,7 +114,7 @@ private:
     std::vector<std::size_t> free_slots_;  // orders_ 空闲槽位栈
     std::size_t active_count_ = 0;  // 当前活跃订单数量
     std::atomic<InternalOrderId> next_order_id_{1};  // 递增内部订单ID生成器
-    mutable spinlock lock_;  // 保护订单簿内部状态
+    mutable SpinLock lock_;  // 保护订单簿内部状态
     order_change_callback_t change_callback_;
 };
 

@@ -22,7 +22,7 @@ struct alignas(64) trade_record {
     DValue fee;
     MdTime trade_time;
     TimestampNs local_time;
-    fixed_string<32> broker_trade_id;
+    FixedString<32> broker_trade_id;
 };
 
 // 成交记录管理器

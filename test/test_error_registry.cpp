@@ -19,12 +19,12 @@ TEST(record_and_count) {
     global_error_registry().reset();
     clear_last_error();
 
-    const error_status first = ACCT_MAKE_ERROR(error_domain::core, error_code::InternalError, "test", "internal", 0);
+    const ErrorStatus first = ACCT_MAKE_ERROR(error_domain::core, ErrorCode::InternalError, "test", "internal", 0);
     record_error(first);
 
-    assert(global_error_registry().count(error_code::InternalError) == 1);
+    assert(global_error_registry().count(ErrorCode::InternalError) == 1);
     assert(!last_error().ok());
-    assert(last_error().code == error_code::InternalError);
+    assert(last_error().code == ErrorCode::InternalError);
 }
 
 TEST(concurrent_recording) {
@@ -40,7 +40,7 @@ TEST(concurrent_recording) {
         workers.emplace_back([]() {
             for (int j = 0; j < kPerThread; ++j) {
                 record_error(ACCT_MAKE_ERROR(
-                    error_domain::order, error_code::QueuePushFailed, "test", "queue push failed", 0));
+                    error_domain::order, ErrorCode::QueuePushFailed, "test", "queue push failed", 0));
             }
         });
     }
@@ -49,7 +49,7 @@ TEST(concurrent_recording) {
         worker.join();
     }
 
-    assert(global_error_registry().count(error_code::QueuePushFailed) == static_cast<uint64_t>(kThreads * kPerThread));
+    assert(global_error_registry().count(ErrorCode::QueuePushFailed) == static_cast<uint64_t>(kThreads * kPerThread));
     assert(!global_error_registry().recent_errors().empty());
 }
 
