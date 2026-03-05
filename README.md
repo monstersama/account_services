@@ -148,3 +148,11 @@ qemu-x86_64-static -g 1234 ./build/src/acct_service_main --config ./config/defau
 - 按 `F5` 连接
 
 连接后即可正常下断点、单步、查看变量。
+
+
+## 安装第三方库
+```sh
+sudo apt update
+sudo apt install libyaml-cpp-dev
+sudo apt install libsqlite3-dev
+```
