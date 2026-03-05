@@ -13,7 +13,7 @@ namespace acct_service::gateway {
 
 namespace {
 
-constexpr const char* kDefaultGatewayConfigPath = "Config/gateway.yaml";
+constexpr const char* kDefaultGatewayConfigPath = "config/gateway.yaml";
 
 std::string trim_copy(std::string text) {
     const auto not_space = [](unsigned char ch) { return !std::isspace(ch); };
@@ -189,13 +189,13 @@ bool apply_config_value(gateway_config& Config, std::string_view key, const std:
         return true;
     }
 
-    error_message = std::string("unknown Config key: ") + std::string(key);
+    error_message = std::string("unknown config key: ") + std::string(key);
     return false;
 }
 
 bool load_config_yaml(const std::string& config_path, gateway_config& Config, std::string& error_message) {
     if (config_path.empty()) {
-        error_message = "empty --Config path";
+        error_message = "empty --config path";
         return false;
     }
 
@@ -203,7 +203,7 @@ bool load_config_yaml(const std::string& config_path, gateway_config& Config, st
     try {
         root = YAML::LoadFile(config_path);
     } catch (const YAML::Exception& ex) {
-        error_message = std::string("failed to load Config file: ") + ex.what();
+        error_message = std::string("failed to load config file: ") + ex.what();
         return false;
     }
 
@@ -213,7 +213,7 @@ bool load_config_yaml(const std::string& config_path, gateway_config& Config, st
     }
 
     if (!root.IsMap()) {
-        error_message = "gateway Config root must be a YAML map";
+        error_message = "gateway config root must be a YAML map";
         return false;
     }
 
@@ -227,7 +227,7 @@ bool load_config_yaml(const std::string& config_path, gateway_config& Config, st
         const YAML::Node value_node = entry.second;
 
         if (!key_node.IsScalar()) {
-            error_message = "gateway Config key must be scalar";
+            error_message = "gateway config key must be scalar";
             return false;
         }
         if (!value_node.IsScalar()) {
@@ -237,7 +237,7 @@ bool load_config_yaml(const std::string& config_path, gateway_config& Config, st
             } catch (...) {
                 key_text = "<unknown>";
             }
-            error_message = "gateway Config value must be scalar: " + key_text;
+            error_message = "gateway config value must be scalar: " + key_text;
             return false;
         }
 
@@ -247,12 +247,12 @@ bool load_config_yaml(const std::string& config_path, gateway_config& Config, st
             key = key_node.as<std::string>();
             value = value_node.as<std::string>();
         } catch (const YAML::Exception& ex) {
-            error_message = std::string("failed to parse gateway Config field: ") + ex.what();
+            error_message = std::string("failed to parse gateway config field: ") + ex.what();
             return false;
         }
 
         if (!contains_key(key, kAllowedKeys)) {
-            error_message = "unknown gateway Config key: " + key;
+            error_message = "unknown gateway config key: " + key;
             return false;
         }
 
@@ -294,8 +294,8 @@ bool validate_config(const gateway_config& Config, std::string& error_message) {
 // 打印网关命令行参数说明。
 void print_usage(const char* program) {
     std::fprintf(stderr,
-        "Usage: %s [--Config <path>] [config_path]\n"
-        "  --Config <path>   specify gateway Config path (default: Config/gateway.yaml)\n"
+        "Usage: %s [--config <path>] [config_path]\n"
+        "  --config <path>   specify gateway config path (default: config/gateway.yaml)\n"
         "  -h, --help                   show this help\n",
         program ? program : "acct_broker_gateway");
 }
@@ -317,7 +317,7 @@ parse_result_t parse_args(int argc, char* argv[], gateway_config& Config, std::s
             return parse_result_t::Help;
         }
 
-        if (option == "--Config") {
+        if (option == "--config") {
             std::string value;
             if (!require_value(argc, i, argv, value, error_message)) {
                 return parse_result_t::Error;
