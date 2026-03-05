@@ -37,9 +37,14 @@ risk_check_result fund_check_rule::check(const OrderRequest& order, const Positi
     }
 
     const DValue available = positions.get_available_fund();
-    const __uint128_t required =
+    const __uint128_t required_value =
         static_cast<__uint128_t>(order.volume_entrust) * static_cast<__uint128_t>(order.dprice_entrust);
-    if (required > static_cast<__uint128_t>(available)) {
+    DValue estimated_fee = order.dfee_estimate;
+    if (estimated_fee == 0 && required_value > 0) {
+        estimated_fee = 1;
+    }
+    const __uint128_t required_total = required_value + static_cast<__uint128_t>(estimated_fee);
+    if (required_total < required_value || required_total > static_cast<__uint128_t>(available)) {
         return risk_check_result::reject(RiskResult::RejectInsufficientFund, "insufficient available fund");
     }
 
