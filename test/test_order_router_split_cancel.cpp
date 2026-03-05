@@ -20,8 +20,8 @@ namespace {
 
 using namespace acct_service;
 
-order_entry make_parent_entry(InternalOrderId order_id, Volume volume) {
-    order_entry entry{};
+OrderEntry make_parent_entry(InternalOrderId order_id, Volume volume) {
+    OrderEntry entry{};
     entry.request.init_new(
         "000001", InternalSecurityId("SZ.000001"), order_id, TradeSide::Buy, Market::SZ, volume, 1000,
         93000000);
@@ -81,7 +81,7 @@ TEST(split_cancel_fanout_tracks_parent) {
     order_router router(*book, downstream.get(), orders.get(), make_split_config());
 
     const InternalOrderId parent_id = book->next_order_id();
-    order_entry parent = make_parent_entry(parent_id, 250);
+    OrderEntry parent = make_parent_entry(parent_id, 250);
     OrderIndex parent_index = kInvalidOrderIndex;
     assert(orders_shm_append(orders.get(), parent.request, OrderSlotState::UpstreamDequeued,
         order_slot_source_t::AccountInternal, now_ns(), parent_index));
@@ -154,7 +154,7 @@ TEST(partial_send_failure_latches_parent_error) {
     }
 
     const InternalOrderId parent_id = book->next_order_id();
-    order_entry parent = make_parent_entry(parent_id, 300);
+    OrderEntry parent = make_parent_entry(parent_id, 300);
     OrderIndex parent_index = kInvalidOrderIndex;
     assert(orders_shm_append(orders.get(), parent.request, OrderSlotState::UpstreamDequeued,
         order_slot_source_t::AccountInternal, now_ns(), parent_index));
@@ -163,7 +163,7 @@ TEST(partial_send_failure_latches_parent_error) {
 
     assert(router.route_order(parent));
 
-    const order_entry* parent_after = book->find_order(parent_id);
+    const OrderEntry* parent_after = book->find_order(parent_id);
     assert(parent_after != nullptr);
     assert(parent_after->request.order_state.load(std::memory_order_acquire) == OrderState::TraderError);
 
@@ -173,7 +173,7 @@ TEST(partial_send_failure_latches_parent_error) {
     std::size_t submitted_children = 0;
     std::size_t error_children = 0;
     for (InternalOrderId child_id : children) {
-        const order_entry* child = book->find_order(child_id);
+        const OrderEntry* child = book->find_order(child_id);
         assert(child != nullptr);
         const OrderState status = child->request.order_state.load(std::memory_order_acquire);
         if (status == OrderState::TraderSubmitted) {

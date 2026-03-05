@@ -132,12 +132,12 @@ TEST(process_order_and_trade_response) {
     split_cfg.strategy = SplitStrategy::None;
     order_router router(*book, downstream.get(), orders_shm.get(), split_cfg);
 
-    event_loop_config loop_cfg;
+    EventLoopConfig loop_cfg;
     loop_cfg.busy_polling = false;
     loop_cfg.idle_sleep_us = 50;
     loop_cfg.poll_batch_size = 32;
     loop_cfg.stats_interval_ms = 0;
-    event_loop loop(loop_cfg, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router, positions, risk);
+    EventLoop loop(loop_cfg, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router, positions, risk);
 
     std::thread worker([&loop]() { loop.run(); });
 
@@ -172,11 +172,11 @@ TEST(process_order_and_trade_response) {
     assert(trades->response_queue.try_push(rsp));
 
     assert(wait_until([&book, order_id]() {
-        const order_entry* order = book->find_order(order_id);
+        const OrderEntry* order = book->find_order(order_id);
         return order && order->request.volume_traded == 50;
     }));
 
-    const order_entry* order = book->find_order(order_id);
+    const OrderEntry* order = book->find_order(order_id);
     assert(order != nullptr);
     assert(order->request.volume_traded == 50);
     assert(order->request.order_state.load(std::memory_order_acquire) == OrderState::MarketAccepted);
@@ -224,14 +224,14 @@ TEST(delay_archive_allows_late_terminal_trade) {
     split_cfg.strategy = SplitStrategy::None;
     order_router router(*book, downstream.get(), orders_shm.get(), split_cfg);
 
-    event_loop_config loop_cfg;
+    EventLoopConfig loop_cfg;
     loop_cfg.busy_polling = false;
     loop_cfg.idle_sleep_us = 50;
     loop_cfg.poll_batch_size = 32;
     loop_cfg.stats_interval_ms = 0;
     loop_cfg.archive_terminal_orders = true;
     loop_cfg.terminal_archive_delay_ms = 80;
-    event_loop loop(loop_cfg, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router, positions, risk);
+    EventLoop loop(loop_cfg, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router, positions, risk);
 
     std::thread worker([&loop]() { loop.run(); });
 
@@ -255,7 +255,7 @@ TEST(delay_archive_allows_late_terminal_trade) {
     assert(trades->response_queue.try_push(first_terminal));
 
     assert(wait_until([&book, order_id]() {
-        const order_entry* order = book->find_order(order_id);
+        const OrderEntry* order = book->find_order(order_id);
         return order && order->request.order_state.load(std::memory_order_acquire) == OrderState::Finished;
     }));
 
@@ -275,7 +275,7 @@ TEST(delay_archive_allows_late_terminal_trade) {
     assert(trades->response_queue.try_push(late_trade));
 
     assert(wait_until([&book, order_id]() {
-        const order_entry* order = book->find_order(order_id);
+        const OrderEntry* order = book->find_order(order_id);
         return order && order->request.volume_traded == 40;
     }));
 

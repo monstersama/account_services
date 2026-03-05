@@ -17,7 +17,7 @@
 using namespace acct_service;
 
 TEST(async_logger_write_and_flush) {
-    log_config cfg;
+    LogConfig cfg;
     cfg.log_dir = "./build/test_logs";
     cfg.log_level = "debug";
     cfg.async_logging = true;
@@ -34,7 +34,7 @@ TEST(async_logger_write_and_flush) {
 }
 
 TEST(queue_full_drop_counter) {
-    log_config cfg;
+    LogConfig cfg;
     cfg.log_dir = "./build/test_logs";
     cfg.log_level = "debug";
     cfg.async_logging = true;
@@ -61,4 +61,3 @@ int main() {
     printf("\n=== All tests passed! ===\n");
     return 0;
 }
-

@@ -19,7 +19,7 @@ TEST(record_and_count) {
     global_error_registry().reset();
     clear_last_error();
 
-    const ErrorStatus first = ACCT_MAKE_ERROR(error_domain::core, ErrorCode::InternalError, "test", "internal", 0);
+    const ErrorStatus first = ACCT_MAKE_ERROR(ErrorDomain::core, ErrorCode::InternalError, "test", "internal", 0);
     record_error(first);
 
     assert(global_error_registry().count(ErrorCode::InternalError) == 1);
@@ -40,7 +40,7 @@ TEST(concurrent_recording) {
         workers.emplace_back([]() {
             for (int j = 0; j < kPerThread; ++j) {
                 record_error(ACCT_MAKE_ERROR(
-                    error_domain::order, ErrorCode::QueuePushFailed, "test", "queue push failed", 0));
+                    ErrorDomain::order, ErrorCode::QueuePushFailed, "test", "queue push failed", 0));
             }
         });
     }

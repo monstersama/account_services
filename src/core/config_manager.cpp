@@ -221,28 +221,28 @@ bool apply_value(Config& cfg, const std::string& key, const std::string& raw_val
         return parse_bool(value, cfg.shm.create_if_not_exist);
     }
 
-    if (key == "event_loop.busy_polling") {
+    if (key == "event_loop.busy_polling" || key == "EventLoop.busy_polling") {
         return parse_bool(value, cfg.EventLoop.busy_polling);
     }
-    if (key == "event_loop.poll_batch_size") {
+    if (key == "event_loop.poll_batch_size" || key == "EventLoop.poll_batch_size") {
         return parse_u32(value, cfg.EventLoop.poll_batch_size);
     }
-    if (key == "event_loop.idle_sleep_us") {
+    if (key == "event_loop.idle_sleep_us" || key == "EventLoop.idle_sleep_us") {
         return parse_u32(value, cfg.EventLoop.idle_sleep_us);
     }
-    if (key == "event_loop.stats_interval_ms") {
+    if (key == "event_loop.stats_interval_ms" || key == "EventLoop.stats_interval_ms") {
         return parse_u32(value, cfg.EventLoop.stats_interval_ms);
     }
-    if (key == "event_loop.archive_terminal_orders") {
+    if (key == "event_loop.archive_terminal_orders" || key == "EventLoop.archive_terminal_orders") {
         return parse_bool(value, cfg.EventLoop.archive_terminal_orders);
     }
-    if (key == "event_loop.terminal_archive_delay_ms") {
+    if (key == "event_loop.terminal_archive_delay_ms" || key == "EventLoop.terminal_archive_delay_ms") {
         return parse_u32(value, cfg.EventLoop.terminal_archive_delay_ms);
     }
-    if (key == "event_loop.pin_cpu") {
+    if (key == "event_loop.pin_cpu" || key == "EventLoop.pin_cpu") {
         return parse_bool(value, cfg.EventLoop.pin_cpu);
     }
-    if (key == "event_loop.cpu_core") {
+    if (key == "event_loop.cpu_core" || key == "EventLoop.cpu_core") {
         int parsed = -1;
         if (!parse_i32(value, parsed)) {
             return false;
@@ -474,7 +474,8 @@ bool ConfigManager::load_from_file(const std::string& config_path) {
     }
 
     if (root && root.IsMap()) {
-        if (!check_allowed_keys(root, "", {"account_id", "trading_day", "shm", "event_loop", "risk", "split", "log", "db"})) {
+        if (!check_allowed_keys(
+                root, "", {"account_id", "trading_day", "shm", "event_loop", "EventLoop", "risk", "split", "log", "db"})) {
             return false;
         }
 
@@ -503,6 +504,12 @@ bool ConfigManager::load_from_file(const std::string& config_path) {
         if (!parse_section(loaded, root, "shm",
                 {"upstream_shm_name", "downstream_shm_name", "trades_shm_name", "orders_shm_name", "positions_shm_name",
                     "create_if_not_exist"})) {
+            return false;
+        }
+
+        if (!parse_section(loaded, root, "event_loop",
+                {"busy_polling", "poll_batch_size", "idle_sleep_us", "stats_interval_ms", "archive_terminal_orders",
+                    "terminal_archive_delay_ms", "pin_cpu", "cpu_core"})) {
             return false;
         }
 

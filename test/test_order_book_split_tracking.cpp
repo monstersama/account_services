@@ -18,9 +18,9 @@ namespace {
 
 using namespace acct_service;
 
-order_entry make_new_entry(InternalOrderId order_id, Volume volume, bool is_split_child = false,
+OrderEntry make_new_entry(InternalOrderId order_id, Volume volume, bool is_split_child = false,
     InternalOrderId parent_order_id = 0) {
-    order_entry entry{};
+    OrderEntry entry{};
     entry.request.init_new(
         "000001", InternalSecurityId("SZ.000001"), order_id, TradeSide::Buy, Market::SZ, volume, 1000,
         93000000);
@@ -66,7 +66,7 @@ TEST(split_mapping_and_aggregation) {
     assert(book->update_trade(child1_id, 400, 1000, 400000, 10));
     assert(book->update_trade(child2_id, 600, 1000, 600000, 20));
 
-    const order_entry* parent = book->find_order(parent_id);
+    const OrderEntry* parent = book->find_order(parent_id);
     assert(parent != nullptr);
     assert(parent->request.volume_traded == 1000);
     assert(parent->request.volume_remain == 0);
@@ -103,7 +103,7 @@ TEST(parent_error_latch) {
     assert(book->update_state(child1_id, OrderState::Finished));
     assert(book->update_state(child2_id, OrderState::Finished));
 
-    const order_entry* parent = book->find_order(parent_id);
+    const OrderEntry* parent = book->find_order(parent_id);
     assert(parent != nullptr);
     assert(parent->request.order_state.load(std::memory_order_acquire) == OrderState::TraderError);
 }

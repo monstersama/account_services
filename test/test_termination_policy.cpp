@@ -17,7 +17,7 @@ TEST(fatal_requests_shutdown) {
     clear_shutdown_reason();
 
     const ErrorStatus status =
-        ACCT_MAKE_ERROR(error_domain::portfolio, ErrorCode::PositionUpdateFailed, "test", "fatal update failure", 0);
+        ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::PositionUpdateFailed, "test", "fatal update failure", 0);
     record_error(status);
 
     assert(shutdown_reason() == ErrorSeverity::Fatal);
@@ -29,7 +29,7 @@ TEST(critical_requests_shutdown) {
     clear_shutdown_reason();
 
     const ErrorStatus status =
-        ACCT_MAKE_ERROR(error_domain::config, ErrorCode::ConfigValidateFailed, "test", "critical config failure", 0);
+        ACCT_MAKE_ERROR(ErrorDomain::config, ErrorCode::ConfigValidateFailed, "test", "critical config failure", 0);
     record_error(status);
 
     assert(shutdown_reason() == ErrorSeverity::Critical);
@@ -40,7 +40,7 @@ TEST(recoverable_keeps_running) {
     clear_shutdown_reason();
 
     const ErrorStatus status =
-        ACCT_MAKE_ERROR(error_domain::order, ErrorCode::QueuePushFailed, "test", "recoverable queue full", 0);
+        ACCT_MAKE_ERROR(ErrorDomain::order, ErrorCode::QueuePushFailed, "test", "recoverable queue full", 0);
     record_error(status);
 
     assert(shutdown_reason() == ErrorSeverity::Recoverable);
@@ -50,17 +50,17 @@ TEST(recoverable_keeps_running) {
 TEST(domain_matrix_applies_for_api) {
     clear_shutdown_reason();
 
-    const ErrorPolicy& core_policy = classify(error_domain::core, ErrorCode::InvalidState);
+    const ErrorPolicy& core_policy = classify(ErrorDomain::core, ErrorCode::InvalidState);
     assert(core_policy.severity == ErrorSeverity::Critical);
     assert(core_policy.stop_service);
 
-    const ErrorPolicy& api_policy = classify(error_domain::api, ErrorCode::InvalidState);
+    const ErrorPolicy& api_policy = classify(ErrorDomain::api, ErrorCode::InvalidState);
     assert(api_policy.severity == ErrorSeverity::Critical);
     assert(!api_policy.stop_service);
     assert(!api_policy.exit_process);
 
     const ErrorStatus status =
-        ACCT_MAKE_ERROR(error_domain::api, ErrorCode::InvalidState, "test", "api invalid state", 0);
+        ACCT_MAKE_ERROR(ErrorDomain::api, ErrorCode::InvalidState, "test", "api invalid state", 0);
     record_error(status);
 
     // API 域不应触发主进程停服闩锁。

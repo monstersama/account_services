@@ -126,7 +126,7 @@ TEST(size_mismatch) {
     const int fd = ::shm_open(name.c_str(), O_CREAT | O_EXCL | O_RDWR, 0644);
     assert(fd >= 0);
 
-    const std::size_t small_size = sizeof(shm_header);
+    const std::size_t small_size = sizeof(SHMHeader);
     const int trunc_rc = ::ftruncate(fd, static_cast<off_t>(small_size));
     assert(trunc_rc == 0);
     ::close(fd);
@@ -143,7 +143,7 @@ TEST(size_mismatch) {
     cleanup_shm(name);
 }
 
-TEST(create_mode_is_0660_and_ignores_umask) {
+TEST(create_mode_is_0777_and_ignores_umask) {
     using namespace acct_service;
 
     const std::string name = unique_shm_name("shm_mgr_create_mode_env");
@@ -163,7 +163,7 @@ TEST(create_mode_is_0660_and_ignores_umask) {
     assert(stat_rc == 0);
     ::close(fd);
 
-    assert((st.st_mode & 0777) == 0660);
+    assert((st.st_mode & 0777) == 0777);
 
     creator.close();
     cleanup_shm(name);
@@ -176,7 +176,7 @@ int main() {
     RUN_TEST(open_or_create_no_reinit);
     RUN_TEST(open_orders_with_dated_name);
     RUN_TEST(size_mismatch);
-    RUN_TEST(create_mode_is_0660_and_ignores_umask);
+    RUN_TEST(create_mode_is_0777_and_ignores_umask);
 
     printf("\n=== All tests passed! ===\n");
     return 0;

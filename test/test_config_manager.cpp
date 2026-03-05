@@ -57,7 +57,7 @@ TEST(load_and_export_roundtrip) {
     assert(manager.shm().upstream_shm_name == "/u_test");
     assert(manager.shm().trades_shm_name == "/t_test");
     assert(manager.shm().orders_shm_name == "/o_test");
-    assert(manager.event_loop().poll_batch_size == 32);
+    assert(manager.EventLoop().poll_batch_size == 32);
     assert(manager.split().strategy == SplitStrategy::FixedSize);
     assert(manager.split().max_child_volume == 500);
 
@@ -69,7 +69,7 @@ TEST(load_and_export_roundtrip) {
     assert(reloaded.get().trading_day == "20260225");
     assert(reloaded.shm().downstream_shm_name == "/d_test");
     assert(reloaded.shm().trades_shm_name == "/t_test");
-    assert(reloaded.event_loop().idle_sleep_us == 10);
+    assert(reloaded.EventLoop().idle_sleep_us == 10);
 
     std::remove(in_path.c_str());
     std::remove(out_path.c_str());
@@ -120,7 +120,7 @@ TEST(parse_command_line_and_validate) {
     assert(manager.parse_command_line(static_cast<int>(sizeof(argv) / sizeof(argv[0])), argv));
 
     assert(manager.account_id() == 9);
-    assert(manager.event_loop().poll_batch_size == 128);
+    assert(manager.EventLoop().poll_batch_size == 128);
     assert(manager.split().strategy == SplitStrategy::Iceberg);
     assert(manager.shm().trades_shm_name == "/trades_cli");
     assert(manager.shm().orders_shm_name == "/orders_cli");
