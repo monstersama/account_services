@@ -96,12 +96,12 @@ bool wait_until(const std::function<bool()>& predicate, int timeout_ms = 1000) {
     return false;
 }
 
-order_request make_order(internal_order_id_t order_id, volume_t volume) {
+order_request make_order(InternalOrderId order_id, Volume volume) {
     order_request req;
     req.init_new(
-        "000001", internal_security_id_t("SZ.000001"), order_id, trade_side_t::Buy, market_t::SZ, volume, 1000,
+        "000001", InternalSecurityId("SZ.000001"), order_id, trade_side_t::Buy, market_t::SZ, volume, 1000,
         93000000);
-    req.order_status.store(order_status_t::StrategySubmitted, std::memory_order_relaxed);
+    req.order_state.store(OrderState::StrategySubmitted, std::memory_order_relaxed);
     return req;
 }
 
@@ -129,7 +129,7 @@ TEST(process_order_and_trade_response) {
 
     auto book = std::make_unique<order_book>();
     split_config split_cfg;
-    split_cfg.strategy = split_strategy_t::None;
+    split_cfg.strategy = SplitStrategy::None;
     order_router router(*book, downstream.get(), orders_shm.get(), split_cfg);
 
     event_loop_config loop_cfg;
@@ -141,7 +141,7 @@ TEST(process_order_and_trade_response) {
 
     std::thread worker([&loop]() { loop.run(); });
 
-    const internal_order_id_t order_id = 500;
+    const InternalOrderId order_id = 500;
     order_request req = make_order(order_id, 100);
     order_index_t order_index = kInvalidOrderIndex;
     assert(orders_shm_append(
@@ -159,9 +159,9 @@ TEST(process_order_and_trade_response) {
 
     trade_response rsp{};
     rsp.internal_order_id = order_id;
-    rsp.internal_security_id = internal_security_id_t("SZ.000001");
+    rsp.internal_security_id = InternalSecurityId("SZ.000001");
     rsp.trade_side = trade_side_t::Buy;
-    rsp.new_status = order_status_t::MarketAccepted;
+    rsp.new_state = OrderState::MarketAccepted;
     rsp.volume_traded = 50;
     rsp.dprice_traded = 1000;
     rsp.dvalue_traded = 50000;
@@ -179,9 +179,9 @@ TEST(process_order_and_trade_response) {
     const order_entry* order = book->find_order(order_id);
     assert(order != nullptr);
     assert(order->request.volume_traded == 50);
-    assert(order->request.order_status.load(std::memory_order_acquire) == order_status_t::MarketAccepted);
+    assert(order->request.order_state.load(std::memory_order_acquire) == OrderState::MarketAccepted);
 
-    const position* pos = positions.get_position(internal_security_id_t("SZ.000001"));
+    const position* pos = positions.get_position(InternalSecurityId("SZ.000001"));
     assert(pos != nullptr);
     assert(pos->volume_buy_traded >= 50);
 
@@ -221,7 +221,7 @@ TEST(delay_archive_allows_late_terminal_trade) {
 
     auto book = std::make_unique<order_book>();
     split_config split_cfg;
-    split_cfg.strategy = split_strategy_t::None;
+    split_cfg.strategy = SplitStrategy::None;
     order_router router(*book, downstream.get(), orders_shm.get(), split_cfg);
 
     event_loop_config loop_cfg;
@@ -235,7 +235,7 @@ TEST(delay_archive_allows_late_terminal_trade) {
 
     std::thread worker([&loop]() { loop.run(); });
 
-    const internal_order_id_t order_id = 700;
+    const InternalOrderId order_id = 700;
     order_request req = make_order(order_id, 100);
     order_index_t order_index = kInvalidOrderIndex;
     assert(orders_shm_append(
@@ -248,24 +248,24 @@ TEST(delay_archive_allows_late_terminal_trade) {
 
     trade_response first_terminal{};
     first_terminal.internal_order_id = order_id;
-    first_terminal.internal_security_id = internal_security_id_t("SZ.000001");
+    first_terminal.internal_security_id = InternalSecurityId("SZ.000001");
     first_terminal.trade_side = trade_side_t::Buy;
-    first_terminal.new_status = order_status_t::Finished;
+    first_terminal.new_state = OrderState::Finished;
     first_terminal.recv_time_ns = now_ns();
     assert(trades->response_queue.try_push(first_terminal));
 
     assert(wait_until([&book, order_id]() {
         const order_entry* order = book->find_order(order_id);
-        return order && order->request.order_status.load(std::memory_order_acquire) == order_status_t::Finished;
+        return order && order->request.order_state.load(std::memory_order_acquire) == OrderState::Finished;
     }));
 
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
 
     trade_response late_trade{};
     late_trade.internal_order_id = order_id;
-    late_trade.internal_security_id = internal_security_id_t("SZ.000001");
+    late_trade.internal_security_id = InternalSecurityId("SZ.000001");
     late_trade.trade_side = trade_side_t::Buy;
-    late_trade.new_status = order_status_t::Finished;
+    late_trade.new_state = OrderState::Finished;
     late_trade.volume_traded = 40;
     late_trade.dprice_traded = 1000;
     late_trade.dvalue_traded = 40000;

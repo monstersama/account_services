@@ -79,8 +79,8 @@ bool wait_until(const std::function<bool()>& predicate, int timeout_ms = 1500) {
     return false;
 }
 
-bool has_status(const std::vector<order_status_t>& statuses, order_status_t target) {
-    for (order_status_t value : statuses) {
+bool has_status(const std::vector<OrderState>& statuses, OrderState target) {
+    for (OrderState value : statuses) {
         if (value == target) {
             return true;
         }
@@ -124,21 +124,21 @@ TEST(process_new_order_with_plugin_adapter) {
     std::thread worker([&loop]() { (void)loop.run(); });
 
     order_request request;
-    request.init_new("000001", internal_security_id_t("SZ.000001"), static_cast<internal_order_id_t>(9301),
-        trade_side_t::Buy, market_t::SZ, static_cast<volume_t>(120), static_cast<dprice_t>(1000), 93000000);
-    request.order_status.store(order_status_t::TraderSubmitted, std::memory_order_relaxed);
+    request.init_new("000001", InternalSecurityId("SZ.000001"), static_cast<InternalOrderId>(9301),
+        trade_side_t::Buy, market_t::SZ, static_cast<Volume>(120), static_cast<DPrice>(1000), 93000000);
+    request.order_state.store(OrderState::TraderSubmitted, std::memory_order_relaxed);
 
     order_index_t request_index = kInvalidOrderIndex;
     assert(orders_shm_append(
         orders.get(), request, order_slot_stage_t::DownstreamQueued, order_slot_source_t::AccountInternal, now_ns(), request_index));
     assert(downstream->order_queue.try_push(request_index));
 
-    std::vector<order_status_t> statuses;
+    std::vector<OrderState> statuses;
     const bool got_all = wait_until([&]() {
         trade_response response;
         while (trades->response_queue.try_pop(response)) {
-            if (response.internal_order_id == static_cast<internal_order_id_t>(9301)) {
-                statuses.push_back(response.new_status);
+            if (response.internal_order_id == static_cast<InternalOrderId>(9301)) {
+                statuses.push_back(response.new_state);
             }
         }
         return statuses.size() >= 3;
@@ -151,9 +151,9 @@ TEST(process_new_order_with_plugin_adapter) {
     loaded.reset();
 
     assert(got_all);
-    assert(has_status(statuses, order_status_t::BrokerAccepted));
-    assert(has_status(statuses, order_status_t::MarketAccepted));
-    assert(has_status(statuses, order_status_t::Finished));
+    assert(has_status(statuses, OrderState::BrokerAccepted));
+    assert(has_status(statuses, OrderState::MarketAccepted));
+    assert(has_status(statuses, OrderState::Finished));
 }
 
 int main() {

@@ -16,7 +16,7 @@ struct router_stats {
     uint64_t orders_split = 0;
     uint64_t orders_rejected = 0;
     uint64_t queue_full_count = 0;
-    timestamp_ns_t last_order_time = 0;
+    TimestampNs last_order_time = 0;
 };
 
 // 订单路由器
@@ -31,13 +31,13 @@ public:
     order_router& operator=(const order_router&) = delete;
 
     // 路由订单（经过风控后调用）
-    bool route_order(order_entry& entry);
+    bool route_order(OrderEntry& entry);
 
     // 批量路由
-    std::size_t route_orders(std::vector<order_entry*>& entries);
+    std::size_t route_orders(std::vector<OrderEntry*>& entries);
 
     // 处理撤单请求
-    bool route_cancel(internal_order_id_t orig_id, internal_order_id_t cancel_id, md_time_t time);
+    bool route_cancel(InternalOrderId orig_id, InternalOrderId cancel_id, MdTime time);
 
     // 启动恢复：从 orders_shm 重建“已下游但未终态”订单到 order_book。
     bool recover_downstream_active_orders(const upstream_shm_layout* upstream_shm);
@@ -50,7 +50,7 @@ public:
 
 private:
     bool send_to_downstream(order_index_t index);
-    bool handle_split_order(order_entry& parent);
+    bool handle_split_order(OrderEntry& parent);
     bool create_internal_order_slot(
         const order_request& request, order_slot_stage_t stage, order_index_t& out_index, order_slot_source_t source);
 

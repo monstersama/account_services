@@ -14,7 +14,7 @@
 
 namespace acct_service {
 
-enum class error_domain : uint8_t {
+enum class ErrorDomain : uint8_t {
     none = 0,    // 未指定模块
     config,      // 配置加载/校验模块
     shm,         // 共享内存模块
@@ -83,10 +83,10 @@ struct error_policy {
 };
 
 struct error_status {
-    error_domain domain = error_domain::none;
+    ErrorDomain domain = ErrorDomain::none;
     error_code code = error_code::Ok;
     int sys_errno = 0;
-    timestamp_ns_t ts_ns = 0;
+    TimestampNs ts_ns = 0;
     uint32_t line = 0;
     fixed_string<24> module{};
     fixed_string<96> file{};
@@ -95,12 +95,12 @@ struct error_status {
     bool ok() const noexcept;
 };
 
-const char* to_string(error_domain domain) noexcept;
+const char* to_string(ErrorDomain domain) noexcept;
 const char* to_string(error_code code) noexcept;
 const char* to_string(error_severity severity) noexcept;
-const error_policy& classify(error_domain domain, error_code code) noexcept;
+const error_policy& classify(ErrorDomain domain, error_code code) noexcept;
 
-error_status make_error_status(error_domain domain, error_code code, std::string_view module, std::string_view file,
+error_status make_error_status(ErrorDomain domain, error_code code, std::string_view module, std::string_view file,
     uint32_t line, std::string_view message, int sys_errno = 0);
 
 class error_registry {

@@ -30,19 +30,19 @@ public:
     SHMManager& operator=(SHMManager&& other) noexcept;
 
     // 创建/打开上游共享内存
-    upstream_shm_layout* open_upstream(std::string_view name, shm_mode mode, account_id_t account_id);
+    upstream_shm_layout* open_upstream(std::string_view name, shm_mode mode, AccountId account_id);
 
     // 创建/打开下游共享内存
-    downstream_shm_layout* open_downstream(std::string_view name, shm_mode mode, account_id_t account_id);
+    downstream_shm_layout* open_downstream(std::string_view name, shm_mode mode, AccountId account_id);
 
     // 创建/打开成交回报共享内存
-    trades_shm_layout* open_trades(std::string_view name, shm_mode mode, account_id_t account_id);
+    trades_shm_layout* open_trades(std::string_view name, shm_mode mode, AccountId account_id);
 
     // 创建/打开订单池共享内存
-    orders_shm_layout* open_orders(std::string_view name, shm_mode mode, account_id_t account_id);
+    orders_shm_layout* open_orders(std::string_view name, shm_mode mode, AccountId account_id);
 
     // 创建/打开持仓共享内存
-    positions_shm_layout* open_positions(std::string_view name, shm_mode mode, account_id_t account_id);
+    positions_shm_layout* open_positions(std::string_view name, shm_mode mode, AccountId account_id);
 
     // 关闭并解除映射
     void close() noexcept;
@@ -61,7 +61,7 @@ private:
     void* open_impl(std::string_view name, std::size_t size, shm_mode mode);
 
     // 初始化共享内存头部(暂时不用account_id,只做预留)
-    void init_header(shm_header* header, account_id_t account_id);
+    void init_header(shm_header* header, AccountId account_id);
 
     // 验证共享内存头部
     bool validate_header(const shm_header* header);
@@ -74,7 +74,7 @@ private:
 };
 
 // 便捷函数：生成共享内存名称
-inline std::string make_shm_name(std::string_view prefix, account_id_t account_id) {
+inline std::string make_shm_name(std::string_view prefix, AccountId account_id) {
     return std::string("/") + std::string(prefix) + "_" + std::to_string(account_id);
 }
 

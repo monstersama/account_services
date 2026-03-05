@@ -5,7 +5,7 @@
 
 namespace acct_service {
 
-void md_time_to_str(md_time_t t, char* buf, std::size_t buf_size) {
+void md_time_to_str(MdTime t, char* buf, std::size_t buf_size) {
     if (buf_size < 13) {  // HH:MM:SS.MMM 需要12字符 + null
         if (buf_size > 0) {
             buf[0] = '\0';
@@ -13,7 +13,7 @@ void md_time_to_str(md_time_t t, char* buf, std::size_t buf_size) {
         return;
     }
 
-    // md_time_t 格式: HHMMSSMMM (小时、分钟、秒、毫秒)
+    // MdTime 格式: HHMMSSMMM (小时、分钟、秒、毫秒)
     uint32_t hours = t / 10000000;
     uint32_t minutes = (t / 100000) % 100;
     uint32_t seconds = (t / 1000) % 100;
@@ -22,7 +22,7 @@ void md_time_to_str(md_time_t t, char* buf, std::size_t buf_size) {
     std::snprintf(buf, buf_size, "%02u:%02u:%02u.%03u", hours, minutes, seconds, millis);
 }
 
-md_time_t now_md_time() {
+MdTime now_md_time() {
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
 

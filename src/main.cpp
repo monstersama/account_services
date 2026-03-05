@@ -21,7 +21,7 @@ void print_usage(const char* program) {
         "Usage: %s [--config <path>] [config_path]\n"
         "  --config <path>   指定配置文件路径 (默认: config/default.yaml)\n"
         "  -h, --help        显示帮助\n",
-        program ? program : "account_service");
+        program ? program : "AccountService");
 }
 
 parse_result_t parse_args(int argc, char* argv[], std::string& config_path) {
@@ -80,11 +80,11 @@ int main(int argc, char* argv[]) {
         config_path = kDefaultConfigPath;
     }
 
-    acct_service::account_service service;
+    acct_service::AccountService service;
     if (!service.initialize(config_path)) {
         const acct_service::error_status& status = service.last_error();
         std::fprintf(stderr,
-            "failed to initialize account_service with config '%s': severity=%s domain=%s code=%s msg=%s\n",
+            "failed to initialize AccountService with config '%s': severity=%s domain=%s code=%s msg=%s\n",
             config_path.c_str(),
             acct_service::to_string(acct_service::classify(status.domain, status.code).severity),
             acct_service::to_string(status.domain), acct_service::to_string(status.code), status.message.c_str());
@@ -99,7 +99,7 @@ int main(int argc, char* argv[]) {
         (void)acct_service::flush_logger(200);
         const acct_service::error_status& status = service.last_error();
         std::fprintf(stderr,
-            "account_service terminated by policy: severity=%s domain=%s code=%s msg=%s\n",
+            "AccountService terminated by policy: severity=%s domain=%s code=%s msg=%s\n",
             acct_service::to_string(acct_service::classify(status.domain, status.code).severity),
             acct_service::to_string(status.domain), acct_service::to_string(status.code), status.message.c_str());
         return 1;

@@ -13,15 +13,15 @@ namespace acct_service {
 
 // 风控配置
 struct risk_config {
-    dvalue_t max_order_value = 0;
-    volume_t max_order_volume = 0;
-    dvalue_t max_daily_turnover = 0;
+    DValue max_order_value = 0;
+    Volume max_order_volume = 0;
+    DValue max_daily_turnover = 0;
     uint32_t max_orders_per_second = 0;
     bool enable_price_limit_check = true;
     bool enable_duplicate_check = true;
     bool enable_fund_check = true;
     bool enable_position_check = true;
-    timestamp_ns_t duplicate_window_ns = 100'000'000;
+    TimestampNs duplicate_window_ns = 100'000'000;
 };
 
 // 风控统计
@@ -36,7 +36,7 @@ struct risk_stats {
     uint64_t rejected_volume = 0;
     uint64_t rejected_duplicate = 0;
     uint64_t rejected_rate_limit = 0;
-    timestamp_ns_t last_check_time = 0;
+    TimestampNs last_check_time = 0;
 
     void reset();
 };
@@ -67,7 +67,7 @@ public:
     const risk_rule* get_rule(const char* name) const;
 
     // 涨跌停价格
-    void update_price_limits(internal_security_id_t security_id, dprice_t limit_up, dprice_t limit_down);
+    void update_price_limits(InternalSecurityId security_id, DPrice limit_up, DPrice limit_down);
     void clear_price_limits();
 
     // 配置

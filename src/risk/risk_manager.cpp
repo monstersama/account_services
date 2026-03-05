@@ -140,7 +140,7 @@ const risk_rule* risk_manager::get_rule(const char* name) const {
     return nullptr;
 }
 
-void risk_manager::update_price_limits(internal_security_id_t security_id, dprice_t limit_up, dprice_t limit_down) {
+void risk_manager::update_price_limits(InternalSecurityId security_id, DPrice limit_up, DPrice limit_down) {
     if (price_limit_rule_) {
         price_limit_rule_->set_price_limits(security_id, limit_up, limit_down);
     }
@@ -211,22 +211,22 @@ void risk_manager::update_stats(const risk_check_result& result) {
 
     ++stats_.rejected;
     switch (result.code) {
-        case risk_result_t::RejectInsufficientFund:
+        case RiskResult::RejectInsufficientFund:
             ++stats_.rejected_fund;
             break;
-        case risk_result_t::RejectInsufficientPosition:
+        case RiskResult::RejectInsufficientPosition:
             ++stats_.rejected_position;
             break;
-        case risk_result_t::RejectPriceOutOfRange:
+        case RiskResult::RejectPriceOutOfRange:
             ++stats_.rejected_price;
             break;
-        case risk_result_t::RejectExceedMaxOrderValue:
+        case RiskResult::RejectExceedMaxOrderValue:
             ++stats_.rejected_value;
             break;
-        case risk_result_t::RejectExceedMaxOrderVolume:
+        case RiskResult::RejectExceedMaxOrderVolume:
             ++stats_.rejected_volume;
             break;
-        case risk_result_t::RejectDuplicateOrder:
+        case RiskResult::RejectDuplicateOrder:
             ++stats_.rejected_duplicate;
             break;
         default:

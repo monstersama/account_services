@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstring>
 #include <cstdio>
 #include <thread>
 
@@ -33,7 +34,7 @@ int gateway_loop::run() {
     // 启动前先校验共享内存依赖。
     if (!downstream_shm_ || !trades_shm_ || !orders_shm_) {
         error_status status = ACCT_MAKE_ERROR(
-            error_domain::core, error_code::ComponentUnavailable, "gateway_loop", "shared memory not available", 0);
+            ErrorDomain::core, error_code::ComponentUnavailable, "gateway_loop", "shared memory not available", 0);
         record_error(status);
         ACCT_LOG_ERROR_STATUS(status);
         return 1;
@@ -59,7 +60,7 @@ int gateway_loop::run() {
         }
 
         if (config_.stats_interval_ms > 0) {
-            const timestamp_ns_t now = now_ns();
+            const TimestampNs now = now_ns();
             const uint64_t interval_ns = static_cast<uint64_t>(config_.stats_interval_ms) * 1000000ULL;
             if (now >= last_stats_print_ns_ + interval_ns) {
                 print_periodic_stats();
@@ -81,7 +82,7 @@ bool gateway_loop::process_retry_queue() {
     }
 
     bool did_work = false;
-    const timestamp_ns_t now = now_ns();
+    const TimestampNs now = now_ns();
     const std::size_t count = retry_queue_.size();
 
     // 只处理本轮已存在的重试项，避免长时间占用循环。
@@ -121,7 +122,7 @@ bool gateway_loop::process_orders(std::size_t batch_limit) {
         order_slot_snapshot snapshot;
         if (!orders_shm_read_snapshot(orders_shm_, index, snapshot)) {
             ++stats_.orders_failed;
-            error_status status = ACCT_MAKE_ERROR(error_domain::order, error_code::OrderNotFound, "gateway_loop",
+            error_status status = ACCT_MAKE_ERROR(ErrorDomain::order, error_code::OrderNotFound, "gateway_loop",
                 "failed to read downstream order slot", 0);
             record_error(status);
             ACCT_LOG_ERROR_STATUS(status);
@@ -171,7 +172,7 @@ bool gateway_loop::process_events(std::size_t batch_limit) {
             ++stats_.responses_dropped;
             stop();
             error_status status = ACCT_MAKE_ERROR(
-                error_domain::order, error_code::QueuePushFailed, "gateway_loop", "failed to push trade response", 0);
+                ErrorDomain::order, error_code::QueuePushFailed, "gateway_loop", "failed to push trade response", 0);
             record_error(status);
             ACCT_LOG_ERROR_STATUS(status);
             break;
@@ -207,8 +208,9 @@ void gateway_loop::submit_request(const broker_api::broker_order_request& reques
     if (attempts > 0) {
         ++stats_.retries_exhausted;
     }
-    internal_security_id_t internal_security_id;
-    internal_security_id.assign(request.internal_security_id);
+    InternalSecurityId internal_security_id;
+    const std::size_t sec_id_len = ::strnlen(request.internal_security_id, sizeof(request.internal_security_id));
+    internal_security_id.assign(std::string_view(request.internal_security_id, sec_id_len));
     emit_trader_error(request.internal_order_id, internal_security_id, to_order_side(request.trade_side));
 }
 
@@ -226,7 +228,7 @@ bool gateway_loop::push_response(const trade_response& response) {
 }
 
 void gateway_loop::emit_trader_error(
-    internal_order_id_t internal_order_id, internal_security_id_t internal_security_id, trade_side_t side_value) {
+    InternalOrderId internal_order_id, InternalSecurityId internal_security_id, trade_side_t side_value) {
     if (internal_order_id == 0) {
         return;
     }
@@ -235,7 +237,7 @@ void gateway_loop::emit_trader_error(
     response.internal_order_id = internal_order_id;
     response.internal_security_id = internal_security_id;
     response.trade_side = side_value;
-    response.new_status = order_status_t::TraderError;
+    response.new_state = OrderState::TraderError;
     response.recv_time_ns = now_ns();
 
     // 尝试把失败状态写回上游，保证链路可观测。

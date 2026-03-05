@@ -19,7 +19,7 @@
 namespace acct_service {
 
 // 账户服务状态
-enum class service_state_t {
+enum class ServiceState {
     Created,
     Initializing,
     Ready,
@@ -30,14 +30,14 @@ enum class service_state_t {
 };
 
 // 账户服务主类
-class account_service {
+class AccountService {
 public:
-    account_service();
-    ~account_service();
+    AccountService();
+    ~AccountService();
 
     // 禁止拷贝
-    account_service(const account_service&) = delete;
-    account_service& operator=(const account_service&) = delete;
+    AccountService(const AccountService&) = delete;
+    AccountService& operator=(const AccountService&) = delete;
 
     // 初始化服务
     bool initialize(const std::string& config_path);
@@ -49,7 +49,7 @@ public:
     void stop();
 
     // 获取服务状态
-    service_state_t state() const noexcept;
+    ServiceState state() const noexcept;
 
     // 获取各组件引用（用于测试）
     const config_manager& config() const;
@@ -86,7 +86,7 @@ private:
     mutable error_status last_error_{};
     std::atomic<error_severity> shutdown_reason_{error_severity::Recoverable};
 
-    std::atomic<service_state_t> state_{service_state_t::Created};
+    std::atomic<ServiceState> state_{ServiceState::Created};
 
     // 配置
     config_manager config_manager_;
@@ -115,7 +115,7 @@ private:
     std::unique_ptr<entrust_record_manager> entrust_records_;
 
     // 事件循环
-    std::unique_ptr<event_loop> event_loop_;
+    std::unique_ptr<EventLoop> event_loop_;
 };
 
 }  // namespace acct_service

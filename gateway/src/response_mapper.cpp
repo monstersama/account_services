@@ -9,21 +9,21 @@ namespace acct_service::gateway {
 
 namespace {
 
-// broker_event 类型与 order_status 的映射关系。
-order_status_t map_event_kind_to_status(broker_api::event_kind kind) noexcept {
+// broker_event 类型与 OrderState 的映射关系。
+OrderState map_event_kind_to_state(broker_api::event_kind kind) noexcept {
     switch (kind) {
         case broker_api::event_kind::BrokerAccepted:
-            return order_status_t::BrokerAccepted;
+            return OrderState::BrokerAccepted;
         case broker_api::event_kind::BrokerRejected:
-            return order_status_t::BrokerRejected;
+            return OrderState::BrokerRejected;
         case broker_api::event_kind::MarketRejected:
-            return order_status_t::MarketRejected;
+            return OrderState::MarketRejected;
         case broker_api::event_kind::Trade:
-            return order_status_t::MarketAccepted;
+            return OrderState::MarketAccepted;
         case broker_api::event_kind::Finished:
-            return order_status_t::Finished;
+            return OrderState::Finished;
         default:
-            return order_status_t::Unknown;
+            return OrderState::Unknown;
     }
 }
 
@@ -37,9 +37,9 @@ bool map_broker_event_to_trade_response(
         return false;
     }
 
-    const order_status_t mapped_status = map_event_kind_to_status(event.kind);
+    const OrderState mapped_state = map_event_kind_to_state(event.kind);
     // 仅允许可识别状态继续下发，避免写入协议外状态值。
-    if (mapped_status == order_status_t::Unknown) {
+    if (mapped_state == OrderState::Unknown) {
         return false;
     }
 
@@ -50,7 +50,7 @@ bool map_broker_event_to_trade_response(
     const std::size_t key_len = ::strnlen(event.internal_security_id, sizeof(event.internal_security_id));
     out_response.internal_security_id.assign(std::string_view(event.internal_security_id, key_len));
     out_response.trade_side = to_order_side(event.trade_side);
-    out_response.new_status = mapped_status;
+    out_response.new_state = mapped_state;
     out_response.volume_traded = event.volume_traded;
     out_response.dprice_traded = event.price_traded;
     out_response.dvalue_traded = event.value_traded;

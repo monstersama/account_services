@@ -27,9 +27,9 @@ bool is_recoverable_stage(order_slot_stage_t stage) noexcept {
 }
 
 // 计算下一个可分配内部订单ID，达到上限后保持饱和避免溢出。
-internal_order_id_t saturated_next_order_id(internal_order_id_t order_id) noexcept {
-    constexpr internal_order_id_t kMaxOrderId = std::numeric_limits<internal_order_id_t>::max();
-    return (order_id < kMaxOrderId) ? static_cast<internal_order_id_t>(order_id + 1) : kMaxOrderId;
+InternalOrderId saturated_next_order_id(InternalOrderId order_id) noexcept {
+    constexpr InternalOrderId kMaxOrderId = std::numeric_limits<InternalOrderId>::max();
+    return (order_id < kMaxOrderId) ? static_cast<InternalOrderId>(order_id + 1) : kMaxOrderId;
 }
 
 }  // namespace
@@ -44,7 +44,7 @@ bool recover_downstream_active_orders_from_shm(
     const order_index_t upper = orders_shm->header.next_index.load(std::memory_order_acquire);
     order_recovery_stats stats{};
 
-    std::unordered_map<internal_order_id_t, recovered_order_candidate> candidates;
+    std::unordered_map<InternalOrderId, recovered_order_candidate> candidates;
     candidates.reserve(static_cast<std::size_t>(upper));
 
     // 读取 slot 快照时做短重试，规避并发写入窗口导致的瞬时不可读。
@@ -73,13 +73,13 @@ bool recover_downstream_active_orders_from_shm(
             continue;
         }
 
-        const internal_order_id_t order_id = snapshot.request.internal_order_id;
+        const InternalOrderId order_id = snapshot.request.internal_order_id;
         if (order_id == 0) {
             continue;
         }
 
-        const order_status_t status = snapshot.request.order_status.load(std::memory_order_acquire);
-        if (is_terminal_order_status(status)) {
+        const OrderState status = snapshot.request.order_state.load(std::memory_order_acquire);
+        if (is_terminal_order_state(status)) {
             continue;
         }
 
@@ -99,19 +99,19 @@ bool recover_downstream_active_orders_from_shm(
     }
 
     // 第二阶段：写回 order_book，并记录最大恢复订单ID用于校正本地发号器。
-    internal_order_id_t max_recovered_order_id = 0;
+    InternalOrderId max_recovered_order_id = 0;
     for (const auto& item : candidates) {
-        const internal_order_id_t order_id = item.first;
+        const InternalOrderId order_id = item.first;
         const recovered_order_candidate& candidate = item.second;
-        const timestamp_ns_t recovered_time =
+        const TimestampNs recovered_time =
             (candidate.snapshot.last_update_ns != 0) ? candidate.snapshot.last_update_ns : now_ns();
 
-        order_entry entry{};
+        OrderEntry entry{};
         entry.request = candidate.snapshot.request;
         entry.submit_time_ns = recovered_time;
         entry.last_update_ns = recovered_time;
-        entry.strategy_id = static_cast<strategy_id_t>(0);
-        entry.risk_result = risk_result_t::Pass;
+        entry.strategy_id = static_cast<StrategyId>(0);
+        entry.risk_result = RiskResult::Pass;
         entry.retry_count = 0;
         entry.is_split_child = false;
         entry.parent_order_id = 0;
@@ -133,7 +133,7 @@ bool recover_downstream_active_orders_from_shm(
     if (upstream_shm) {
         stats.next_order_seed = upstream_shm->header.next_order_id.load(std::memory_order_acquire);
     }
-    const internal_order_id_t recovered_next = saturated_next_order_id(max_recovered_order_id);
+    const InternalOrderId recovered_next = saturated_next_order_id(max_recovered_order_id);
     if (recovered_next > stats.next_order_seed) {
         stats.next_order_seed = recovered_next;
     }

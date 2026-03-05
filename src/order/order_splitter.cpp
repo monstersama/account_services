@@ -8,7 +8,7 @@ namespace acct_service {
 namespace {
 
 order_request make_child_request(
-    const order_request& parent, internal_order_id_t child_id, volume_t child_volume) {
+    const order_request& parent, InternalOrderId child_id, Volume child_volume) {
     order_request child = parent;
     child.internal_order_id = child_id;
     child.volume_entrust = child_volume;
@@ -39,11 +39,11 @@ split_result order_splitter::split(const order_request& parent_order) {
     }
 
     switch (config_.strategy) {
-        case split_strategy_t::FixedSize:
+        case SplitStrategy::FixedSize:
             return split_fixed_size(parent_order);
-        case split_strategy_t::Iceberg:
+        case SplitStrategy::Iceberg:
             return split_iceberg(parent_order);
-        case split_strategy_t::TWAP:
+        case SplitStrategy::TWAP:
             return split_twap(parent_order);
         default:
             return split_result{false, {}, "unsupported split strategy"};
@@ -54,7 +54,7 @@ bool order_splitter::should_split(const order_request& order) const {
     if (order.order_type != order_type_t::New) {
         return false;
     }
-    if (config_.strategy == split_strategy_t::None) {
+    if (config_.strategy == SplitStrategy::None) {
         return false;
     }
     if (config_.max_child_volume == 0) {
@@ -78,7 +78,7 @@ split_result order_splitter::split_fixed_size(const order_request& parent) {
     split_result result;
     result.success = true;
 
-    volume_t remaining = parent.volume_entrust;
+    Volume remaining = parent.volume_entrust;
     while (remaining > 0) {
         if (result.child_orders.size() >= config_.max_child_count) {
             result.success = false;
@@ -87,7 +87,7 @@ split_result order_splitter::split_fixed_size(const order_request& parent) {
             return result;
         }
 
-        volume_t child_volume = std::min(remaining, config_.max_child_volume);
+        Volume child_volume = std::min(remaining, config_.max_child_volume);
         if (child_volume == 0) {
             result.success = false;
             result.error_msg = "invalid child volume";
@@ -105,7 +105,7 @@ split_result order_splitter::split_fixed_size(const order_request& parent) {
             continue;
         }
 
-        const internal_order_id_t child_id = id_generator_();
+        const InternalOrderId child_id = id_generator_();
         if (child_id == 0) {
             result.success = false;
             result.error_msg = "generated child order id is zero";
@@ -132,14 +132,14 @@ split_result order_splitter::split_twap(const order_request& parent) {
         return split_result{false, {}, "max_child_count is zero"};
     }
 
-    const volume_t total_volume = parent.volume_entrust;
+    const Volume total_volume = parent.volume_entrust;
     if (total_volume == 0) {
         return split_result{false, {}, "parent volume is zero"};
     }
 
-    volume_t target = config_.max_child_volume;
+    Volume target = config_.max_child_volume;
     if (target == 0) {
-        target = std::max<volume_t>(config_.min_child_volume, 1);
+        target = std::max<Volume>(config_.min_child_volume, 1);
     }
 
     std::size_t child_count = static_cast<std::size_t>((total_volume + target - 1) / target);
@@ -152,11 +152,11 @@ split_result order_splitter::split_twap(const order_request& parent) {
     result.success = true;
     result.child_orders.reserve(child_count);
 
-    const volume_t base = total_volume / child_count;
-    volume_t remainder = total_volume % child_count;
+    const Volume base = total_volume / child_count;
+    Volume remainder = total_volume % child_count;
 
     for (std::size_t i = 0; i < child_count; ++i) {
-        volume_t child_volume = base;
+        Volume child_volume = base;
         if (remainder > 0) {
             ++child_volume;
             --remainder;
@@ -166,7 +166,7 @@ split_result order_splitter::split_twap(const order_request& parent) {
             continue;
         }
 
-        const internal_order_id_t child_id = id_generator_();
+        const InternalOrderId child_id = id_generator_();
         if (child_id == 0) {
             result.success = false;
             result.error_msg = "generated child order id is zero";

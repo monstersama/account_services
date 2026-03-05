@@ -7,15 +7,15 @@ namespace acct_service {
 
 namespace {
 
-bool is_terminal(order_status_t status) {
+bool is_terminal(OrderState status) {
     switch (status) {
-        case order_status_t::RiskControllerRejected:
-        case order_status_t::TraderRejected:
-        case order_status_t::TraderError:
-        case order_status_t::BrokerRejected:
-        case order_status_t::MarketRejected:
-        case order_status_t::Finished:
-        case order_status_t::Unknown:
+        case OrderState::RiskControllerRejected:
+        case OrderState::TraderRejected:
+        case OrderState::TraderError:
+        case OrderState::BrokerRejected:
+        case OrderState::MarketRejected:
+        case OrderState::Finished:
+        case OrderState::Unknown:
             return true;
         default:
             return false;
@@ -31,7 +31,7 @@ entrust_record entrust_record::from_order_request(const order_request& req) {
     record.order_type = req.order_type;
     record.side = req.trade_side;
     record.market = req.market;
-    record.status = req.order_status.load(std::memory_order_relaxed);
+    record.status = req.order_state.load(std::memory_order_relaxed);
     record.volume_entrust = req.volume_entrust;
     record.volume_traded = req.volume_traded;
     record.price_entrust = req.dprice_entrust;
@@ -46,7 +46,7 @@ entrust_record entrust_record::from_order_request(const order_request& req) {
     return record;
 }
 
-bool entrust_record_manager::load_today_entrusts(const std::string& db_path, account_id_t account_id) {
+bool entrust_record_manager::load_today_entrusts(const std::string& db_path, AccountId account_id) {
     (void)db_path;
     (void)account_id;
     entrusts_.clear();
@@ -72,7 +72,7 @@ void entrust_record_manager::update_from_order(const order_request& order) {
     add_or_update(entrust_record::from_order_request(order));
 }
 
-const entrust_record* entrust_record_manager::find_entrust(internal_order_id_t order_id) const {
+const entrust_record* entrust_record_manager::find_entrust(InternalOrderId order_id) const {
     const auto it = id_index_.find(order_id);
     if (it == id_index_.end()) {
         return nullptr;
@@ -81,7 +81,7 @@ const entrust_record* entrust_record_manager::find_entrust(internal_order_id_t o
 }
 
 std::vector<const entrust_record*> entrust_record_manager::get_entrusts_by_security(
-    internal_security_id_t security_id) const {
+    InternalSecurityId security_id) const {
     std::vector<const entrust_record*> result;
     const auto it = security_index_.find(security_id);
     if (it == security_index_.end()) {

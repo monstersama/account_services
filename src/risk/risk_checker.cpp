@@ -17,11 +17,11 @@ bool is_new_order(const order_request& order) {
 
 }  // namespace
 
-bool risk_check_result::passed() const noexcept { return code == risk_result_t::Pass; }
+bool risk_check_result::passed() const noexcept { return code == RiskResult::Pass; }
 
-risk_check_result risk_check_result::pass() { return risk_check_result{risk_result_t::Pass, "pass"}; }
+risk_check_result risk_check_result::pass() { return risk_check_result{RiskResult::Pass, "pass"}; }
 
-risk_check_result risk_check_result::reject(risk_result_t code, std::string msg) {
+risk_check_result risk_check_result::reject(RiskResult code, std::string msg) {
     return risk_check_result{code, std::move(msg)};
 }
 
@@ -36,11 +36,11 @@ risk_check_result fund_check_rule::check(const order_request& order, const posit
         return risk_check_result::pass();
     }
 
-    const dvalue_t available = positions.get_available_fund();
+    const DValue available = positions.get_available_fund();
     const __uint128_t required =
         static_cast<__uint128_t>(order.volume_entrust) * static_cast<__uint128_t>(order.dprice_entrust);
     if (required > static_cast<__uint128_t>(available)) {
-        return risk_check_result::reject(risk_result_t::RejectInsufficientFund, "insufficient available fund");
+        return risk_check_result::reject(RiskResult::RejectInsufficientFund, "insufficient available fund");
     }
 
     return risk_check_result::pass();
@@ -53,15 +53,15 @@ risk_check_result position_check_rule::check(const order_request& order, const p
         return risk_check_result::pass();
     }
 
-    const volume_t sellable = positions.get_sellable_volume(order.internal_security_id);
+    const Volume sellable = positions.get_sellable_volume(order.internal_security_id);
     if (sellable < order.volume_entrust) {
-        return risk_check_result::reject(risk_result_t::RejectInsufficientPosition, "insufficient sellable position");
+        return risk_check_result::reject(RiskResult::RejectInsufficientPosition, "insufficient sellable position");
     }
 
     return risk_check_result::pass();
 }
 
-max_order_value_rule::max_order_value_rule(dvalue_t max_value) : max_value_(max_value) {}
+max_order_value_rule::max_order_value_rule(DValue max_value) : max_value_(max_value) {}
 
 const char* max_order_value_rule::name() const noexcept { return "max_order_value"; }
 
@@ -74,15 +74,15 @@ risk_check_result max_order_value_rule::check(const order_request& order, const 
     const __uint128_t value =
         static_cast<__uint128_t>(order.volume_entrust) * static_cast<__uint128_t>(order.dprice_entrust);
     if (value > static_cast<__uint128_t>(max_value_)) {
-        return risk_check_result::reject(risk_result_t::RejectExceedMaxOrderValue, "order value exceeds limit");
+        return risk_check_result::reject(RiskResult::RejectExceedMaxOrderValue, "order value exceeds limit");
     }
 
     return risk_check_result::pass();
 }
 
-void max_order_value_rule::set_max_value(dvalue_t max_value) { max_value_ = max_value; }
+void max_order_value_rule::set_max_value(DValue max_value) { max_value_ = max_value; }
 
-max_order_volume_rule::max_order_volume_rule(volume_t max_volume) : max_volume_(max_volume) {}
+max_order_volume_rule::max_order_volume_rule(Volume max_volume) : max_volume_(max_volume) {}
 
 const char* max_order_volume_rule::name() const noexcept { return "max_order_volume"; }
 
@@ -93,13 +93,13 @@ risk_check_result max_order_volume_rule::check(const order_request& order, const
     }
 
     if (order.volume_entrust > max_volume_) {
-        return risk_check_result::reject(risk_result_t::RejectExceedMaxOrderVolume, "order volume exceeds limit");
+        return risk_check_result::reject(RiskResult::RejectExceedMaxOrderVolume, "order volume exceeds limit");
     }
 
     return risk_check_result::pass();
 }
 
-void max_order_volume_rule::set_max_volume(volume_t max_volume) { max_volume_ = max_volume; }
+void max_order_volume_rule::set_max_volume(Volume max_volume) { max_volume_ = max_volume; }
 
 const char* price_limit_rule::name() const noexcept { return "price_limit"; }
 
@@ -114,17 +114,17 @@ risk_check_result price_limit_rule::check(const order_request& order, const posi
         return risk_check_result::pass();
     }
 
-    const dprice_t limit_up = it->second.first;
-    const dprice_t limit_down = it->second.second;
+    const DPrice limit_up = it->second.first;
+    const DPrice limit_down = it->second.second;
     if ((limit_up != 0 && order.dprice_entrust > limit_up) ||
         (limit_down != 0 && order.dprice_entrust < limit_down)) {
-        return risk_check_result::reject(risk_result_t::RejectPriceOutOfRange, "price is out of limit range");
+        return risk_check_result::reject(RiskResult::RejectPriceOutOfRange, "price is out of limit range");
     }
 
     return risk_check_result::pass();
 }
 
-void price_limit_rule::set_price_limits(internal_security_id_t security_id, dprice_t limit_up, dprice_t limit_down) {
+void price_limit_rule::set_price_limits(InternalSecurityId security_id, DPrice limit_up, DPrice limit_down) {
     limits_[security_id] = std::make_pair(limit_up, limit_down);
 }
 
@@ -138,12 +138,12 @@ risk_check_result duplicate_order_rule::check(const order_request& order, const 
         return risk_check_result::pass();
     }
 
-    const timestamp_ns_t now = now_monotonic_ns();
+    const TimestampNs now = now_monotonic_ns();
     const uint64_t key = make_order_fingerprint(order);
 
     const auto it = recent_orders_.find(key);
     if (it != recent_orders_.end() && (now >= it->second) && (now - it->second) <= time_window_ns_) {
-        return risk_check_result::reject(risk_result_t::RejectDuplicateOrder, "duplicate order within time window");
+        return risk_check_result::reject(RiskResult::RejectDuplicateOrder, "duplicate order within time window");
     }
 
     recent_orders_[key] = now;
@@ -156,7 +156,7 @@ void duplicate_order_rule::record_order(const order_request& order) {
 
 void duplicate_order_rule::clear_history() { recent_orders_.clear(); }
 
-void duplicate_order_rule::set_time_window_ns(timestamp_ns_t window_ns) { time_window_ns_ = window_ns; }
+void duplicate_order_rule::set_time_window_ns(TimestampNs window_ns) { time_window_ns_ = window_ns; }
 
 rate_limit_rule::rate_limit_rule(uint32_t max_orders_per_second) : max_orders_per_second_(max_orders_per_second) {}
 
@@ -168,9 +168,9 @@ risk_check_result rate_limit_rule::check(const order_request& order, const posit
         return risk_check_result::pass();
     }
 
-    constexpr timestamp_ns_t kSecondNs = 1000000000ULL;
-    const timestamp_ns_t now = now_monotonic_ns();
-    const timestamp_ns_t window_start = current_second_start_.load(std::memory_order_relaxed);
+    constexpr TimestampNs kSecondNs = 1000000000ULL;
+    const TimestampNs now = now_monotonic_ns();
+    const TimestampNs window_start = current_second_start_.load(std::memory_order_relaxed);
 
     if (window_start == 0 || now < window_start || (now - window_start) >= kSecondNs) {
         current_second_start_.store(now, std::memory_order_relaxed);
@@ -179,7 +179,7 @@ risk_check_result rate_limit_rule::check(const order_request& order, const posit
 
     const uint32_t count = current_second_count_.fetch_add(1, std::memory_order_relaxed) + 1;
     if (count > max_orders_per_second_) {
-        return risk_check_result::reject(risk_result_t::RejectUnknown, "order rate exceeds limit");
+        return risk_check_result::reject(RiskResult::RejectUnknown, "order rate exceeds limit");
     }
 
     return risk_check_result::pass();

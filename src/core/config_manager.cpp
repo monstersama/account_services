@@ -18,7 +18,7 @@ namespace acct_service {
 namespace {
 
 bool report_config_error(error_code code, std::string_view message) {
-    error_status status = ACCT_MAKE_ERROR(error_domain::config, code, "config_manager", message, 0);
+    error_status status = ACCT_MAKE_ERROR(ErrorDomain::config, code, "config_manager", message, 0);
     record_error(status);
     ACCT_LOG_ERROR_STATUS(status);
     return false;
@@ -93,44 +93,44 @@ bool parse_double(const std::string& value, double& out) {
     }
 }
 
-bool parse_split_strategy(std::string value, split_strategy_t& out) {
+bool parse_split_strategy(std::string value, SplitStrategy& out) {
     value = trim_copy(std::move(value));
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
         return static_cast<char>(std::tolower(c));
     });
 
     if (value == "none") {
-        out = split_strategy_t::None;
+        out = SplitStrategy::None;
         return true;
     }
     if (value == "fixed" || value == "fixed_size" || value == "fixedsize") {
-        out = split_strategy_t::FixedSize;
+        out = SplitStrategy::FixedSize;
         return true;
     }
     if (value == "twap") {
-        out = split_strategy_t::TWAP;
+        out = SplitStrategy::TWAP;
         return true;
     }
     if (value == "vwap") {
-        out = split_strategy_t::VWAP;
+        out = SplitStrategy::VWAP;
         return true;
     }
     if (value == "iceberg") {
-        out = split_strategy_t::Iceberg;
+        out = SplitStrategy::Iceberg;
         return true;
     }
     return false;
 }
 
-const char* split_strategy_to_string(split_strategy_t strategy) {
+const char* split_strategy_to_string(SplitStrategy strategy) {
     switch (strategy) {
-        case split_strategy_t::FixedSize:
+        case SplitStrategy::FixedSize:
             return "fixed_size";
-        case split_strategy_t::TWAP:
+        case SplitStrategy::TWAP:
             return "twap";
-        case split_strategy_t::VWAP:
+        case SplitStrategy::VWAP:
             return "vwap";
-        case split_strategy_t::Iceberg:
+        case SplitStrategy::Iceberg:
             return "iceberg";
         default:
             return "none";
@@ -186,7 +186,7 @@ bool apply_value(config& cfg, const std::string& key, const std::string& raw_val
         if (!parse_u32(value, parsed)) {
             return false;
         }
-        cfg.account_id = static_cast<account_id_t>(parsed);
+        cfg.account_id = static_cast<AccountId>(parsed);
         return true;
     }
     if (key == "trading_day") {
@@ -221,33 +221,33 @@ bool apply_value(config& cfg, const std::string& key, const std::string& raw_val
         return parse_bool(value, cfg.shm.create_if_not_exist);
     }
 
-    if (key == "event_loop.busy_polling") {
-        return parse_bool(value, cfg.event_loop.busy_polling);
+    if (key == "EventLoop.busy_polling") {
+        return parse_bool(value, cfg.EventLoop.busy_polling);
     }
-    if (key == "event_loop.poll_batch_size") {
-        return parse_u32(value, cfg.event_loop.poll_batch_size);
+    if (key == "EventLoop.poll_batch_size") {
+        return parse_u32(value, cfg.EventLoop.poll_batch_size);
     }
-    if (key == "event_loop.idle_sleep_us") {
-        return parse_u32(value, cfg.event_loop.idle_sleep_us);
+    if (key == "EventLoop.idle_sleep_us") {
+        return parse_u32(value, cfg.EventLoop.idle_sleep_us);
     }
-    if (key == "event_loop.stats_interval_ms") {
-        return parse_u32(value, cfg.event_loop.stats_interval_ms);
+    if (key == "EventLoop.stats_interval_ms") {
+        return parse_u32(value, cfg.EventLoop.stats_interval_ms);
     }
-    if (key == "event_loop.archive_terminal_orders") {
-        return parse_bool(value, cfg.event_loop.archive_terminal_orders);
+    if (key == "EventLoop.archive_terminal_orders") {
+        return parse_bool(value, cfg.EventLoop.archive_terminal_orders);
     }
-    if (key == "event_loop.terminal_archive_delay_ms") {
-        return parse_u32(value, cfg.event_loop.terminal_archive_delay_ms);
+    if (key == "EventLoop.terminal_archive_delay_ms") {
+        return parse_u32(value, cfg.EventLoop.terminal_archive_delay_ms);
     }
-    if (key == "event_loop.pin_cpu") {
-        return parse_bool(value, cfg.event_loop.pin_cpu);
+    if (key == "EventLoop.pin_cpu") {
+        return parse_bool(value, cfg.EventLoop.pin_cpu);
     }
-    if (key == "event_loop.cpu_core") {
+    if (key == "EventLoop.cpu_core") {
         int parsed = -1;
         if (!parse_i32(value, parsed)) {
             return false;
         }
-        cfg.event_loop.cpu_core = parsed;
+        cfg.EventLoop.cpu_core = parsed;
         return true;
     }
 
@@ -474,7 +474,7 @@ bool config_manager::load_from_file(const std::string& config_path) {
     }
 
     if (root && root.IsMap()) {
-        if (!check_allowed_keys(root, "", {"account_id", "trading_day", "shm", "event_loop", "risk", "split", "log", "db"})) {
+        if (!check_allowed_keys(root, "", {"account_id", "trading_day", "shm", "EventLoop", "risk", "split", "log", "db"})) {
             return false;
         }
 
@@ -506,7 +506,7 @@ bool config_manager::load_from_file(const std::string& config_path) {
             return false;
         }
 
-        if (!parse_section(loaded, root, "event_loop",
+        if (!parse_section(loaded, root, "EventLoop",
                 {"busy_polling", "poll_batch_size", "idle_sleep_us", "stats_interval_ms", "archive_terminal_orders",
                     "terminal_archive_delay_ms", "pin_cpu", "cpu_core"})) {
             return false;
@@ -613,25 +613,25 @@ bool config_manager::parse_command_line(int argc, char* argv[]) {
             continue;
         }
         if (arg == "--poll-batch") {
-            if (!consume_value(value) || !apply_value(config_, "event_loop.poll_batch_size", value)) {
+            if (!consume_value(value) || !apply_value(config_, "EventLoop.poll_batch_size", value)) {
                 return report_config_error(error_code::InvalidConfig, "invalid --poll-batch");
             }
             continue;
         }
         if (arg == "--idle-sleep-us") {
-            if (!consume_value(value) || !apply_value(config_, "event_loop.idle_sleep_us", value)) {
+            if (!consume_value(value) || !apply_value(config_, "EventLoop.idle_sleep_us", value)) {
                 return report_config_error(error_code::InvalidConfig, "invalid --idle-sleep-us");
             }
             continue;
         }
         if (arg == "--terminal-archive-delay-ms") {
-            if (!consume_value(value) || !apply_value(config_, "event_loop.terminal_archive_delay_ms", value)) {
+            if (!consume_value(value) || !apply_value(config_, "EventLoop.terminal_archive_delay_ms", value)) {
                 return report_config_error(error_code::InvalidConfig, "invalid --terminal-archive-delay-ms");
             }
             continue;
         }
         if (arg == "--archive-terminal-orders") {
-            if (!consume_value(value) || !apply_value(config_, "event_loop.archive_terminal_orders", value)) {
+            if (!consume_value(value) || !apply_value(config_, "EventLoop.archive_terminal_orders", value)) {
                 return report_config_error(error_code::InvalidConfig, "invalid --archive-terminal-orders");
             }
             continue;
@@ -671,12 +671,12 @@ bool config_manager::validate() const {
         return false;
     }
 
-    if (config_.event_loop.poll_batch_size == 0) {
+    if (config_.EventLoop.poll_batch_size == 0) {
         (void)report_config_error(error_code::ConfigValidateFailed, "poll_batch_size must be non-zero");
         return false;
     }
 
-    if (config_.split.strategy != split_strategy_t::None && config_.split.max_child_count == 0) {
+    if (config_.split.strategy != SplitStrategy::None && config_.split.max_child_count == 0) {
         (void)report_config_error(error_code::ConfigValidateFailed, "split max_child_count must be non-zero");
         return false;
     }
@@ -688,11 +688,11 @@ const config& config_manager::get() const noexcept { return config_; }
 
 config& config_manager::get() noexcept { return config_; }
 
-account_id_t config_manager::account_id() const noexcept { return config_.account_id; }
+AccountId config_manager::account_id() const noexcept { return config_.account_id; }
 
-const shm_config& config_manager::shm() const noexcept { return config_.shm; }
+const SHMConfig& config_manager::shm() const noexcept { return config_.shm; }
 
-const event_loop_config& config_manager::event_loop() const noexcept { return config_.event_loop; }
+const EventLoopConfig& config_manager::EventLoop() const noexcept { return config_.EventLoop; }
 
 const risk_config& config_manager::risk() const noexcept { return config_.risk; }
 
@@ -726,15 +726,15 @@ bool config_manager::export_to_file(const std::string& path) const {
     out << "  positions_shm_name: \"" << escape_yaml_string(config_.shm.positions_shm_name) << "\"\n";
     out << "  create_if_not_exist: " << (config_.shm.create_if_not_exist ? "true" : "false") << "\n\n";
 
-    out << "event_loop:\n";
-    out << "  busy_polling: " << (config_.event_loop.busy_polling ? "true" : "false") << "\n";
-    out << "  poll_batch_size: " << config_.event_loop.poll_batch_size << "\n";
-    out << "  idle_sleep_us: " << config_.event_loop.idle_sleep_us << "\n";
-    out << "  stats_interval_ms: " << config_.event_loop.stats_interval_ms << "\n";
-    out << "  archive_terminal_orders: " << (config_.event_loop.archive_terminal_orders ? "true" : "false") << "\n";
-    out << "  terminal_archive_delay_ms: " << config_.event_loop.terminal_archive_delay_ms << "\n";
-    out << "  pin_cpu: " << (config_.event_loop.pin_cpu ? "true" : "false") << "\n";
-    out << "  cpu_core: " << config_.event_loop.cpu_core << "\n\n";
+    out << "EventLoop:\n";
+    out << "  busy_polling: " << (config_.EventLoop.busy_polling ? "true" : "false") << "\n";
+    out << "  poll_batch_size: " << config_.EventLoop.poll_batch_size << "\n";
+    out << "  idle_sleep_us: " << config_.EventLoop.idle_sleep_us << "\n";
+    out << "  stats_interval_ms: " << config_.EventLoop.stats_interval_ms << "\n";
+    out << "  archive_terminal_orders: " << (config_.EventLoop.archive_terminal_orders ? "true" : "false") << "\n";
+    out << "  terminal_archive_delay_ms: " << config_.EventLoop.terminal_archive_delay_ms << "\n";
+    out << "  pin_cpu: " << (config_.EventLoop.pin_cpu ? "true" : "false") << "\n";
+    out << "  cpu_core: " << config_.EventLoop.cpu_core << "\n\n";
 
     out << "risk:\n";
     out << "  max_order_value: " << config_.risk.max_order_value << "\n";

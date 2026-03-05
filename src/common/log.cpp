@@ -164,7 +164,7 @@ struct async_logger::impl {
 
 async_logger::~async_logger() noexcept { shutdown(); }
 
-bool async_logger::init(const log_config& config, account_id_t account_id) {
+bool async_logger::init(const log_config& config, AccountId account_id) {
     shutdown();
 
     auto state = std::unique_ptr<impl>(new (std::nothrow) impl());
@@ -225,8 +225,8 @@ bool async_logger::flush(uint32_t timeout_ms) {
     }
 
     const uint64_t target = impl_->enqueued.load(std::memory_order_acquire);
-    const timestamp_ns_t start = now_monotonic_ns();
-    const timestamp_ns_t timeout_ns = static_cast<timestamp_ns_t>(timeout_ms) * 1000000ULL;
+    const TimestampNs start = now_monotonic_ns();
+    const TimestampNs timeout_ns = static_cast<TimestampNs>(timeout_ms) * 1000000ULL;
 
     while (impl_->written.load(std::memory_order_acquire) < target) {
         if (now_monotonic_ns() - start > timeout_ns) {
@@ -302,7 +302,7 @@ async_logger& global_logger() {
 
 }  // namespace
 
-bool init_logger(const log_config& config, account_id_t account_id) {
+bool init_logger(const log_config& config, AccountId account_id) {
     return global_logger().init(config, account_id);
 }
 

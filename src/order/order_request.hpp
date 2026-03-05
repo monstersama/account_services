@@ -31,7 +31,7 @@ enum class market_t : uint8_t {
     Unknown = 0xFF,
 };
 
-enum class order_status_t : uint8_t {
+enum class OrderState : uint8_t {
     NotSet = 0,
     StrategySubmitted = 0x12,
     RiskControllerPending = 0x20,
@@ -51,40 +51,40 @@ enum class order_status_t : uint8_t {
 
 struct alignas(64) order_request {
     // cache line 0
-    internal_order_id_t internal_order_id{0};  // 系统内部订单ID，唯一标识
+    InternalOrderId internal_order_id{0};  // 系统内部订单ID，唯一标识
     uint8_t padding0_0{0};
     order_type_t order_type{order_type_t::NotSet};  // 订单类型：报单、撤单
     trade_side_t trade_side{trade_side_t::NotSet};  // 买卖方向：买入、卖出
     market_t market{market_t::NotSet};              // 市场：深、沪、北、港
-    volume_t volume_entrust{0};                     // 委托数量
-    dprice_t dprice_entrust{0};                     // 委托价格
-    internal_order_id_t orig_internal_order_id{0};  // 原始订单ID（仅撤单请求使用）
-    internal_security_id_t internal_security_id{};  // 内部证券ID（格式: "SZ.000001"）
-    security_id_t security_id{};                    // 证券代码字符串（如 "000001"）
+    Volume volume_entrust{0};                     // 委托数量
+    DPrice dprice_entrust{0};                     // 委托价格
+    InternalOrderId orig_internal_order_id{0};  // 原始订单ID（仅撤单请求使用）
+    InternalSecurityId internal_security_id{};  // 内部证券ID（格式: "SZ.000001"）
+    SecurityId security_id{};                    // 证券代码字符串（如 "000001"）
     uint8_t padding0_1[4]{};
 
     // cache line 1
     union {
-        broker_order_id_t as_str{};  // 柜台返回的订单ID（字符串）
+        BrokerOrderId as_str{};  // 柜台返回的订单ID（字符串）
         uint64_t as_uint;            // 柜台返回的订单ID（数字）
     } broker_order_id;
-    volume_t volume_traded{0};  // 已成交数量
-    volume_t volume_remain{0};  // 剩余未成交数量
-    dvalue_t dvalue_traded{0};  // 已成交金额
-    dprice_t dprice_traded{0};  // 成交均价
+    Volume volume_traded{0};  // 已成交数量
+    Volume volume_remain{0};  // 剩余未成交数量
+    DValue dvalue_traded{0};  // 已成交金额
+    DPrice dprice_traded{0};  // 成交均价
 
     // cache line 2
-    dvalue_t dfee_estimate{0};                                         // 预估手续费
-    dvalue_t dfee_executed{0};                                         // 已实际产生的手续费
-    md_time_t md_time_driven{0};                                       // 触发时间
-    md_time_t md_time_entrust{0};                                      // 委托结束时间
-    md_time_t md_time_cancel_sent{0};                                  // 撤单发送时间（本地时间）
-    md_time_t md_time_cancel_done{0};                                  // 撤单完成时间（来自柜台/市场）
-    md_time_t md_time_broker_response{0};                              // 柜台响应时间
-    md_time_t md_time_market_response{0};                              // 交易所响应时间
-    md_time_t md_time_traded_first{0};                                 // 首次成交时间
-    md_time_t md_time_traded_latest{0};                                // 最近成交时间
-    std::atomic<order_status_t> order_status{order_status_t::NotSet};  // 订单当前状态
+    DValue dfee_estimate{0};                                         // 预估手续费
+    DValue dfee_executed{0};                                         // 已实际产生的手续费
+    MdTime md_time_driven{0};                                       // 触发时间
+    MdTime md_time_entrust{0};                                      // 委托结束时间
+    MdTime md_time_cancel_sent{0};                                  // 撤单发送时间（本地时间）
+    MdTime md_time_cancel_done{0};                                  // 撤单完成时间（来自柜台/市场）
+    MdTime md_time_broker_response{0};                              // 柜台响应时间
+    MdTime md_time_market_response{0};                              // 交易所响应时间
+    MdTime md_time_traded_first{0};                                 // 首次成交时间
+    MdTime md_time_traded_latest{0};                                // 最近成交时间
+    std::atomic<OrderState> order_state{OrderState::NotSet};  // 订单当前状态
     uint8_t padding2[15]{};                                            // 填充以对齐缓存行
 
     order_request() = default;
@@ -114,7 +114,7 @@ struct alignas(64) order_request {
         md_time_market_response = other.md_time_market_response;
         md_time_traded_first = other.md_time_traded_first;
         md_time_traded_latest = other.md_time_traded_latest;
-        order_status.store(other.order_status.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        order_state.store(other.order_state.load(std::memory_order_relaxed), std::memory_order_relaxed);
     }
     order_request& operator=(const order_request& other) {
         if (this != &other) {
@@ -143,13 +143,13 @@ struct alignas(64) order_request {
             md_time_market_response = other.md_time_market_response;
             md_time_traded_first = other.md_time_traded_first;
             md_time_traded_latest = other.md_time_traded_latest;
-            order_status.store(other.order_status.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            order_state.store(other.order_state.load(std::memory_order_relaxed), std::memory_order_relaxed);
         }
         return *this;
     }
 
-    void init_new(std::string_view sec_id, internal_security_id_t internal_sec_id, internal_order_id_t internal_id,
-                  trade_side_t side, market_t mkt, volume_t vol, dprice_t dpx, md_time_t md_time_driven_) {
+    void init_new(std::string_view sec_id, InternalSecurityId internal_sec_id, InternalOrderId internal_id,
+                  trade_side_t side, market_t mkt, Volume vol, DPrice dpx, MdTime md_time_driven_) {
         internal_order_id = internal_id;
         order_type = order_type_t::New;
         trade_side = side;
@@ -170,7 +170,7 @@ struct alignas(64) order_request {
         dfee_executed = 0;
     }
 
-    void init_cancel(internal_order_id_t internal_id, md_time_t md_time_driven_, internal_order_id_t orig_internal_id) {
+    void init_cancel(InternalOrderId internal_id, MdTime md_time_driven_, InternalOrderId orig_internal_id) {
         internal_order_id = internal_id;
         order_type = order_type_t::Cancel;
         trade_side = trade_side_t::NotSet;

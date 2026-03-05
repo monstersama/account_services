@@ -66,22 +66,22 @@ bool parse_double(const std::string& value, double& out) {
     }
 }
 
-bool parse_account_type(std::string value, account_type_t& out) {
+bool parse_account_type(std::string value, AccountType& out) {
     value = trim_copy(std::move(value));
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
         return static_cast<char>(std::tolower(c));
     });
 
     if (value == "1" || value == "stock") {
-        out = account_type_t::Stock;
+        out = AccountType::Stock;
         return true;
     }
     if (value == "2" || value == "futures") {
-        out = account_type_t::Futures;
+        out = AccountType::Futures;
         return true;
     }
     if (value == "3" || value == "option") {
-        out = account_type_t::Option;
+        out = AccountType::Option;
         return true;
     }
     return false;
@@ -95,7 +95,7 @@ bool apply_key(account_info& info, const std::string& key, const std::string& ra
         if (!parse_u32(value, parsed)) {
             return false;
         }
-        info.account_id = static_cast<account_id_t>(parsed);
+        info.account_id = static_cast<AccountId>(parsed);
         return true;
     }
     if (key == "account.account_type") {
@@ -141,7 +141,7 @@ bool apply_key(account_info& info, const std::string& key, const std::string& ra
         if (!parse_u64(value, parsed)) {
             return false;
         }
-        info.min_commission = static_cast<dvalue_t>(parsed);
+        info.min_commission = static_cast<DValue>(parsed);
         return true;
     }
 
@@ -150,7 +150,7 @@ bool apply_key(account_info& info, const std::string& key, const std::string& ra
         if (!parse_u64(value, parsed)) {
             return false;
         }
-        info.max_single_order = static_cast<dvalue_t>(parsed);
+        info.max_single_order = static_cast<DValue>(parsed);
         return true;
     }
     if (key == "account.max_daily_amount") {
@@ -158,7 +158,7 @@ bool apply_key(account_info& info, const std::string& key, const std::string& ra
         if (!parse_u64(value, parsed)) {
             return false;
         }
-        info.max_daily_amount = static_cast<dvalue_t>(parsed);
+        info.max_daily_amount = static_cast<DValue>(parsed);
         return true;
     }
 
@@ -167,17 +167,17 @@ bool apply_key(account_info& info, const std::string& key, const std::string& ra
 
 }  // namespace
 
-dvalue_t account_info::calculate_fee(trade_side_t side, dvalue_t traded_value) const {
+DValue account_info::calculate_fee(trade_side_t side, DValue traded_value) const {
     const double traded = static_cast<double>(traded_value);
 
-    dvalue_t commission = static_cast<dvalue_t>(traded * commission_rate + 0.5);
+    DValue commission = static_cast<DValue>(traded * commission_rate + 0.5);
     if (commission < min_commission) {
         commission = min_commission;
     }
 
-    const dvalue_t transfer_fee = static_cast<dvalue_t>(traded * transfer_fee_rate + 0.5);
-    const dvalue_t stamp_tax =
-        (side == trade_side_t::Sell) ? static_cast<dvalue_t>(traded * stamp_tax_rate + 0.5) : 0;
+    const DValue transfer_fee = static_cast<DValue>(traded * transfer_fee_rate + 0.5);
+    const DValue stamp_tax =
+        (side == trade_side_t::Sell) ? static_cast<DValue>(traded * stamp_tax_rate + 0.5) : 0;
 
     return commission + transfer_fee + stamp_tax;
 }
@@ -226,15 +226,15 @@ bool account_info_manager::load_from_config(const std::string& config_path) {
         }
     }
 
-    loaded.state = account_state_t::Ready;
+    loaded.state = AccountState::Ready;
     info_ = loaded;
     return true;
 }
 
-bool account_info_manager::load_from_db(const std::string& db_path, account_id_t account_id) {
+bool account_info_manager::load_from_db(const std::string& db_path, AccountId account_id) {
     (void)db_path;
     info_.account_id = account_id;
-    info_.state = account_state_t::Ready;
+    info_.state = AccountState::Ready;
     return true;
 }
 
@@ -253,6 +253,6 @@ bool account_info_manager::can_trade(trade_side_t side) const noexcept {
     }
 }
 
-void account_info_manager::set_state(account_state_t state) { info_.state = state; }
+void account_info_manager::set_state(AccountState state) { info_.state = state; }
 
 }  // namespace acct_service

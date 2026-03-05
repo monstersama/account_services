@@ -12,12 +12,12 @@ namespace acct_service {
 
 // 风控检查结果
 struct risk_check_result {
-    risk_result_t code = risk_result_t::Pass;
+    RiskResult code = RiskResult::Pass;
     std::string message;
 
     bool passed() const noexcept;
     static risk_check_result pass();
-    static risk_check_result reject(risk_result_t code, std::string msg);
+    static risk_check_result reject(RiskResult code, std::string msg);
 };
 
 // 风控规则基类
@@ -50,25 +50,25 @@ public:
 // 单笔金额限制
 class max_order_value_rule : public risk_rule {
 public:
-    explicit max_order_value_rule(dvalue_t max_value);
+    explicit max_order_value_rule(DValue max_value);
     const char* name() const noexcept override;
     risk_check_result check(const order_request& order, const position_manager& positions) override;
-    void set_max_value(dvalue_t max_value);
+    void set_max_value(DValue max_value);
 
 private:
-    dvalue_t max_value_;
+    DValue max_value_;
 };
 
 // 单笔数量限制
 class max_order_volume_rule : public risk_rule {
 public:
-    explicit max_order_volume_rule(volume_t max_volume);
+    explicit max_order_volume_rule(Volume max_volume);
     const char* name() const noexcept override;
     risk_check_result check(const order_request& order, const position_manager& positions) override;
-    void set_max_volume(volume_t max_volume);
+    void set_max_volume(Volume max_volume);
 
 private:
-    volume_t max_volume_;
+    Volume max_volume_;
 };
 
 // 涨跌停价格检查
@@ -76,11 +76,11 @@ class price_limit_rule : public risk_rule {
 public:
     const char* name() const noexcept override;
     risk_check_result check(const order_request& order, const position_manager& positions) override;
-    void set_price_limits(internal_security_id_t security_id, dprice_t limit_up, dprice_t limit_down);
+    void set_price_limits(InternalSecurityId security_id, DPrice limit_up, DPrice limit_down);
     void clear_price_limits();
 
 private:
-    std::unordered_map<internal_security_id_t, std::pair<dprice_t, dprice_t>> limits_;
+    std::unordered_map<InternalSecurityId, std::pair<DPrice, DPrice>> limits_;
 };
 
 // 重复订单检查
@@ -90,11 +90,11 @@ public:
     risk_check_result check(const order_request& order, const position_manager& positions) override;
     void record_order(const order_request& order);
     void clear_history();
-    void set_time_window_ns(timestamp_ns_t window_ns);
+    void set_time_window_ns(TimestampNs window_ns);
 
 private:
-    std::unordered_map<uint64_t, timestamp_ns_t> recent_orders_;
-    timestamp_ns_t time_window_ns_ = 100'000'000;  // 100ms
+    std::unordered_map<uint64_t, TimestampNs> recent_orders_;
+    TimestampNs time_window_ns_ = 100'000'000;  // 100ms
 };
 
 // 流速限制
@@ -109,7 +109,7 @@ public:
 private:
     uint32_t max_orders_per_second_;
     std::atomic<uint32_t> current_second_count_{0};
-    std::atomic<timestamp_ns_t> current_second_start_{0};
+    std::atomic<TimestampNs> current_second_start_{0};
 };
 
 }  // namespace acct_service

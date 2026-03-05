@@ -18,7 +18,7 @@ namespace {
 constexpr mode_t kShmCreateMode = 0777;
 
 bool report_shm_error(error_code code, std::string_view name, std::string_view detail, int err = 0) {
-    error_status status = ACCT_MAKE_ERROR(error_domain::shm, code, "shm_manager", detail, err);
+    error_status status = ACCT_MAKE_ERROR(ErrorDomain::shm, code, "shm_manager", detail, err);
     if (!name.empty()) {
         fixed_string<192> msg;
         std::string text = std::string(detail) + " [" + std::string(name) + "]";
@@ -173,7 +173,7 @@ void *SHMManager::open_impl(std::string_view name, std::size_t size, shm_mode mo
 }
 
 // 初始化共享内存头部
-void SHMManager::init_header(shm_header *header, account_id_t account_id) {
+void SHMManager::init_header(shm_header *header, AccountId account_id) {
     header->magic = shm_header::kMagic;
     header->version = shm_header::kVersion;
     header->create_time = now_ns();
@@ -195,7 +195,7 @@ bool SHMManager::validate_header(const shm_header *header) {
 }
 
 // 创建/打开上游共享内存
-upstream_shm_layout *SHMManager::open_upstream(std::string_view name, shm_mode mode, account_id_t account_id) {
+upstream_shm_layout *SHMManager::open_upstream(std::string_view name, shm_mode mode, AccountId account_id) {
     constexpr std::size_t size = sizeof(upstream_shm_layout);
     void *ptr = open_impl(name, size, mode);
     if (!ptr) {
@@ -217,7 +217,7 @@ upstream_shm_layout *SHMManager::open_upstream(std::string_view name, shm_mode m
 }
 
 // 创建/打开下游共享内存
-downstream_shm_layout *SHMManager::open_downstream(std::string_view name, shm_mode mode, account_id_t account_id) {
+downstream_shm_layout *SHMManager::open_downstream(std::string_view name, shm_mode mode, AccountId account_id) {
     constexpr std::size_t size = sizeof(downstream_shm_layout);
     void *ptr = open_impl(name, size, mode);
     if (!ptr) {
@@ -239,7 +239,7 @@ downstream_shm_layout *SHMManager::open_downstream(std::string_view name, shm_mo
 }
 
 // 创建/打开成交回报共享内存
-trades_shm_layout *SHMManager::open_trades(std::string_view name, shm_mode mode, account_id_t account_id) {
+trades_shm_layout *SHMManager::open_trades(std::string_view name, shm_mode mode, AccountId account_id) {
     constexpr std::size_t size = sizeof(trades_shm_layout);
     void *ptr = open_impl(name, size, mode);
     if (!ptr) {
@@ -261,7 +261,7 @@ trades_shm_layout *SHMManager::open_trades(std::string_view name, shm_mode mode,
 }
 
 // 创建/打开订单池共享内存
-orders_shm_layout* SHMManager::open_orders(std::string_view name, shm_mode mode, account_id_t account_id) {
+orders_shm_layout* SHMManager::open_orders(std::string_view name, shm_mode mode, AccountId account_id) {
     (void)account_id;
     constexpr std::size_t size = sizeof(orders_shm_layout);
     void* ptr = open_impl(name, size, mode);
@@ -331,7 +331,7 @@ orders_shm_layout* SHMManager::open_orders(std::string_view name, shm_mode mode,
 }
 
 // 创建/打开持仓共享内存
-positions_shm_layout *SHMManager::open_positions(std::string_view name, shm_mode mode, account_id_t account_id) {
+positions_shm_layout *SHMManager::open_positions(std::string_view name, shm_mode mode, AccountId account_id) {
     constexpr std::size_t size = sizeof(positions_shm_layout);
     void *ptr = open_impl(name, size, mode);
     if (!ptr) {

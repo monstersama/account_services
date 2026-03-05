@@ -22,7 +22,7 @@ enum class log_level : uint8_t {
 };
 
 struct log_record {
-    timestamp_ns_t ts_ns = 0;
+    TimestampNs ts_ns = 0;
     log_level level = log_level::info;
     error_severity severity = error_severity::Recoverable;
     int sys_errno = 0;
@@ -30,7 +30,7 @@ struct log_record {
     fixed_string<24> module{};
     fixed_string<96> file{};
     fixed_string<256> message{};
-    error_domain domain = error_domain::none;
+    ErrorDomain domain = ErrorDomain::none;
     error_code code = error_code::Ok;
 };
 
@@ -39,7 +39,7 @@ public:
     async_logger() = default;
     ~async_logger() noexcept;
 
-    bool init(const log_config& config, account_id_t account_id);
+    bool init(const log_config& config, AccountId account_id);
     void shutdown() noexcept;
     bool flush(uint32_t timeout_ms);
     bool log(const log_record& record);
@@ -55,7 +55,7 @@ private:
     std::unique_ptr<impl> impl_{};
 };
 
-bool init_logger(const log_config& config, account_id_t account_id);
+bool init_logger(const log_config& config, AccountId account_id);
 void shutdown_logger();
 bool flush_logger(uint32_t timeout_ms);
 bool logger_healthy() noexcept;

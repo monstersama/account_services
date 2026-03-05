@@ -155,7 +155,7 @@ bool apply_position_seed_row(const std::vector<std::string>& columns, position_m
     const std::string& internal_id = columns[1];
     const std::string_view position_name =
         columns[2].empty() ? std::string_view(internal_id) : std::string_view(columns[2]);
-    const internal_security_id_t added = manager.add_security(code, position_name, market);
+    const InternalSecurityId added = manager.add_security(code, position_name, market);
     if (added.empty() || added != std::string_view(internal_id)) {
         return false;
     }
@@ -187,7 +187,7 @@ bool apply_position_db_row(const db_position_row& row, position_manager& manager
         return false;
     }
 
-    const internal_security_id_t added = manager.add_security(code, row.internal_security_id, market);
+    const InternalSecurityId added = manager.add_security(code, row.internal_security_id, market);
     if (added.empty() || added != std::string_view(row.internal_security_id)) {
         return false;
     }
@@ -341,7 +341,7 @@ bool read_required_u64(sqlite3_stmt* stmt, int column, uint64_t& out) {
 }
 
 // 从 account_info 读取 FUND 行映射字段。
-bool load_fund_from_db(sqlite3* db, account_id_t account_id, fund_info& fund) {
+bool load_fund_from_db(sqlite3* db, AccountId account_id, fund_info& fund) {
     sqlite_stmt_ptr stmt(nullptr, sqlite3_finalize);
     if (!prepare_statement(db, kFundQuerySql, stmt)) {
         return false;
@@ -428,7 +428,7 @@ position_loader::position_loader(file_source source)
 position_loader::position_loader(db_source source) : source_type_(source_type::Db), source_path_(std::move(source.path)) {}
 
 // 按已选模式加载快照，不做 DB/File 自动回退。
-bool position_loader::load(account_id_t account_id, position_manager& manager) {
+bool position_loader::load(AccountId account_id, position_manager& manager) {
     switch (source_type_) {
         case source_type::File:
             return load_from_file(manager);
@@ -450,7 +450,7 @@ bool position_loader::load_from_file(position_manager& manager) const {
 }
 
 // 执行 DB 模式加载；先加载 FUND，再加载全量证券持仓。
-bool position_loader::load_from_db(account_id_t account_id, position_manager& manager) const {
+bool position_loader::load_from_db(AccountId account_id, position_manager& manager) const {
     sqlite_db_ptr db(nullptr, sqlite3_close);
     if (!open_sqlite_readonly(source_path_, db)) {
         return false;

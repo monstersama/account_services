@@ -16,8 +16,8 @@ namespace acct_service {
 struct alignas(64) shm_header {
     uint32_t magic;                          // 魔数 0x41435354 ("ACST")
     uint32_t version;                        // 版本号
-    timestamp_ns_t create_time;              // 创建时间
-    timestamp_ns_t last_update;              // 最后更新时间
+    TimestampNs create_time;              // 创建时间
+    TimestampNs last_update;              // 最后更新时间
     std::atomic<uint32_t> next_order_id{1};  // 订单ID计数器（跨进程持久化）
     uint64_t reserved[4];                    // 预留字段
 
@@ -35,8 +35,8 @@ struct alignas(64) positions_header {
     uint32_t total_size;         // 全部布局大小（字节）
     uint32_t capacity;           // positions[] 容量
     uint32_t init_state;         // 0=未完成初始化，1=可读
-    timestamp_ns_t create_time;  // 创建时间
-    timestamp_ns_t last_update;  // 最后更新时间
+    TimestampNs create_time;  // 创建时间
+    TimestampNs last_update;  // 最后更新时间
     std::atomic<uint32_t> id{1}; // 
     uint32_t reserved[3];        // 预留/对齐
 
@@ -48,18 +48,18 @@ static_assert(sizeof(positions_header) == 64, "positions_header must be 64 bytes
 
 // 成交回报（来自交易进程）
 struct alignas(64) trade_response {
-    internal_order_id_t internal_order_id;
-    internal_order_id_t broker_order_id;
-    internal_security_id_t internal_security_id;
+    InternalOrderId internal_order_id;
+    InternalOrderId broker_order_id;
+    InternalSecurityId internal_security_id;
     trade_side_t trade_side;
-    order_status_t new_status;
-    volume_t volume_traded;
-    dprice_t dprice_traded;
-    dvalue_t dvalue_traded;
-    dvalue_t dfee;
-    md_time_t md_time_traded;
+    OrderState new_state;
+    Volume volume_traded;
+    DPrice dprice_traded;
+    DValue dvalue_traded;
+    DValue dfee;
+    MdTime md_time_traded;
     uint32_t padding0;
-    timestamp_ns_t recv_time_ns;
+    TimestampNs recv_time_ns;
 };
 
 static_assert(sizeof(trade_response) == 128, "trade_response must be 128 bytes");
@@ -93,8 +93,8 @@ struct alignas(64) orders_header {
     uint32_t total_size;
     uint32_t capacity;
     uint32_t init_state;  // 0=未完成初始化，1=可读
-    timestamp_ns_t create_time;
-    timestamp_ns_t last_update;
+    TimestampNs create_time;
+    TimestampNs last_update;
     std::atomic<order_index_t> next_index{0};  // 当日已发布槽位上界（不复用）
     std::atomic<uint64_t> full_reject_count{0};
     char trading_day[9]{};
@@ -111,7 +111,7 @@ static_assert(sizeof(orders_header) == 128, "orders_header must be 128 bytes");
 // 订单槽位（seqlock 协议）
 struct alignas(64) order_slot {
     std::atomic<uint64_t> seq{0};  // 偶数=稳定，奇数=写入中
-    timestamp_ns_t last_update_ns{0};
+    TimestampNs last_update_ns{0};
     order_slot_stage_t stage{order_slot_stage_t::Empty};
     order_slot_source_t source{order_slot_source_t::Unknown};
     uint16_t reserved0{0};

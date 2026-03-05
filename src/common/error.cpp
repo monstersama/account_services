@@ -24,23 +24,23 @@ const error_policy kApiFatalPolicy{error_severity::Fatal, false, false};
 
 bool error_status::ok() const noexcept { return code == error_code::Ok; }
 
-const char* to_string(error_domain domain) noexcept {
+const char* to_string(ErrorDomain domain) noexcept {
     switch (domain) {
-        case error_domain::none:
+        case ErrorDomain::none:
             return "none";
-        case error_domain::config:
+        case ErrorDomain::config:
             return "config";
-        case error_domain::shm:
+        case ErrorDomain::shm:
             return "shm";
-        case error_domain::core:
+        case ErrorDomain::core:
             return "core";
-        case error_domain::order:
+        case ErrorDomain::order:
             return "order";
-        case error_domain::risk:
+        case ErrorDomain::risk:
             return "risk";
-        case error_domain::portfolio:
+        case ErrorDomain::portfolio:
             return "portfolio";
-        case error_domain::api:
+        case ErrorDomain::api:
             return "api";
     }
     return "unknown";
@@ -189,21 +189,21 @@ const error_policy& classify_for_api(error_code code) noexcept {
 
 }  // namespace
 
-const error_policy& classify(error_domain domain, error_code code) noexcept {
+const error_policy& classify(ErrorDomain domain, error_code code) noexcept {
     switch (domain) {
-        case error_domain::api:
+        case ErrorDomain::api:
             // C API 场景下不替调用方进程做停服/退出决策：
             // 保留严重级别用于可观测性，但 stop/exit 始终为 false。
             return classify_for_api(code);
 
-        case error_domain::config:
+        case ErrorDomain::config:
             if (code_in_range(code, 2000, 2099)) {
                 // 配置链路错误一旦触发，基础假设已失效，按 Critical 处理。
                 return kCriticalPolicy;
             }
             break;
 
-        case error_domain::shm:
+        case ErrorDomain::shm:
             if (code == error_code::ShmHeaderCorrupted) {
                 return kFatalPolicy;
             }
@@ -212,7 +212,7 @@ const error_policy& classify(error_domain domain, error_code code) noexcept {
             }
             break;
 
-        case error_domain::order:
+        case ErrorDomain::order:
             if (code == error_code::OrderInvariantBroken) {
                 return kFatalPolicy;
             }
@@ -221,7 +221,7 @@ const error_policy& classify(error_domain domain, error_code code) noexcept {
             }
             break;
 
-        case error_domain::portfolio:
+        case ErrorDomain::portfolio:
             if (code == error_code::PositionUpdateFailed || code == error_code::ShmHeaderCorrupted) {
                 return kFatalPolicy;
             }
@@ -230,9 +230,9 @@ const error_policy& classify(error_domain domain, error_code code) noexcept {
             }
             break;
 
-        case error_domain::none:
-        case error_domain::core:
-        case error_domain::risk:
+        case ErrorDomain::none:
+        case ErrorDomain::core:
+        case ErrorDomain::risk:
             break;
     }
 
@@ -240,7 +240,7 @@ const error_policy& classify(error_domain domain, error_code code) noexcept {
     return classify_by_code(code);
 }
 
-error_status make_error_status(error_domain domain, error_code code, std::string_view module, std::string_view file,
+error_status make_error_status(ErrorDomain domain, error_code code, std::string_view module, std::string_view file,
     uint32_t line, std::string_view message, int sys_errno) {
     error_status status;
     status.domain = domain;

@@ -25,7 +25,7 @@ inline std::string_view market_to_prefix(market_t market) noexcept {
 }
 
 // 构造 internal_security_id，格式固定为 "<MARKET>.<security_id>"。
-inline bool build_internal_security_id(market_t market, std::string_view security_id, internal_security_id_t& out_id) {
+inline bool build_internal_security_id(market_t market, std::string_view security_id, InternalSecurityId& out_id) {
     // 约束 security_id 最大长度，避免 16 字节定长字段截断。
     if (security_id.empty() || security_id.size() > 12) {
         return false;

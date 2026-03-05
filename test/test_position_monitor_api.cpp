@@ -65,7 +65,7 @@ TEST(open_info_read_close) {
 
     position_manager positions(positions_shm);
     assert(positions.initialize(1001));
-    const internal_security_id_t sec_id = positions.add_security("000001", "PingAn", market_t::SZ);
+    const InternalSecurityId sec_id = positions.add_security("000001", "PingAn", market_t::SZ);
     assert(sec_id == std::string_view("SZ.000001"));
     assert(positions.add_position(sec_id, 300, 1000, 5001));
 

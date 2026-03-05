@@ -5,7 +5,7 @@
 
 namespace acct_service {
 
-bool trade_record_manager::load_today_trades(const std::string& db_path, account_id_t account_id) {
+bool trade_record_manager::load_today_trades(const std::string& db_path, AccountId account_id) {
     (void)db_path;
     (void)account_id;
     trades_.clear();
@@ -40,7 +40,7 @@ const trade_record* trade_record_manager::find_trade(uint64_t trade_id) const {
     return &trades_[it->second];
 }
 
-std::vector<const trade_record*> trade_record_manager::get_trades_by_order(internal_order_id_t order_id) const {
+std::vector<const trade_record*> trade_record_manager::get_trades_by_order(InternalOrderId order_id) const {
     std::vector<const trade_record*> result;
     const auto it = order_index_.find(order_id);
     if (it == order_index_.end()) {
@@ -55,7 +55,7 @@ std::vector<const trade_record*> trade_record_manager::get_trades_by_order(inter
 }
 
 std::vector<const trade_record*> trade_record_manager::get_trades_by_security(
-    internal_security_id_t security_id) const {
+    InternalSecurityId security_id) const {
     std::vector<const trade_record*> result;
     const auto it = security_index_.find(security_id);
     if (it == security_index_.end()) {
@@ -80,16 +80,16 @@ std::vector<const trade_record*> trade_record_manager::get_all_trades() const {
 
 std::size_t trade_record_manager::trade_count() const noexcept { return trades_.size(); }
 
-dvalue_t trade_record_manager::total_traded_value() const noexcept {
-    dvalue_t total = 0;
+DValue trade_record_manager::total_traded_value() const noexcept {
+    DValue total = 0;
     for (const trade_record& record : trades_) {
         total += record.value;
     }
     return total;
 }
 
-dvalue_t trade_record_manager::total_fee() const noexcept {
-    dvalue_t total = 0;
+DValue trade_record_manager::total_fee() const noexcept {
+    DValue total = 0;
     for (const trade_record& record : trades_) {
         total += record.fee;
     }

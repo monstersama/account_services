@@ -26,13 +26,13 @@ public:
     ~position_loader() = default;
 
     // 按构造时选择的模式加载持仓快照。
-    bool load(account_id_t account_id, position_manager& manager);
+    bool load(AccountId account_id, position_manager& manager);
 
 private:
     enum class source_type { File, Db };
 
     bool load_from_file(position_manager& manager) const;
-    bool load_from_db(account_id_t account_id, position_manager& manager) const;
+    bool load_from_db(AccountId account_id, position_manager& manager) const;
 
     source_type source_type_{source_type::File};
     std::string source_path_;

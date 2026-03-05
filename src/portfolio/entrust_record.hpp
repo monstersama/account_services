@@ -12,21 +12,21 @@ namespace acct_service {
 
 // 委托记录（订单的持久化版本）
 struct entrust_record {
-    internal_order_id_t order_id;
-    internal_security_id_t security_id;
+    InternalOrderId order_id;
+    InternalSecurityId security_id;
     order_type_t order_type;
     trade_side_t side;
     market_t market;
-    order_status_t status;
-    volume_t volume_entrust;
-    volume_t volume_traded;
-    dprice_t price_entrust;
-    dprice_t price_traded_avg;
-    dvalue_t value_traded;
-    dvalue_t fee;
-    md_time_t time_entrust;
-    md_time_t time_first_trade;
-    md_time_t time_last_update;
+    OrderState status;
+    Volume volume_entrust;
+    Volume volume_traded;
+    DPrice price_entrust;
+    DPrice price_traded_avg;
+    DValue value_traded;
+    DValue fee;
+    MdTime time_entrust;
+    MdTime time_first_trade;
+    MdTime time_last_update;
     fixed_string<32> broker_order_id;
     fixed_string<16> security_code;
 
@@ -41,7 +41,7 @@ public:
     ~entrust_record_manager() = default;
 
     // 从数据库加载当日委托
-    bool load_today_entrusts(const std::string& db_path, account_id_t account_id);
+    bool load_today_entrusts(const std::string& db_path, AccountId account_id);
 
     // 添加/更新委托记录
     void add_or_update(const entrust_record& record);
@@ -50,8 +50,8 @@ public:
     void update_from_order(const order_request& order);
 
     // 查询接口
-    const entrust_record* find_entrust(internal_order_id_t order_id) const;
-    std::vector<const entrust_record*> get_entrusts_by_security(internal_security_id_t security_id) const;
+    const entrust_record* find_entrust(InternalOrderId order_id) const;
+    std::vector<const entrust_record*> get_entrusts_by_security(InternalSecurityId security_id) const;
     std::vector<const entrust_record*> get_active_entrusts() const;
     std::vector<const entrust_record*> get_all_entrusts() const;
 
@@ -64,8 +64,8 @@ public:
 
 private:
     std::vector<entrust_record> entrusts_;
-    std::unordered_map<internal_order_id_t, std::size_t> id_index_;
-    std::unordered_map<internal_security_id_t, std::vector<std::size_t>> security_index_;
+    std::unordered_map<InternalOrderId, std::size_t> id_index_;
+    std::unordered_map<InternalSecurityId, std::vector<std::size_t>> security_index_;
 };
 
 }  // namespace acct_service

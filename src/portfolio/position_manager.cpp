@@ -14,7 +14,7 @@ namespace acct_service {
 
 namespace {
 
-constexpr dvalue_t kDefaultInitialFund = 100000000;
+constexpr DValue kDefaultInitialFund = 100000000;
 constexpr std::size_t kMaxSecurityPositions = kMaxPositions - kFirstSecurityPositionIndex;
 
 bool header_compatible(const positions_header& header) {
@@ -108,11 +108,11 @@ position_manager::position_manager(
     positions_shm_layout* shm, std::string config_file_path, std::string db_path, bool db_enabled)
     : shm_(shm), config_file_path_(std::move(config_file_path)), db_path_(std::move(db_path)), db_enabled_(db_enabled) {}
 
-bool position_manager::initialize(account_id_t account_id) {
+bool position_manager::initialize(AccountId account_id) {
 
     if (!shm_) {
         error_status status = ACCT_MAKE_ERROR(
-            error_domain::portfolio, error_code::ComponentUnavailable, "position_manager", "positions shm is null", 0);
+            ErrorDomain::portfolio, error_code::ComponentUnavailable, "position_manager", "positions shm is null", 0);
         record_error(status);
         ACCT_LOG_ERROR_STATUS(status);
         return false;
@@ -122,7 +122,7 @@ bool position_manager::initialize(account_id_t account_id) {
 
     if (!header_compatible(shm_->header)) {
         error_status status = ACCT_MAKE_ERROR(
-            error_domain::portfolio, error_code::ShmHeaderInvalid, "position_manager", "positions shm header incompatible", 0);
+            ErrorDomain::portfolio, error_code::ShmHeaderInvalid, "position_manager", "positions shm header incompatible", 0);
         record_error(status);
         ACCT_LOG_ERROR_STATUS(status);
         return false;
@@ -131,7 +131,7 @@ bool position_manager::initialize(account_id_t account_id) {
     if (shm_->header.init_state != 1) {
         const std::size_t existing = shm_->position_count.load(std::memory_order_relaxed);
         if (existing != 0) {
-            error_status status = ACCT_MAKE_ERROR(error_domain::portfolio, error_code::ShmHeaderCorrupted,
+            error_status status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, error_code::ShmHeaderCorrupted,
                 "position_manager", "positions init_state is 0 while count is non-zero", 0);
             record_error(status);
             ACCT_LOG_ERROR_STATUS(status);
@@ -154,7 +154,7 @@ bool position_manager::initialize(account_id_t account_id) {
 
         position* fund_pos = fund_position(shm_);
         if (!fund_pos) {
-            error_status status = ACCT_MAKE_ERROR(error_domain::portfolio, error_code::ShmHeaderCorrupted,
+            error_status status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, error_code::ShmHeaderCorrupted,
                 "position_manager", "fund position row is unavailable", 0);
             record_error(status);
             ACCT_LOG_ERROR_STATUS(status);
@@ -173,7 +173,7 @@ bool position_manager::initialize(account_id_t account_id) {
             return loader.load(account_id, *this);
         }();
         if (!load_ok) {
-            error_status status = ACCT_MAKE_ERROR(error_domain::portfolio, error_code::PositionUpdateFailed,
+            error_status status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, error_code::PositionUpdateFailed,
                 "position_manager", "position init loader failed on fresh shm", 0);
             record_error(status);
             ACCT_LOG_ERROR_STATUS(status);
@@ -189,7 +189,7 @@ bool position_manager::initialize(account_id_t account_id) {
 
     position* fund_pos = fund_position(shm_);
     if (!fund_pos) {
-        error_status status = ACCT_MAKE_ERROR(error_domain::portfolio, error_code::ShmHeaderCorrupted,
+        error_status status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, error_code::ShmHeaderCorrupted,
             "position_manager", "fund position row is unavailable in initialized shm", 0);
         record_error(status);
         ACCT_LOG_ERROR_STATUS(status);
@@ -210,7 +210,7 @@ bool position_manager::initialize(account_id_t account_id) {
         if (pos.id.empty()) {
             continue;
         }
-        internal_security_id_t security_id;
+        InternalSecurityId security_id;
         security_id.assign(pos.id.view());
         security_to_row_[security_id] = row_index;
     }
@@ -220,16 +220,16 @@ bool position_manager::initialize(account_id_t account_id) {
     return true;
 }
 
-dvalue_t position_manager::get_available_fund() const noexcept {
+DValue position_manager::get_available_fund() const noexcept {
     if (!shm_) {
         return 0;
     }
     position& fund_pos = shm_->positions[kFundPositionIndex];
     position_lock guard(fund_pos);
-    return static_cast<dvalue_t>(fund_available_field(fund_pos));
+    return static_cast<DValue>(fund_available_field(fund_pos));
 }
 
-bool position_manager::freeze_fund(dvalue_t amount, internal_order_id_t order_id) {
+bool position_manager::freeze_fund(DValue amount, InternalOrderId order_id) {
     (void)order_id;
     if (!shm_) {
         return false;
@@ -254,7 +254,7 @@ bool position_manager::freeze_fund(dvalue_t amount, internal_order_id_t order_id
     return true;
 }
 
-bool position_manager::unfreeze_fund(dvalue_t amount, internal_order_id_t order_id) {
+bool position_manager::unfreeze_fund(DValue amount, InternalOrderId order_id) {
     (void)order_id;
     if (!shm_) {
         return false;
@@ -279,13 +279,13 @@ bool position_manager::unfreeze_fund(dvalue_t amount, internal_order_id_t order_
     return true;
 }
 
-bool position_manager::deduct_fund(dvalue_t amount, dvalue_t fee, internal_order_id_t order_id) {
+bool position_manager::deduct_fund(DValue amount, DValue fee, InternalOrderId order_id) {
     (void)order_id;
     if (!shm_) {
         return false;
     }
 
-    const dvalue_t total = amount + fee;
+    const DValue total = amount + fee;
     if (total < amount) {
         return false;
     }
@@ -314,7 +314,7 @@ bool position_manager::deduct_fund(dvalue_t amount, dvalue_t fee, internal_order
     return true;
 }
 
-bool position_manager::add_fund(dvalue_t amount, internal_order_id_t order_id) {
+bool position_manager::add_fund(DValue amount, InternalOrderId order_id) {
     (void)order_id;
     if (!shm_) {
         return false;
@@ -341,7 +341,7 @@ bool position_manager::add_fund(dvalue_t amount, internal_order_id_t order_id) {
 }
 
 // 将买入成交金额与费用直接结算到资金行，保证监控可见资金变动。
-bool position_manager::apply_buy_trade_fund(dvalue_t amount, dvalue_t fee, internal_order_id_t order_id) {
+bool position_manager::apply_buy_trade_fund(DValue amount, DValue fee, InternalOrderId order_id) {
     (void)order_id;
     if (!shm_) {
         return false;
@@ -377,7 +377,7 @@ bool position_manager::apply_buy_trade_fund(dvalue_t amount, dvalue_t fee, inter
 }
 
 // 将卖出成交金额与费用直接结算到资金行，保证可用资金与市值同步回写。
-bool position_manager::apply_sell_trade_fund(dvalue_t amount, dvalue_t fee, internal_order_id_t order_id) {
+bool position_manager::apply_sell_trade_fund(DValue amount, DValue fee, InternalOrderId order_id) {
     (void)order_id;
     if (!shm_) {
         return false;
@@ -415,7 +415,7 @@ bool position_manager::apply_sell_trade_fund(dvalue_t amount, dvalue_t fee, inte
     return true;
 }
 
-const position* position_manager::get_position(internal_security_id_t security_id) const {
+const position* position_manager::get_position(InternalSecurityId security_id) const {
     const auto it = security_to_row_.find(security_id);
     if (it == security_to_row_.end()) {
         return nullptr;
@@ -423,7 +423,7 @@ const position* position_manager::get_position(internal_security_id_t security_i
     return security_position_by_row(shm_, it->second);
 }
 
-position* position_manager::get_position_mut(internal_security_id_t security_id) {
+position* position_manager::get_position_mut(InternalSecurityId security_id) {
     const auto it = security_to_row_.find(security_id);
     if (it == security_to_row_.end()) {
         return nullptr;
@@ -431,7 +431,7 @@ position* position_manager::get_position_mut(internal_security_id_t security_id)
     return security_position_by_row(shm_, it->second);
 }
 
-volume_t position_manager::get_sellable_volume(internal_security_id_t security_id) const {
+Volume position_manager::get_sellable_volume(InternalSecurityId security_id) const {
     const position* pos = get_position(security_id);
     if (!pos) {
         return 0;
@@ -442,8 +442,8 @@ volume_t position_manager::get_sellable_volume(internal_security_id_t security_i
     return mutable_pos.volume_available_t0;
 }
 
-bool position_manager::freeze_position(internal_security_id_t security_id, volume_t volume,
-    internal_order_id_t order_id) {
+bool position_manager::freeze_position(InternalSecurityId security_id, Volume volume,
+    InternalOrderId order_id) {
     (void)order_id;
     position* pos = get_position_mut(security_id);
     if (!pos) {
@@ -462,8 +462,8 @@ bool position_manager::freeze_position(internal_security_id_t security_id, volum
     return true;
 }
 
-bool position_manager::unfreeze_position(internal_security_id_t security_id, volume_t volume,
-    internal_order_id_t order_id) {
+bool position_manager::unfreeze_position(InternalSecurityId security_id, Volume volume,
+    InternalOrderId order_id) {
     (void)order_id;
     position* pos = get_position_mut(security_id);
     if (!pos) {
@@ -480,8 +480,8 @@ bool position_manager::unfreeze_position(internal_security_id_t security_id, vol
     return true;
 }
 
-bool position_manager::deduct_position(internal_security_id_t security_id, volume_t volume, dvalue_t value,
-    internal_order_id_t order_id) {
+bool position_manager::deduct_position(InternalSecurityId security_id, Volume volume, DValue value,
+    InternalOrderId order_id) {
     (void)order_id;
     position* pos = get_position_mut(security_id);
     if (!pos) {
@@ -494,7 +494,7 @@ bool position_manager::deduct_position(internal_security_id_t security_id, volum
         pos->volume_sell -= volume;
     } else {
         // 兼容路径：若前置未冻结，回退到可卖仓位扣减，避免成交回报阶段直接失败。
-        volume_t remaining = volume;
+        Volume remaining = volume;
         if (pos->volume_sell > 0) {
             remaining -= pos->volume_sell;
             pos->volume_sell = 0;
@@ -512,8 +512,8 @@ bool position_manager::deduct_position(internal_security_id_t security_id, volum
     return true;
 }
 
-bool position_manager::add_position(internal_security_id_t security_id, volume_t volume, dprice_t price,
-    internal_order_id_t order_id) {
+bool position_manager::add_position(InternalSecurityId security_id, Volume volume, DPrice price,
+    InternalOrderId order_id) {
     (void)order_id;
     position* pos = get_position_mut(security_id);
     if (!pos) {
@@ -521,7 +521,7 @@ bool position_manager::add_position(internal_security_id_t security_id, volume_t
     }
 
     position_lock guard(*pos);
-    const dvalue_t value = (volume == 0 || price == 0) ? 0 : volume * price;
+    const DValue value = (volume == 0 || price == 0) ? 0 : volume * price;
     pos->volume_buy += volume;
     pos->dvalue_buy += value;
     pos->volume_buy_traded += volume;
@@ -586,11 +586,11 @@ std::size_t position_manager::position_count() const noexcept {
     return clamp_security_count(shm_->position_count.load(std::memory_order_acquire));
 }
 
-std::optional<internal_security_id_t> position_manager::find_security_id(std::string_view code) const {
+std::optional<InternalSecurityId> position_manager::find_security_id(std::string_view code) const {
     if (code.empty()) {
         return std::nullopt;
     }
-    internal_security_id_t security_id;
+    InternalSecurityId security_id;
     security_id.assign(code);
     auto it = security_to_row_.find(security_id);
     if (it == security_to_row_.end()) {
@@ -599,12 +599,12 @@ std::optional<internal_security_id_t> position_manager::find_security_id(std::st
     return security_id;
 }
 
-internal_security_id_t position_manager::add_security(std::string_view code, std::string_view name, market_t market) {
+InternalSecurityId position_manager::add_security(std::string_view code, std::string_view name, market_t market) {
     if (!shm_ || code.empty()) {
         return {};
     }
 
-    internal_security_id_t security_id;
+    InternalSecurityId security_id;
     if (!build_internal_security_id(market, code, security_id)) {
         return {};
     }

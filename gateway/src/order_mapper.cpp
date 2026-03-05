@@ -36,7 +36,7 @@ broker_api::market to_broker_market(market_t market_value) noexcept {
 }
 
 // 拷贝证券代码到定长 C 字符串。
-void copy_security_id(const security_id_t& source, char* destination, std::size_t capacity) {
+void copy_security_id(const SecurityId& source, char* destination, std::size_t capacity) {
     if (capacity == 0) {
         return;
     }
@@ -50,7 +50,7 @@ void copy_security_id(const security_id_t& source, char* destination, std::size_
 }
 
 // 拷贝内部证券键到定长 C 字符串，保持 market.security_id 语义。
-void copy_internal_security_id(const internal_security_id_t& source, char* destination, std::size_t capacity) {
+void copy_internal_security_id(const InternalSecurityId& source, char* destination, std::size_t capacity) {
     if (capacity == 0) {
         return;
     }

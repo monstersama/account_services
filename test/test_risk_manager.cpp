@@ -33,11 +33,11 @@ std::unique_ptr<positions_shm_layout> make_positions_shm() {
     return shm;
 }
 
-order_request make_buy_order(internal_order_id_t order_id, volume_t volume) {
+order_request make_buy_order(InternalOrderId order_id, Volume volume) {
     order_request req;
-    req.init_new("000001", internal_security_id_t("SZ.000001"), order_id, trade_side_t::Buy, market_t::SZ, volume,
+    req.init_new("000001", InternalSecurityId("SZ.000001"), order_id, trade_side_t::Buy, market_t::SZ, volume,
         1000, 93000000);
-    req.order_status.store(order_status_t::StrategySubmitted, std::memory_order_relaxed);
+    req.order_state.store(OrderState::StrategySubmitted, std::memory_order_relaxed);
     return req;
 }
 
@@ -64,7 +64,7 @@ TEST(fund_and_duplicate_rules) {
     order_request large = make_buy_order(1, 200000);
     const risk_check_result large_result = manager.check_order(large);
     assert(!large_result.passed());
-    assert(large_result.code == risk_result_t::RejectInsufficientFund);
+    assert(large_result.code == RiskResult::RejectInsufficientFund);
 
     order_request small = make_buy_order(2, 100);
     const risk_check_result first = manager.check_order(small);
@@ -72,7 +72,7 @@ TEST(fund_and_duplicate_rules) {
 
     const risk_check_result second = manager.check_order(small);
     assert(!second.passed());
-    assert(second.code == risk_result_t::RejectDuplicateOrder);
+    assert(second.code == RiskResult::RejectDuplicateOrder);
 
     order_request same_params_new_id = small;
     same_params_new_id.internal_order_id = 3;

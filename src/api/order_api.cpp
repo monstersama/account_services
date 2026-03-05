@@ -27,7 +27,7 @@ namespace {
 constexpr std::size_t kMaxCachedOrders = 1024;
 
 // 获取当前系统时间的 md_time（HHMMSSmmm 格式）
-inline acct_service::md_time_t get_current_md_time() {
+inline acct_service::MdTime get_current_md_time() {
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
     struct tm tm_info;
@@ -49,7 +49,7 @@ std::string default_trading_day() {
 
 acct_error_t api_error(acct_error_t rc, acct_service::error_code code, std::string_view message, int sys_errno = 0) {
     acct_service::error_status status =
-        ACCT_MAKE_ERROR(acct_service::error_domain::api, code, "order_api", message, sys_errno);
+        ACCT_MAKE_ERROR(acct_service::ErrorDomain::api, code, "order_api", message, sys_errno);
     acct_service::record_error(status);
     ACCT_LOG_ERROR_STATUS(status);
     return rc;
@@ -232,7 +232,7 @@ ACCT_API acct_error_t acct_new_order(acct_ctx_t ctx, const char* security_id, ui
         return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_new_order zero volume");
     }
 
-    internal_security_id_t internal_security_id;
+    InternalSecurityId internal_security_id;
     if (!build_internal_security_id(static_cast<market_t>(market), std::string_view(security_id), internal_security_id)) {
         return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_new_order invalid security_id length/market");
     }
@@ -242,15 +242,15 @@ ACCT_API acct_error_t acct_new_order(acct_ctx_t ctx, const char* security_id, ui
     }
 
     uint32_t order_id = context->upstream_shm->header.next_order_id.fetch_add(1, std::memory_order_relaxed);
-    const dprice_t internal_price = static_cast<dprice_t>(price * 100.0 + 0.5);
-    const md_time_t md_time = get_current_md_time();
+    const DPrice internal_price = static_cast<DPrice>(price * 100.0 + 0.5);
+    const MdTime md_time = get_current_md_time();
     (void)valid_sec;
 
     order_request request;
     request.init_new(std::string_view(security_id), internal_security_id,
-        static_cast<internal_order_id_t>(order_id), static_cast<trade_side_t>(side), static_cast<market_t>(market),
-        static_cast<volume_t>(volume), internal_price, md_time);
-    request.order_status.store(order_status_t::NotSet, std::memory_order_relaxed);
+        static_cast<InternalOrderId>(order_id), static_cast<trade_side_t>(side), static_cast<market_t>(market),
+        static_cast<Volume>(volume), internal_price, md_time);
+    request.order_state.store(OrderState::NotSet, std::memory_order_relaxed);
 
     context->cached_orders[order_id] = request;
     *out_order_id = order_id;
@@ -272,7 +272,7 @@ ACCT_API acct_error_t acct_send_order(acct_ctx_t ctx, uint32_t order_id) {
         return api_error(ACCT_ERR_ORDER_NOT_FOUND, error_code::OrderNotFound, "acct_send_order order not cached");
     }
 
-    it->second.order_status.store(order_status_t::StrategySubmitted, std::memory_order_release);
+    it->second.order_state.store(OrderState::StrategySubmitted, std::memory_order_release);
     const acct_error_t rc = enqueue_order(context, it->second, order_slot_source_t::Strategy, nullptr);
     if (rc != ACCT_OK) {
         return rc;
@@ -308,22 +308,22 @@ ACCT_API acct_error_t acct_submit_order(acct_ctx_t ctx, const char* security_id,
         return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_submit_order zero volume");
     }
 
-    internal_security_id_t internal_security_id;
+    InternalSecurityId internal_security_id;
     if (!build_internal_security_id(static_cast<market_t>(market), std::string_view(security_id), internal_security_id)) {
         return api_error(
             ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_submit_order invalid security_id length/market");
     }
 
     const uint32_t order_id = context->upstream_shm->header.next_order_id.fetch_add(1, std::memory_order_relaxed);
-    const dprice_t internal_price = static_cast<dprice_t>(price * 100.0 + 0.5);
-    const md_time_t md_time = get_current_md_time();
+    const DPrice internal_price = static_cast<DPrice>(price * 100.0 + 0.5);
+    const MdTime md_time = get_current_md_time();
     (void)valid_sec;
 
     order_request request;
     request.init_new(std::string_view(security_id), internal_security_id,
-        static_cast<internal_order_id_t>(order_id), static_cast<trade_side_t>(side), static_cast<market_t>(market),
-        static_cast<volume_t>(volume), internal_price, md_time);
-    request.order_status.store(order_status_t::StrategySubmitted, std::memory_order_release);
+        static_cast<InternalOrderId>(order_id), static_cast<trade_side_t>(side), static_cast<market_t>(market),
+        static_cast<Volume>(volume), internal_price, md_time);
+    request.order_state.store(OrderState::StrategySubmitted, std::memory_order_release);
 
     const acct_error_t rc = enqueue_order(context, request, order_slot_source_t::Strategy, nullptr);
     if (rc != ACCT_OK) {
@@ -351,13 +351,13 @@ ACCT_API acct_error_t acct_cancel_order(
     }
 
     const uint32_t cancel_id = context->upstream_shm->header.next_order_id.fetch_add(1, std::memory_order_relaxed);
-    const md_time_t md_time = get_current_md_time();
+    const MdTime md_time = get_current_md_time();
     (void)valid_sec;
 
     order_request request;
     request.init_cancel(
-        static_cast<internal_order_id_t>(cancel_id), md_time, static_cast<internal_order_id_t>(orig_order_id));
-    request.order_status.store(order_status_t::StrategySubmitted, std::memory_order_release);
+        static_cast<InternalOrderId>(cancel_id), md_time, static_cast<InternalOrderId>(orig_order_id));
+    request.order_state.store(OrderState::StrategySubmitted, std::memory_order_release);
 
     const acct_error_t rc = enqueue_order(context, request, order_slot_source_t::Strategy, nullptr);
     if (rc != ACCT_OK) {

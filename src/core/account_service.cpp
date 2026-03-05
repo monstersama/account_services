@@ -12,93 +12,93 @@ namespace acct_service {
 namespace {
 
 error_status make_service_error(error_code code, std::string_view message, int sys_errno = 0) {
-    return ACCT_MAKE_ERROR(error_domain::core, code, "account_service", message, sys_errno);
+    return ACCT_MAKE_ERROR(ErrorDomain::core, code, "AccountService", message, sys_errno);
 }
 
 }  // namespace
 
-account_service::account_service() = default;
+AccountService::AccountService() = default;
 
-account_service::~account_service() {
+AccountService::~AccountService() {
     stop();
     cleanup();
     shutdown_logger();
-    state_.store(service_state_t::Stopped, std::memory_order_release);
+    state_.store(ServiceState::Stopped, std::memory_order_release);
 }
 
 // 使用配置文件初始化
-bool account_service::initialize(const std::string& config_path) {
+bool AccountService::initialize(const std::string& config_path) {
     clear_shutdown_reason();
     clear_last_error();
 
-    const service_state_t current = state();
-    if (current == service_state_t::Initializing || current == service_state_t::Running) {
+    const ServiceState current = state();
+    if (current == ServiceState::Initializing || current == ServiceState::Running) {
         raise_service_error(make_service_error(error_code::InvalidState, "initialize called in invalid state"));
         return false;
     }
 
-    state_.store(service_state_t::Initializing, std::memory_order_release);
+    state_.store(ServiceState::Initializing, std::memory_order_release);
     cleanup();
 
     if (!init_config(config_path)) {
-        state_.store(service_state_t::Error, std::memory_order_release);
+        state_.store(ServiceState::Error, std::memory_order_release);
         cleanup();
         return false;
     }
 
     if (!init_logger(config_manager_.log(), config_manager_.account_id())) {
         raise_service_error(make_service_error(error_code::LoggerInitFailed, "failed to initialize logger"));
-        state_.store(service_state_t::Error, std::memory_order_release);
+        state_.store(ServiceState::Error, std::memory_order_release);
         cleanup();
         return false;
     }
 
     if (!init_shared_memory() || !init_portfolio() || !init_risk_manager() || !init_order_components() ||
         !init_event_loop()) {
-        state_.store(service_state_t::Error, std::memory_order_release);
+        state_.store(ServiceState::Error, std::memory_order_release);
         flush_logger(200);
         cleanup();
         return false;
     }
 
-    state_.store(service_state_t::Ready, std::memory_order_release);
+    state_.store(ServiceState::Ready, std::memory_order_release);
     return true;
 }
 
-int account_service::run() {
+int AccountService::run() {
     if (!event_loop_) {
         raise_service_error(make_service_error(error_code::ComponentUnavailable, "event loop not initialized"));
         return -1;
     }
 
-    const service_state_t current = state();
-    if (current != service_state_t::Ready && current != service_state_t::Stopped) {
+    const ServiceState current = state();
+    if (current != ServiceState::Ready && current != ServiceState::Stopped) {
         raise_service_error(make_service_error(error_code::InvalidState, "run called in invalid state"));
         return -1;
     }
 
-    state_.store(service_state_t::Running, std::memory_order_release);
+    state_.store(ServiceState::Running, std::memory_order_release);
     event_loop_->run();
 
     if (should_terminate_due_to_error() || should_stop_service()) {
         stop();
-        state_.store(service_state_t::Error, std::memory_order_release);
+        state_.store(ServiceState::Error, std::memory_order_release);
         flush_logger(200);
         return -1;
     }
 
-    const service_state_t after = state();
-    if (after == service_state_t::Stopping || after == service_state_t::Running) {
-        state_.store(service_state_t::Stopped, std::memory_order_release);
+    const ServiceState after = state();
+    if (after == ServiceState::Stopping || after == ServiceState::Running) {
+        state_.store(ServiceState::Stopped, std::memory_order_release);
     }
 
-    return (state() == service_state_t::Stopped) ? 0 : -1;
+    return (state() == ServiceState::Stopped) ? 0 : -1;
 }
 
-void account_service::stop() {
-    const service_state_t current = state();
-    if (current == service_state_t::Running) {
-        state_.store(service_state_t::Stopping, std::memory_order_release);
+void AccountService::stop() {
+    const ServiceState current = state();
+    if (current == ServiceState::Running) {
+        state_.store(ServiceState::Stopping, std::memory_order_release);
     }
 
     if (event_loop_) {
@@ -106,35 +106,35 @@ void account_service::stop() {
     }
 }
 
-bool account_service::has_fatal_error() const noexcept {
+bool AccountService::has_fatal_error() const noexcept {
     return shutdown_reason_.load(std::memory_order_acquire) == error_severity::Fatal;
 }
 
-const error_status& account_service::last_error() const noexcept { return last_error_; }
+const error_status& AccountService::last_error() const noexcept { return last_error_; }
 
-service_state_t account_service::state() const noexcept { return state_.load(std::memory_order_acquire); }
+ServiceState AccountService::state() const noexcept { return state_.load(std::memory_order_acquire); }
 
-const config_manager& account_service::config() const { return config_manager_; }
+const config_manager& AccountService::config() const { return config_manager_; }
 
-const order_book& account_service::orders() const {
+const order_book& AccountService::orders() const {
     assert(order_book_ != nullptr);
     return *order_book_;
 }
 
-const position_manager& account_service::positions() const {
+const position_manager& AccountService::positions() const {
     assert(position_manager_ != nullptr);
     return *position_manager_;
 }
 
-const risk_manager& account_service::risk() const {
+const risk_manager& AccountService::risk() const {
     assert(risk_manager_ != nullptr);
     return *risk_manager_;
 }
 
-void account_service::print_stats() const {
+void AccountService::print_stats() const {
     if (event_loop_) {
         const event_loop_stats& loop_stats = event_loop_->stats();
-        std::fprintf(stderr, "[account_service] loop_iter=%llu orders=%llu responses=%llu idle=%llu avg_ns=%.0f\n",
+        std::fprintf(stderr, "[AccountService] loop_iter=%llu orders=%llu responses=%llu idle=%llu avg_ns=%.0f\n",
             static_cast<unsigned long long>(loop_stats.total_iterations),
             static_cast<unsigned long long>(loop_stats.orders_processed),
             static_cast<unsigned long long>(loop_stats.responses_processed),
@@ -142,18 +142,18 @@ void account_service::print_stats() const {
     }
 
     if (order_book_) {
-        std::fprintf(stderr, "[account_service] active_orders=%zu\n", order_book_->active_count());
+        std::fprintf(stderr, "[AccountService] active_orders=%zu\n", order_book_->active_count());
     }
 
     if (risk_manager_) {
         const risk_stats& stats = risk_manager_->stats();
-        std::fprintf(stderr, "[account_service] risk_checks=%llu passed=%llu rejected=%llu\n",
+        std::fprintf(stderr, "[AccountService] risk_checks=%llu passed=%llu rejected=%llu\n",
             static_cast<unsigned long long>(stats.total_checks), static_cast<unsigned long long>(stats.passed),
             static_cast<unsigned long long>(stats.rejected));
     }
 }
 
-bool account_service::init_config(const std::string& config_path) {
+bool AccountService::init_config(const std::string& config_path) {
     if (config_path.empty()) {
         raise_service_error(make_service_error(error_code::InvalidConfig, "config path must not be empty"));
         return false;
@@ -167,10 +167,10 @@ bool account_service::init_config(const std::string& config_path) {
     return true;
 }
 
-bool account_service::init_shared_memory() {
-    const shm_config& shm_cfg = config_manager_.shm();
+bool AccountService::init_shared_memory() {
+    const SHMConfig& shm_cfg = config_manager_.shm();
     const acct_service::config& cfg = config_manager_.get();
-    const account_id_t account_id = config_manager_.account_id();
+    const AccountId account_id = config_manager_.account_id();
     const shm_mode mode = shm_cfg.create_if_not_exist ? shm_mode::OpenOrCreate : shm_mode::Open;
 
     upstream_shm_ = upstream_shm_manager_.open_upstream(shm_cfg.upstream_shm_name, mode, account_id);
@@ -207,7 +207,7 @@ bool account_service::init_shared_memory() {
     return true;
 }
 
-bool account_service::init_portfolio() {
+bool AccountService::init_portfolio() {
     account_info_ = std::make_unique<account_info_manager>();
     trade_records_ = std::make_unique<trade_record_manager>();
     entrust_records_ = std::make_unique<entrust_record_manager>();
@@ -224,7 +224,7 @@ bool account_service::init_portfolio() {
     return load_account_info() && load_positions() && load_today_trades() && load_today_entrusts();
 }
 
-bool account_service::init_risk_manager() {
+bool AccountService::init_risk_manager() {
     if (!position_manager_) {
         raise_service_error(make_service_error(error_code::ComponentUnavailable, "position manager unavailable"));
         return false;
@@ -237,7 +237,7 @@ bool account_service::init_risk_manager() {
     return true;
 }
 
-bool account_service::init_order_components() {
+bool AccountService::init_order_components() {
     if (!downstream_shm_ || !orders_shm_) {
         raise_service_error(make_service_error(error_code::ComponentUnavailable, "downstream/orders shm unavailable"));
         return false;
@@ -257,7 +257,7 @@ bool account_service::init_order_components() {
     return true;
 }
 
-bool account_service::init_event_loop() {
+bool AccountService::init_event_loop() {
     if (!upstream_shm_ || !downstream_shm_ || !trades_shm_ || !orders_shm_ || !order_book_ || !order_router_ ||
         !position_manager_ || !risk_manager_) {
         raise_service_error(
@@ -265,7 +265,7 @@ bool account_service::init_event_loop() {
         return false;
     }
 
-    event_loop_ = std::make_unique<event_loop>(config_manager_.event_loop(), upstream_shm_, downstream_shm_, trades_shm_,
+    event_loop_ = std::make_unique<EventLoop>(config_manager_.EventLoop(), upstream_shm_, downstream_shm_, trades_shm_,
         orders_shm_, *order_book_, *order_router_, *position_manager_, *risk_manager_);
     if (!event_loop_) {
         raise_service_error(make_service_error(error_code::ComponentUnavailable, "failed to initialize event loop"));
@@ -274,7 +274,7 @@ bool account_service::init_event_loop() {
     return true;
 }
 
-bool account_service::load_account_info() {
+bool AccountService::load_account_info() {
     if (!account_info_) {
         raise_service_error(make_service_error(error_code::ComponentUnavailable, "account info manager unavailable"));
         return false;
@@ -294,13 +294,13 @@ bool account_service::load_account_info() {
     account_info& info = account_info_->info();
     info.account_id = cfg.account_id;
     if (!loaded) {
-        info.state = account_state_t::Ready;
+        info.state = AccountState::Ready;
     }
 
     return true;
 }
 
-bool account_service::load_positions() {
+bool AccountService::load_positions() {
     if (!position_manager_) {
         raise_service_error(make_service_error(
             error_code::ComponentUnavailable, "position manager unavailable while loading positions"));
@@ -309,7 +309,7 @@ bool account_service::load_positions() {
     return true;
 }
 
-bool account_service::load_today_trades() {
+bool AccountService::load_today_trades() {
     if (!trade_records_) {
         raise_service_error(make_service_error(error_code::ComponentUnavailable, "trade record manager unavailable"));
         return false;
@@ -327,7 +327,7 @@ bool account_service::load_today_trades() {
     return true;
 }
 
-bool account_service::load_today_entrusts() {
+bool AccountService::load_today_entrusts() {
     if (!entrust_records_) {
         raise_service_error(make_service_error(error_code::ComponentUnavailable, "entrust record manager unavailable"));
         return false;
@@ -345,7 +345,7 @@ bool account_service::load_today_entrusts() {
     return true;
 }
 
-void account_service::cleanup() {
+void AccountService::cleanup() {
     event_loop_.reset();
     order_router_.reset();
     order_book_.reset();
@@ -370,7 +370,7 @@ void account_service::cleanup() {
     positions_shm_manager_.close();
 }
 
-void account_service::raise_service_error(const error_status& status) {
+void AccountService::raise_service_error(const error_status& status) {
     last_error_ = status;
     record_error(status);
     ACCT_LOG_ERROR_STATUS(status);
@@ -385,7 +385,7 @@ void account_service::raise_service_error(const error_status& status) {
     }
 }
 
-bool account_service::should_terminate_due_to_error() const noexcept {
+bool AccountService::should_terminate_due_to_error() const noexcept {
     return shutdown_reason_.load(std::memory_order_acquire) >= error_severity::Critical;
 }
 

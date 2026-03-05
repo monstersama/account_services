@@ -11,9 +11,9 @@ namespace acct_service {
 
 // 拆单配置
 struct split_config {
-    split_strategy_t strategy = split_strategy_t::None;
-    volume_t max_child_volume = 0;
-    volume_t min_child_volume = 100;
+    SplitStrategy strategy = SplitStrategy::None;
+    Volume max_child_volume = 0;
+    Volume min_child_volume = 100;
     uint32_t max_child_count = 100;
     uint32_t interval_ms = 0;
     double randomize_factor = 0.0;
@@ -33,7 +33,7 @@ public:
     ~order_splitter() = default;
 
     // 设置订单ID生成器
-    using order_id_generator_t = std::function<internal_order_id_t()>;
+    using order_id_generator_t = std::function<InternalOrderId()>;
     void set_order_id_generator(order_id_generator_t gen);
 
     // 执行拆单

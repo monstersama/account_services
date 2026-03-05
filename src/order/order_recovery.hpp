@@ -15,7 +15,7 @@ struct order_recovery_stats {
     std::size_t unreadable = 0;
     std::size_t dedup_dropped = 0;
     std::size_t add_failed = 0;
-    internal_order_id_t next_order_seed = 1;
+    InternalOrderId next_order_seed = 1;
 };
 
 // 从 orders_shm 恢复“已进入下游且未终态”的订单到 order_book。

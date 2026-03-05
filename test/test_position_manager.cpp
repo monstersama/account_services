@@ -22,7 +22,7 @@
 
 namespace {
 
-constexpr acct_service::dvalue_t kExpectedInitialFund = 100000000;
+constexpr acct_service::DValue kExpectedInitialFund = 100000000;
 using sqlite_db_ptr = std::unique_ptr<sqlite3, decltype(&sqlite3_close)>;
 
 // 定位并创建测试临时目录，避免写入仓库 data 初始化目录。
@@ -198,16 +198,16 @@ TEST(add_security_uses_internal_key_and_excludes_fund_row) {
     position_manager manager(shm.get());
     assert(manager.initialize(1));
 
-    const internal_security_id_t first = manager.add_security("000001", "PingAn", market_t::SZ);
-    const internal_security_id_t second = manager.add_security("600000", "PuFa", market_t::SH);
+    const InternalSecurityId first = manager.add_security("000001", "PingAn", market_t::SZ);
+    const InternalSecurityId second = manager.add_security("600000", "PuFa", market_t::SH);
     assert(first == std::string_view("SZ.000001"));
     assert(second == std::string_view("SH.600000"));
     assert(manager.position_count() == 2);
 
     assert(shm->positions[1].id == std::string_view("SZ.000001"));
     assert(shm->positions[2].id == std::string_view("SH.600000"));
-    assert(manager.find_security_id("SZ.000001").value_or(internal_security_id_t()) == std::string_view("SZ.000001"));
-    assert(manager.find_security_id("SH.600000").value_or(internal_security_id_t()) == std::string_view("SH.600000"));
+    assert(manager.find_security_id("SZ.000001").value_or(InternalSecurityId()) == std::string_view("SZ.000001"));
+    assert(manager.find_security_id("SH.600000").value_or(InternalSecurityId()) == std::string_view("SH.600000"));
 
     const auto all_positions = manager.get_all_positions();
     assert(all_positions.size() == 2);
@@ -245,9 +245,9 @@ TEST(add_position_requires_registered_security) {
     position_manager manager(shm.get());
     assert(manager.initialize(1));
 
-    assert(!manager.add_position(internal_security_id_t("SZ.000001"), 100, 123, 1));
+    assert(!manager.add_position(InternalSecurityId("SZ.000001"), 100, 123, 1));
 
-    const internal_security_id_t sec_id = manager.add_security("000001", "PingAn", market_t::SZ);
+    const InternalSecurityId sec_id = manager.add_security("000001", "PingAn", market_t::SZ);
     assert(sec_id == std::string_view("SZ.000001"));
     assert(manager.add_position(sec_id, 100, 123, 2));
 
@@ -266,7 +266,7 @@ TEST(sellable_volume_uses_t0_only) {
     position_manager manager(shm.get());
     assert(manager.initialize(1));
 
-    const internal_security_id_t sec_id = manager.add_security("000001", "PingAn", market_t::SZ);
+    const InternalSecurityId sec_id = manager.add_security("000001", "PingAn", market_t::SZ);
     assert(sec_id == std::string_view("SZ.000001"));
 
     position* pos = manager.get_position_mut(sec_id);
@@ -332,8 +332,8 @@ TEST(initialize_rebuilds_code_map_from_existing_rows) {
 
     assert(shm->positions[kFundPositionIndex].id == std::string_view(kFundPositionId));
     assert(manager.position_count() == 2);
-    assert(manager.find_security_id("SZ.000001").value_or(internal_security_id_t()) == std::string_view("SZ.000001"));
-    assert(manager.find_security_id("SH.600000").value_or(internal_security_id_t()) == std::string_view("SH.600000"));
+    assert(manager.find_security_id("SZ.000001").value_or(InternalSecurityId()) == std::string_view("SZ.000001"));
+    assert(manager.find_security_id("SH.600000").value_or(InternalSecurityId()) == std::string_view("SH.600000"));
 }
 
 TEST(initialize_uses_loader_only_for_uninitialized_shm) {
@@ -347,7 +347,7 @@ TEST(initialize_uses_loader_only_for_uninitialized_shm) {
     position_manager fresh_manager(fresh_shm.get(), seed_base_path, "", false);
     assert(fresh_manager.initialize(1));
     assert(fresh_manager.position_count() == 1);
-    assert(fresh_manager.get_sellable_volume(internal_security_id_t("SZ.000001")) == 321);
+    assert(fresh_manager.get_sellable_volume(InternalSecurityId("SZ.000001")) == 321);
 
     auto existing_shm = make_shm(1);
     existing_shm->position_count.store(1, std::memory_order_relaxed);
@@ -358,8 +358,8 @@ TEST(initialize_uses_loader_only_for_uninitialized_shm) {
     position_manager existing_manager(existing_shm.get(), seed_base_path, "", false);
     assert(existing_manager.initialize(1));
     assert(existing_manager.position_count() == 1);
-    assert(existing_manager.get_sellable_volume(internal_security_id_t("SZ.000002")) == 222);
-    assert(existing_manager.get_position(internal_security_id_t("SZ.000001")) == nullptr);
+    assert(existing_manager.get_sellable_volume(InternalSecurityId("SZ.000002")) == 222);
+    assert(existing_manager.get_position(InternalSecurityId("SZ.000001")) == nullptr);
 
     std::remove(seed_csv_path.c_str());
 }
@@ -417,7 +417,7 @@ TEST(initialize_loads_from_sqlite_when_db_enabled) {
     assert(fund.frozen == 10000000);
     assert(fund.market_value == 40000000);
 
-    const position* sz_pos = manager.get_position(internal_security_id_t("SZ.000001"));
+    const position* sz_pos = manager.get_position(InternalSecurityId("SZ.000001"));
     assert(sz_pos != nullptr);
     assert(sz_pos->volume_available_t0 == 999);
     assert(sz_pos->volume_available_t1 == 8);
@@ -425,7 +425,7 @@ TEST(initialize_loads_from_sqlite_when_db_enabled) {
     assert(sz_pos->dvalue_buy == 1200);
     assert(sz_pos->count_order == 4);
 
-    const position* sh_pos = manager.get_position(internal_security_id_t("SH.600000"));
+    const position* sh_pos = manager.get_position(InternalSecurityId("SH.600000"));
     assert(sh_pos != nullptr);
     assert(sh_pos->volume_available_t0 == 55);
     assert(sh_pos->volume_available_t1 == 6);

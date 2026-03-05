@@ -18,7 +18,7 @@ struct order_slot_snapshot {
     order_request request{};
     order_slot_stage_t stage{order_slot_stage_t::Empty};
     order_slot_source_t source{order_slot_source_t::Unknown};
-    timestamp_ns_t last_update_ns{0};
+    TimestampNs last_update_ns{0};
 };
 
 inline bool is_valid_trading_day(std::string_view trading_day) noexcept {
@@ -56,15 +56,15 @@ inline bool extract_trading_day_from_name(std::string_view shm_name, char out_tr
     return true;
 }
 
-inline bool is_terminal_order_status(order_status_t status) noexcept {
+inline bool is_terminal_order_state(OrderState status) noexcept {
     switch (status) {
-        case order_status_t::RiskControllerRejected:
-        case order_status_t::TraderRejected:
-        case order_status_t::TraderError:
-        case order_status_t::BrokerRejected:
-        case order_status_t::MarketRejected:
-        case order_status_t::Finished:
-        case order_status_t::Unknown:
+        case OrderState::RiskControllerRejected:
+        case OrderState::TraderRejected:
+        case OrderState::TraderError:
+        case OrderState::BrokerRejected:
+        case OrderState::MarketRejected:
+        case OrderState::Finished:
+        case OrderState::Unknown:
             return true;
         default:
             return false;
@@ -132,7 +132,7 @@ inline bool orders_shm_mutate_slot(orders_shm_layout* shm, order_index_t index, 
 }
 
 inline bool orders_shm_write_order(orders_shm_layout* shm, order_index_t index, const order_request& request,
-    order_slot_stage_t stage, order_slot_source_t source, timestamp_ns_t update_ns) noexcept {
+    order_slot_stage_t stage, order_slot_source_t source, TimestampNs update_ns) noexcept {
     return orders_shm_mutate_slot(shm, index, [&](order_slot& slot) {
         slot.request = request;
         slot.stage = stage;
@@ -142,7 +142,7 @@ inline bool orders_shm_write_order(orders_shm_layout* shm, order_index_t index, 
 }
 
 inline bool orders_shm_sync_order(orders_shm_layout* shm, order_index_t index, const order_request& request,
-    timestamp_ns_t update_ns) noexcept {
+    TimestampNs update_ns) noexcept {
     return orders_shm_mutate_slot(shm, index, [&](order_slot& slot) {
         slot.request = request;
         slot.last_update_ns = update_ns;
@@ -150,7 +150,7 @@ inline bool orders_shm_sync_order(orders_shm_layout* shm, order_index_t index, c
 }
 
 inline bool orders_shm_update_stage(
-    orders_shm_layout* shm, order_index_t index, order_slot_stage_t stage, timestamp_ns_t update_ns) noexcept {
+    orders_shm_layout* shm, order_index_t index, order_slot_stage_t stage, TimestampNs update_ns) noexcept {
     return orders_shm_mutate_slot(shm, index, [&](order_slot& slot) {
         slot.stage = stage;
         slot.last_update_ns = update_ns;
@@ -158,7 +158,7 @@ inline bool orders_shm_update_stage(
 }
 
 inline bool orders_shm_append(orders_shm_layout* shm, const order_request& request, order_slot_stage_t stage,
-    order_slot_source_t source, timestamp_ns_t update_ns, order_index_t& out_index) noexcept {
+    order_slot_source_t source, TimestampNs update_ns, order_index_t& out_index) noexcept {
     if (!orders_shm_try_allocate(shm, out_index)) {
         return false;
     }

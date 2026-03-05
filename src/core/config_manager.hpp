@@ -9,7 +9,7 @@
 namespace acct_service {
 
 // 共享内存配置
-struct shm_config {
+struct SHMConfig {
     std::string upstream_shm_name = "/strategy_order_shm";
     std::string downstream_shm_name = "/downstream_order_shm";
     std::string trades_shm_name = "/trades_shm";
@@ -19,7 +19,7 @@ struct shm_config {
 };
 
 // 事件循环配置
-struct event_loop_config {
+struct EventLoopConfig {
     bool busy_polling = true;
     uint32_t poll_batch_size = 64;
     uint32_t idle_sleep_us = 0;
@@ -47,12 +47,12 @@ struct db_config {
 
 // 完整配置
 struct config {
-    account_id_t account_id = 1;
+    AccountId account_id = 1;
     std::string trading_day = "19700101";
     std::string config_file;
 
-    shm_config shm;
-    event_loop_config event_loop;
+    SHMConfig shm;
+    EventLoopConfig EventLoop;
     risk_config risk;
     split_config split;
     log_config log;
@@ -79,9 +79,9 @@ public:
     config& get() noexcept;
 
     // 便捷访问器
-    account_id_t account_id() const noexcept;
-    const shm_config& shm() const noexcept;
-    const event_loop_config& event_loop() const noexcept;
+    AccountId account_id() const noexcept;
+    const SHMConfig& shm() const noexcept;
+    const EventLoopConfig& EventLoop() const noexcept;
     const risk_config& risk() const noexcept;
     const split_config& split() const noexcept;
     const log_config& log() const noexcept;

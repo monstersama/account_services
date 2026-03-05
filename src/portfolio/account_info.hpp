@@ -10,9 +10,9 @@ namespace acct_service {
 
 // 账户信息
 struct account_info {
-    account_id_t account_id = 0;
-    account_type_t account_type = account_type_t::Stock;
-    account_state_t state = account_state_t::Initializing;
+    AccountId account_id = 0;
+    AccountType account_type = AccountType::Stock;
+    AccountState state = AccountState::Initializing;
     fixed_string<32> account_name;
     fixed_string<32> broker_account;
     fixed_string<16> broker_code;
@@ -27,14 +27,14 @@ struct account_info {
     double commission_rate = 0.0003;
     double stamp_tax_rate = 0.001;
     double transfer_fee_rate = 0.00002;
-    dvalue_t min_commission = 500;  // 5元 = 500分
+    DValue min_commission = 500;  // 5元 = 500分
 
     // 风控参数
-    dvalue_t max_single_order = 0;
-    dvalue_t max_daily_amount = 0;
+    DValue max_single_order = 0;
+    DValue max_daily_amount = 0;
 
     // 计算手续费
-    dvalue_t calculate_fee(trade_side_t side, dvalue_t traded_value) const;
+    DValue calculate_fee(trade_side_t side, DValue traded_value) const;
 };
 
 // 账户信息管理器
@@ -47,7 +47,7 @@ public:
     bool load_from_config(const std::string& config_path);
 
     // 从数据库加载
-    bool load_from_db(const std::string& db_path, account_id_t account_id);
+    bool load_from_db(const std::string& db_path, AccountId account_id);
 
     // 获取账户信息
     const account_info& info() const noexcept;
@@ -57,7 +57,7 @@ public:
     bool can_trade(trade_side_t side) const noexcept;
 
     // 更新账户状态
-    void set_state(account_state_t state);
+    void set_state(AccountState state);
 
 private:
     account_info info_;

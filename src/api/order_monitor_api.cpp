@@ -94,7 +94,7 @@ void fill_snapshot(acct_orders_mon_snapshot_t& out, uint32_t index, uint64_t seq
     out.order_type = static_cast<uint8_t>(request.order_type);
     out.trade_side = static_cast<uint8_t>(request.trade_side);
     out.market = static_cast<uint8_t>(request.market);
-    out.order_status = static_cast<uint8_t>(request.order_status.load(std::memory_order_acquire));
+    out.order_status = static_cast<uint8_t>(request.order_state.load(std::memory_order_acquire));
     std::memcpy(out.internal_security_id, request.internal_security_id.data, sizeof(out.internal_security_id));
 
     out.internal_order_id = request.internal_order_id;

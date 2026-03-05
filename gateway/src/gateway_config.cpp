@@ -94,7 +94,7 @@ bool apply_config_value(gateway_config& config, std::string_view key, const std:
             error_message = "invalid value for account_id";
             return false;
         }
-        config.account_id = static_cast<account_id_t>(parsed);
+        config.account_id = static_cast<AccountId>(parsed);
         return true;
     }
 

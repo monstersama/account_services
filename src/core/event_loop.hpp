@@ -20,9 +20,9 @@ struct event_loop_stats {
     uint64_t orders_processed = 0;        // 已处理上游订单总数
     uint64_t responses_processed = 0;     // 已处理下游成交回报总数
     uint64_t idle_iterations = 0;         // 空闲迭代次数（无订单且无回报）
-    timestamp_ns_t start_time = 0;        // 事件循环启动时间（Unix Epoch 纳秒）
-    timestamp_ns_t last_order_time = 0;   // 最近一次处理订单时间（Unix Epoch 纳秒）
-    timestamp_ns_t last_response_time = 0;  // 最近一次处理回报时间（Unix Epoch 纳秒）
+    TimestampNs start_time = 0;        // 事件循环启动时间（Unix Epoch 纳秒）
+    TimestampNs last_order_time = 0;   // 最近一次处理订单时间（Unix Epoch 纳秒）
+    TimestampNs last_response_time = 0;  // 最近一次处理回报时间（Unix Epoch 纳秒）
 
     uint64_t min_latency_ns = UINT64_MAX;  // 单轮迭代最小耗时（纳秒）
     uint64_t max_latency_ns = 0;           // 单轮迭代最大耗时（纳秒）
@@ -34,19 +34,19 @@ struct event_loop_stats {
 };
 
 // 事件循环
-class event_loop {
+class EventLoop {
 public:
     // 构造事件循环并绑定各核心组件
-    event_loop(const event_loop_config& config, upstream_shm_layout* upstream_shm,
+    EventLoop(const EventLoopConfig& config, upstream_shm_layout* upstream_shm,
         downstream_shm_layout* downstream_shm, trades_shm_layout* trades_shm, orders_shm_layout* orders_shm,
         order_book& order_book, order_router& router, position_manager& positions, risk_manager& risk);
 
     // 析构时会确保循环停止
-    ~event_loop();
+    ~EventLoop();
 
     // 禁止拷贝
-    event_loop(const event_loop&) = delete;
-    event_loop& operator=(const event_loop&) = delete;
+    EventLoop(const EventLoop&) = delete;
+    EventLoop& operator=(const EventLoop&) = delete;
 
     // 运行事件循环（阻塞）
     void run();
@@ -80,16 +80,16 @@ private:
     void handle_order_request(order_index_t index, order_request& request);
 
     // 订单簿变更回调，回写订单池镜像
-    void on_order_book_changed(const order_entry& entry, order_book_event_t event);
+    void on_order_book_changed(const OrderEntry& entry, order_book_event_t event);
 
     // 处理单笔成交回报
     void handle_trade_response(const trade_response& response);
 
     // 处理到期的终态订单归档任务
-    void process_pending_archives(timestamp_ns_t now_ns_value);
+    void process_pending_archives(TimestampNs now_ns_value);
 
     // 更新延迟统计
-    void update_latency_stats(timestamp_ns_t start, timestamp_ns_t end);
+    void update_latency_stats(TimestampNs start, TimestampNs end);
 
     // 按周期打印统计信息
     void print_periodic_stats();
@@ -97,7 +97,7 @@ private:
     // 绑定线程 CPU 亲和性（可选）
     void set_cpu_affinity(int core);
 
-    event_loop_config config_;  // 事件循环配置快照
+    EventLoopConfig config_;  // 事件循环配置快照
 
     upstream_shm_layout* upstream_shm_;      // 上游共享内存（策略->账户）
     downstream_shm_layout* downstream_shm_;  // 下游共享内存（账户->交易）
@@ -112,9 +112,9 @@ private:
     std::atomic<bool> running_{false};  // 运行状态标志
     event_loop_stats stats_;            // 运行统计
 
-    std::unordered_map<internal_order_id_t, timestamp_ns_t>
+    std::unordered_map<InternalOrderId, TimestampNs>
         pending_archive_deadlines_ns_;      // 终态订单 -> 延迟归档到期时间
-    timestamp_ns_t last_stats_time_ = 0;  // 最近一次打印统计的单调时钟时间
+    TimestampNs last_stats_time_ = 0;  // 最近一次打印统计的单调时钟时间
 };
 
 }  // namespace acct_service

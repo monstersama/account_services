@@ -70,15 +70,15 @@ std::string unique_config_path(const char* prefix) {
            std::to_string(static_cast<unsigned long long>(now_ns())) + ".yaml";
 }
 
-const char* split_strategy_to_string(split_strategy_t strategy) {
+const char* split_strategy_to_string(SplitStrategy strategy) {
     switch (strategy) {
-        case split_strategy_t::FixedSize:
+        case SplitStrategy::FixedSize:
             return "fixed_size";
-        case split_strategy_t::TWAP:
+        case SplitStrategy::TWAP:
             return "twap";
-        case split_strategy_t::VWAP:
+        case SplitStrategy::VWAP:
             return "vwap";
-        case split_strategy_t::Iceberg:
+        case SplitStrategy::Iceberg:
             return "iceberg";
         default:
             return "none";
@@ -100,13 +100,13 @@ bool write_config_file(const std::string& path, const config& cfg) {
     out << "  orders_shm_name: \"" << cfg.shm.orders_shm_name << "\"\n";
     out << "  positions_shm_name: \"" << cfg.shm.positions_shm_name << "\"\n";
     out << "  create_if_not_exist: " << (cfg.shm.create_if_not_exist ? "true" : "false") << "\n";
-    out << "event_loop:\n";
-    out << "  busy_polling: " << (cfg.event_loop.busy_polling ? "true" : "false") << "\n";
-    out << "  poll_batch_size: " << cfg.event_loop.poll_batch_size << "\n";
-    out << "  idle_sleep_us: " << cfg.event_loop.idle_sleep_us << "\n";
-    out << "  stats_interval_ms: " << cfg.event_loop.stats_interval_ms << "\n";
-    out << "  pin_cpu: " << (cfg.event_loop.pin_cpu ? "true" : "false") << "\n";
-    out << "  cpu_core: " << cfg.event_loop.cpu_core << "\n";
+    out << "EventLoop:\n";
+    out << "  busy_polling: " << (cfg.EventLoop.busy_polling ? "true" : "false") << "\n";
+    out << "  poll_batch_size: " << cfg.EventLoop.poll_batch_size << "\n";
+    out << "  idle_sleep_us: " << cfg.EventLoop.idle_sleep_us << "\n";
+    out << "  stats_interval_ms: " << cfg.EventLoop.stats_interval_ms << "\n";
+    out << "  pin_cpu: " << (cfg.EventLoop.pin_cpu ? "true" : "false") << "\n";
+    out << "  cpu_core: " << cfg.EventLoop.cpu_core << "\n";
     out << "risk:\n";
     out << "  max_order_value: " << cfg.risk.max_order_value << "\n";
     out << "  max_order_volume: " << cfg.risk.max_order_volume << "\n";
@@ -228,16 +228,16 @@ TEST(initialize_and_run_processes_orders) {
     cfg.shm.create_if_not_exist = true;
     cfg.trading_day = "20260225";
 
-    cfg.event_loop.busy_polling = false;
-    cfg.event_loop.idle_sleep_us = 50;
-    cfg.event_loop.poll_batch_size = 32;
-    cfg.event_loop.stats_interval_ms = 0;
+    cfg.EventLoop.busy_polling = false;
+    cfg.EventLoop.idle_sleep_us = 50;
+    cfg.EventLoop.poll_batch_size = 32;
+    cfg.EventLoop.stats_interval_ms = 0;
 
     cfg.risk.enable_position_check = false;
     cfg.risk.enable_duplicate_check = false;
     cfg.risk.enable_price_limit_check = false;
 
-    cfg.split.strategy = split_strategy_t::None;
+    cfg.split.strategy = SplitStrategy::None;
 
     cfg.db.enable_persistence = false;
     cfg.db.db_path.clear();
@@ -245,9 +245,9 @@ TEST(initialize_and_run_processes_orders) {
     const std::string config_path = unique_config_path("acct_service_cfg");
     assert(write_config_file(config_path, cfg));
 
-    account_service service;
+    AccountService service;
     assert(service.initialize(config_path));
-    assert(service.state() == service_state_t::Ready);
+    assert(service.state() == ServiceState::Ready);
 
     SHMManager upstream_manager;
     SHMManager downstream_manager;
@@ -271,9 +271,9 @@ TEST(initialize_and_run_processes_orders) {
     std::thread worker([&service, &run_rc]() { run_rc = service.run(); });
 
     order_request req;
-    req.init_new("000001", internal_security_id_t("SZ.000001"), static_cast<internal_order_id_t>(5001),
-        trade_side_t::Buy, market_t::SZ, static_cast<volume_t>(100), static_cast<dprice_t>(1000), 93000000);
-    req.order_status.store(order_status_t::StrategySubmitted, std::memory_order_relaxed);
+    req.init_new("000001", InternalSecurityId("SZ.000001"), static_cast<InternalOrderId>(5001),
+        trade_side_t::Buy, market_t::SZ, static_cast<Volume>(100), static_cast<DPrice>(1000), 93000000);
+    req.order_state.store(OrderState::StrategySubmitted, std::memory_order_relaxed);
 
     order_index_t upstream_index = kInvalidOrderIndex;
     assert(orders_shm_append(
@@ -290,34 +290,34 @@ TEST(initialize_and_run_processes_orders) {
     assert(sent_snapshot.request.security_id.view() == "000001");
 
     trade_response rsp{};
-    rsp.internal_order_id = static_cast<internal_order_id_t>(5001);
-    rsp.internal_security_id = internal_security_id_t("SZ.000001");
+    rsp.internal_order_id = static_cast<InternalOrderId>(5001);
+    rsp.internal_security_id = InternalSecurityId("SZ.000001");
     rsp.trade_side = trade_side_t::Buy;
-    rsp.new_status = order_status_t::MarketAccepted;
-    rsp.volume_traded = static_cast<volume_t>(50);
-    rsp.dprice_traded = static_cast<dprice_t>(1000);
-    rsp.dvalue_traded = static_cast<dvalue_t>(50000);
-    rsp.dfee = static_cast<dvalue_t>(10);
+    rsp.new_state = OrderState::MarketAccepted;
+    rsp.volume_traded = static_cast<Volume>(50);
+    rsp.dprice_traded = static_cast<DPrice>(1000);
+    rsp.dvalue_traded = static_cast<DValue>(50000);
+    rsp.dfee = static_cast<DValue>(10);
     rsp.md_time_traded = 93100000;
     rsp.recv_time_ns = now_ns();
 
     assert(trades->response_queue.try_push(rsp));
 
     assert(wait_until([&service]() {
-        const order_entry* order = service.orders().find_order(static_cast<internal_order_id_t>(5001));
-        return order != nullptr && order->request.volume_traded == static_cast<volume_t>(50);
+        const OrderEntry* order = service.orders().find_order(static_cast<InternalOrderId>(5001));
+        return order != nullptr && order->request.volume_traded == static_cast<Volume>(50);
     }));
 
-    const order_entry* order = service.orders().find_order(static_cast<internal_order_id_t>(5001));
+    const OrderEntry* order = service.orders().find_order(static_cast<InternalOrderId>(5001));
     assert(order != nullptr);
-    assert(order->request.volume_traded == static_cast<volume_t>(50));
-    assert(order->request.order_status.load(std::memory_order_acquire) == order_status_t::MarketAccepted);
+    assert(order->request.volume_traded == static_cast<Volume>(50));
+    assert(order->request.order_state.load(std::memory_order_acquire) == OrderState::MarketAccepted);
 
     service.stop();
     worker.join();
 
     assert(run_rc == 0);
-    assert(service.state() == service_state_t::Stopped);
+    assert(service.state() == ServiceState::Stopped);
 
     upstream_manager.close();
     downstream_manager.close();
@@ -343,17 +343,17 @@ TEST(restart_recovers_downstream_active_orders) {
     cfg.shm.create_if_not_exist = true;
     cfg.trading_day = "20260225";
 
-    cfg.event_loop.busy_polling = false;
-    cfg.event_loop.idle_sleep_us = 50;
-    cfg.event_loop.poll_batch_size = 32;
-    cfg.event_loop.stats_interval_ms = 0;
+    cfg.EventLoop.busy_polling = false;
+    cfg.EventLoop.idle_sleep_us = 50;
+    cfg.EventLoop.poll_batch_size = 32;
+    cfg.EventLoop.stats_interval_ms = 0;
 
     cfg.risk.enable_position_check = false;
     cfg.risk.enable_duplicate_check = false;
     cfg.risk.enable_price_limit_check = false;
     cfg.risk.enable_fund_check = false;
 
-    cfg.split.strategy = split_strategy_t::None;
+    cfg.split.strategy = SplitStrategy::None;
 
     cfg.db.enable_persistence = false;
     cfg.db.db_path.clear();
@@ -368,9 +368,9 @@ TEST(restart_recovers_downstream_active_orders) {
     trades_shm_layout* trades = nullptr;
 
     {
-        account_service first_start;
+        AccountService first_start;
         assert(first_start.initialize(config_path));
-        assert(first_start.state() == service_state_t::Ready);
+        assert(first_start.state() == ServiceState::Ready);
 
         orders = orders_manager.open_orders(dated_orders_name, shm_mode::Open, cfg.account_id);
         trades = trades_manager.open_trades(cfg.shm.trades_shm_name, shm_mode::Open, cfg.account_id);
@@ -378,37 +378,37 @@ TEST(restart_recovers_downstream_active_orders) {
         assert(trades != nullptr);
 
         order_request recoverable;
-        recoverable.init_new("000001", internal_security_id_t("SZ.000001"), static_cast<internal_order_id_t>(7001),
-            trade_side_t::Buy, market_t::SZ, static_cast<volume_t>(100), static_cast<dprice_t>(1000), 93000000);
-        recoverable.order_status.store(order_status_t::TraderSubmitted, std::memory_order_relaxed);
+        recoverable.init_new("000001", InternalSecurityId("SZ.000001"), static_cast<InternalOrderId>(7001),
+            trade_side_t::Buy, market_t::SZ, static_cast<Volume>(100), static_cast<DPrice>(1000), 93000000);
+        recoverable.order_state.store(OrderState::TraderSubmitted, std::memory_order_relaxed);
         order_index_t recover_index = kInvalidOrderIndex;
         assert(orders_shm_append(orders, recoverable, order_slot_stage_t::DownstreamQueued, order_slot_source_t::AccountInternal,
             now_ns(), recover_index));
 
         order_request non_downstream;
-        non_downstream.init_new("000002", internal_security_id_t("SZ.000002"), static_cast<internal_order_id_t>(7002),
-            trade_side_t::Buy, market_t::SZ, static_cast<volume_t>(100), static_cast<dprice_t>(1000), 93000000);
-        non_downstream.order_status.store(order_status_t::TraderSubmitted, std::memory_order_relaxed);
+        non_downstream.init_new("000002", InternalSecurityId("SZ.000002"), static_cast<InternalOrderId>(7002),
+            trade_side_t::Buy, market_t::SZ, static_cast<Volume>(100), static_cast<DPrice>(1000), 93000000);
+        non_downstream.order_state.store(OrderState::TraderSubmitted, std::memory_order_relaxed);
         order_index_t non_downstream_index = kInvalidOrderIndex;
         assert(orders_shm_append(
             orders, non_downstream, order_slot_stage_t::UpstreamQueued, order_slot_source_t::Strategy, now_ns(), non_downstream_index));
 
         order_request terminal_downstream;
-        terminal_downstream.init_new("000003", internal_security_id_t("SZ.000003"), static_cast<internal_order_id_t>(7003),
-            trade_side_t::Buy, market_t::SZ, static_cast<volume_t>(100), static_cast<dprice_t>(1000), 93000000);
-        terminal_downstream.order_status.store(order_status_t::Finished, std::memory_order_relaxed);
+        terminal_downstream.init_new("000003", InternalSecurityId("SZ.000003"), static_cast<InternalOrderId>(7003),
+            trade_side_t::Buy, market_t::SZ, static_cast<Volume>(100), static_cast<DPrice>(1000), 93000000);
+        terminal_downstream.order_state.store(OrderState::Finished, std::memory_order_relaxed);
         order_index_t terminal_index = kInvalidOrderIndex;
         assert(orders_shm_append(orders, terminal_downstream, order_slot_stage_t::DownstreamDequeued,
             order_slot_source_t::AccountInternal, now_ns(), terminal_index));
     }
 
-    account_service second_start;
+    AccountService second_start;
     assert(second_start.initialize(config_path));
-    assert(second_start.state() == service_state_t::Ready);
+    assert(second_start.state() == ServiceState::Ready);
 
-    const order_entry* restored = second_start.orders().find_order(static_cast<internal_order_id_t>(7001));
-    const order_entry* not_downstream = second_start.orders().find_order(static_cast<internal_order_id_t>(7002));
-    const order_entry* terminal = second_start.orders().find_order(static_cast<internal_order_id_t>(7003));
+    const OrderEntry* restored = second_start.orders().find_order(static_cast<InternalOrderId>(7001));
+    const OrderEntry* not_downstream = second_start.orders().find_order(static_cast<InternalOrderId>(7002));
+    const OrderEntry* terminal = second_start.orders().find_order(static_cast<InternalOrderId>(7003));
     assert(restored != nullptr);
     assert(not_downstream == nullptr);
     assert(terminal == nullptr);
@@ -417,19 +417,19 @@ TEST(restart_recovers_downstream_active_orders) {
     std::thread worker([&second_start, &run_rc]() { run_rc = second_start.run(); });
 
     trade_response response{};
-    response.internal_order_id = static_cast<internal_order_id_t>(7001);
-    response.internal_security_id = internal_security_id_t("SZ.000001");
+    response.internal_order_id = static_cast<InternalOrderId>(7001);
+    response.internal_security_id = InternalSecurityId("SZ.000001");
     response.trade_side = trade_side_t::Buy;
-    response.new_status = order_status_t::BrokerAccepted;
+    response.new_state = OrderState::BrokerAccepted;
     response.recv_time_ns = now_ns();
     assert(trades->response_queue.try_push(response));
 
     assert(wait_until([&second_start]() {
-        const order_entry* order = second_start.orders().find_order(static_cast<internal_order_id_t>(7001));
+        const OrderEntry* order = second_start.orders().find_order(static_cast<InternalOrderId>(7001));
         if (!order) {
             return false;
         }
-        return order->request.order_status.load(std::memory_order_acquire) == order_status_t::BrokerAccepted;
+        return order->request.order_state.load(std::memory_order_acquire) == OrderState::BrokerAccepted;
     }));
 
     second_start.stop();
@@ -453,7 +453,7 @@ TEST(initialize_rejects_invalid_config) {
     const std::string config_path = unique_config_path("acct_service_cfg_invalid");
     assert(write_config_file(config_path, cfg));
 
-    account_service service;
+    AccountService service;
     assert(!service.initialize(config_path));
     std::remove(config_path.c_str());
 }
@@ -471,16 +471,16 @@ TEST(position_loader_file_mode_only_on_fresh_shm) {
     cfg.shm.create_if_not_exist = true;
     cfg.trading_day = "20260225";
 
-    cfg.event_loop.busy_polling = false;
-    cfg.event_loop.idle_sleep_us = 50;
-    cfg.event_loop.poll_batch_size = 32;
-    cfg.event_loop.stats_interval_ms = 0;
+    cfg.EventLoop.busy_polling = false;
+    cfg.EventLoop.idle_sleep_us = 50;
+    cfg.EventLoop.poll_batch_size = 32;
+    cfg.EventLoop.stats_interval_ms = 0;
 
     cfg.risk.enable_position_check = false;
     cfg.risk.enable_duplicate_check = false;
     cfg.risk.enable_price_limit_check = false;
 
-    cfg.split.strategy = split_strategy_t::None;
+    cfg.split.strategy = SplitStrategy::None;
 
     cfg.db.enable_persistence = false;
     cfg.db.db_path.clear();
@@ -498,9 +498,9 @@ TEST(position_loader_file_mode_only_on_fresh_shm) {
     }
 
     {
-        account_service first_start;
+        AccountService first_start;
         assert(first_start.initialize(config_path));
-        const position* loaded = first_start.positions().get_position(internal_security_id_t("SZ.000001"));
+        const position* loaded = first_start.positions().get_position(InternalSecurityId("SZ.000001"));
         assert(loaded != nullptr);
         assert(loaded->volume_available_t0 == 123);
         assert(first_start.positions().position_count() == 1);
@@ -515,10 +515,10 @@ TEST(position_loader_file_mode_only_on_fresh_shm) {
     }
 
     {
-        account_service second_start;
+        AccountService second_start;
         assert(second_start.initialize(config_path));
-        const position* old_pos = second_start.positions().get_position(internal_security_id_t("SZ.000001"));
-        const position* new_pos = second_start.positions().get_position(internal_security_id_t("SZ.000002"));
+        const position* old_pos = second_start.positions().get_position(InternalSecurityId("SZ.000001"));
+        const position* new_pos = second_start.positions().get_position(InternalSecurityId("SZ.000002"));
         assert(old_pos != nullptr);
         assert(old_pos->volume_available_t0 == 123);
         assert(new_pos == nullptr);
@@ -548,16 +548,16 @@ TEST(position_loader_db_mode_only_on_fresh_shm) {
     cfg.shm.create_if_not_exist = true;
     cfg.trading_day = "20260225";
 
-    cfg.event_loop.busy_polling = false;
-    cfg.event_loop.idle_sleep_us = 50;
-    cfg.event_loop.poll_batch_size = 32;
-    cfg.event_loop.stats_interval_ms = 0;
+    cfg.EventLoop.busy_polling = false;
+    cfg.EventLoop.idle_sleep_us = 50;
+    cfg.EventLoop.poll_batch_size = 32;
+    cfg.EventLoop.stats_interval_ms = 0;
 
     cfg.risk.enable_position_check = false;
     cfg.risk.enable_duplicate_check = false;
     cfg.risk.enable_price_limit_check = false;
 
-    cfg.split.strategy = split_strategy_t::None;
+    cfg.split.strategy = SplitStrategy::None;
 
     cfg.db.enable_persistence = true;
     cfg.db.db_path = unique_db_path("acct_service_pos_boot");
@@ -579,9 +579,9 @@ TEST(position_loader_db_mode_only_on_fresh_shm) {
     db.reset();
 
     {
-        account_service first_start;
+        AccountService first_start;
         assert(first_start.initialize(config_path));
-        const position* loaded = first_start.positions().get_position(internal_security_id_t("SZ.000001"));
+        const position* loaded = first_start.positions().get_position(InternalSecurityId("SZ.000001"));
         assert(loaded != nullptr);
         assert(loaded->volume_available_t0 == 456);
         assert(first_start.positions().position_count() == 1);
@@ -597,10 +597,10 @@ TEST(position_loader_db_mode_only_on_fresh_shm) {
     db.reset();
 
     {
-        account_service second_start;
+        AccountService second_start;
         assert(second_start.initialize(config_path));
-        const position* old_pos = second_start.positions().get_position(internal_security_id_t("SZ.000001"));
-        const position* new_pos = second_start.positions().get_position(internal_security_id_t("SZ.000002"));
+        const position* old_pos = second_start.positions().get_position(InternalSecurityId("SZ.000001"));
+        const position* new_pos = second_start.positions().get_position(InternalSecurityId("SZ.000002"));
         assert(old_pos != nullptr);
         assert(old_pos->volume_available_t0 == 456);
         assert(new_pos == nullptr);
