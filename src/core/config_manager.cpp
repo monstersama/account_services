@@ -233,6 +233,12 @@ bool apply_value(config& cfg, const std::string& key, const std::string& raw_val
     if (key == "event_loop.stats_interval_ms") {
         return parse_u32(value, cfg.event_loop.stats_interval_ms);
     }
+    if (key == "event_loop.archive_terminal_orders") {
+        return parse_bool(value, cfg.event_loop.archive_terminal_orders);
+    }
+    if (key == "event_loop.terminal_archive_delay_ms") {
+        return parse_u32(value, cfg.event_loop.terminal_archive_delay_ms);
+    }
     if (key == "event_loop.pin_cpu") {
         return parse_bool(value, cfg.event_loop.pin_cpu);
     }
@@ -501,7 +507,8 @@ bool config_manager::load_from_file(const std::string& config_path) {
         }
 
         if (!parse_section(loaded, root, "event_loop",
-                {"busy_polling", "poll_batch_size", "idle_sleep_us", "stats_interval_ms", "pin_cpu", "cpu_core"})) {
+                {"busy_polling", "poll_batch_size", "idle_sleep_us", "stats_interval_ms", "archive_terminal_orders",
+                    "terminal_archive_delay_ms", "pin_cpu", "cpu_core"})) {
             return false;
         }
 
@@ -617,6 +624,18 @@ bool config_manager::parse_command_line(int argc, char* argv[]) {
             }
             continue;
         }
+        if (arg == "--terminal-archive-delay-ms") {
+            if (!consume_value(value) || !apply_value(config_, "event_loop.terminal_archive_delay_ms", value)) {
+                return report_config_error(error_code::InvalidConfig, "invalid --terminal-archive-delay-ms");
+            }
+            continue;
+        }
+        if (arg == "--archive-terminal-orders") {
+            if (!consume_value(value) || !apply_value(config_, "event_loop.archive_terminal_orders", value)) {
+                return report_config_error(error_code::InvalidConfig, "invalid --archive-terminal-orders");
+            }
+            continue;
+        }
         if (arg == "--split-strategy") {
             if (!consume_value(value) || !apply_value(config_, "split.strategy", value)) {
                 return report_config_error(error_code::InvalidConfig, "invalid --split-strategy");
@@ -712,6 +731,8 @@ bool config_manager::export_to_file(const std::string& path) const {
     out << "  poll_batch_size: " << config_.event_loop.poll_batch_size << "\n";
     out << "  idle_sleep_us: " << config_.event_loop.idle_sleep_us << "\n";
     out << "  stats_interval_ms: " << config_.event_loop.stats_interval_ms << "\n";
+    out << "  archive_terminal_orders: " << (config_.event_loop.archive_terminal_orders ? "true" : "false") << "\n";
+    out << "  terminal_archive_delay_ms: " << config_.event_loop.terminal_archive_delay_ms << "\n";
     out << "  pin_cpu: " << (config_.event_loop.pin_cpu ? "true" : "false") << "\n";
     out << "  cpu_core: " << config_.event_loop.cpu_core << "\n\n";
 

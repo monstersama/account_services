@@ -332,6 +332,120 @@ TEST(initialize_and_run_processes_orders) {
     std::remove(config_path.c_str());
 }
 
+TEST(restart_recovers_downstream_active_orders) {
+    config cfg;
+    cfg.account_id = 104;
+    cfg.shm.upstream_shm_name = unique_shm_name("acct_upstream_recover");
+    cfg.shm.downstream_shm_name = unique_shm_name("acct_downstream_recover");
+    cfg.shm.trades_shm_name = unique_shm_name("acct_trades_recover");
+    cfg.shm.orders_shm_name = unique_shm_name("acct_orders_recover");
+    cfg.shm.positions_shm_name = unique_shm_name("acct_positions_recover");
+    cfg.shm.create_if_not_exist = true;
+    cfg.trading_day = "20260225";
+
+    cfg.event_loop.busy_polling = false;
+    cfg.event_loop.idle_sleep_us = 50;
+    cfg.event_loop.poll_batch_size = 32;
+    cfg.event_loop.stats_interval_ms = 0;
+
+    cfg.risk.enable_position_check = false;
+    cfg.risk.enable_duplicate_check = false;
+    cfg.risk.enable_price_limit_check = false;
+    cfg.risk.enable_fund_check = false;
+
+    cfg.split.strategy = split_strategy_t::None;
+
+    cfg.db.enable_persistence = false;
+    cfg.db.db_path.clear();
+
+    const std::string config_path = unique_config_path("acct_service_cfg_recover");
+    assert(write_config_file(config_path, cfg));
+
+    const std::string dated_orders_name = make_orders_shm_name(cfg.shm.orders_shm_name, cfg.trading_day);
+    SHMManager orders_manager;
+    SHMManager trades_manager;
+    orders_shm_layout* orders = nullptr;
+    trades_shm_layout* trades = nullptr;
+
+    {
+        account_service first_start;
+        assert(first_start.initialize(config_path));
+        assert(first_start.state() == service_state_t::Ready);
+
+        orders = orders_manager.open_orders(dated_orders_name, shm_mode::Open, cfg.account_id);
+        trades = trades_manager.open_trades(cfg.shm.trades_shm_name, shm_mode::Open, cfg.account_id);
+        assert(orders != nullptr);
+        assert(trades != nullptr);
+
+        order_request recoverable;
+        recoverable.init_new("000001", internal_security_id_t("SZ.000001"), static_cast<internal_order_id_t>(7001),
+            trade_side_t::Buy, market_t::SZ, static_cast<volume_t>(100), static_cast<dprice_t>(1000), 93000000);
+        recoverable.order_status.store(order_status_t::TraderSubmitted, std::memory_order_relaxed);
+        order_index_t recover_index = kInvalidOrderIndex;
+        assert(orders_shm_append(orders, recoverable, order_slot_stage_t::DownstreamQueued, order_slot_source_t::AccountInternal,
+            now_ns(), recover_index));
+
+        order_request non_downstream;
+        non_downstream.init_new("000002", internal_security_id_t("SZ.000002"), static_cast<internal_order_id_t>(7002),
+            trade_side_t::Buy, market_t::SZ, static_cast<volume_t>(100), static_cast<dprice_t>(1000), 93000000);
+        non_downstream.order_status.store(order_status_t::TraderSubmitted, std::memory_order_relaxed);
+        order_index_t non_downstream_index = kInvalidOrderIndex;
+        assert(orders_shm_append(
+            orders, non_downstream, order_slot_stage_t::UpstreamQueued, order_slot_source_t::Strategy, now_ns(), non_downstream_index));
+
+        order_request terminal_downstream;
+        terminal_downstream.init_new("000003", internal_security_id_t("SZ.000003"), static_cast<internal_order_id_t>(7003),
+            trade_side_t::Buy, market_t::SZ, static_cast<volume_t>(100), static_cast<dprice_t>(1000), 93000000);
+        terminal_downstream.order_status.store(order_status_t::Finished, std::memory_order_relaxed);
+        order_index_t terminal_index = kInvalidOrderIndex;
+        assert(orders_shm_append(orders, terminal_downstream, order_slot_stage_t::DownstreamDequeued,
+            order_slot_source_t::AccountInternal, now_ns(), terminal_index));
+    }
+
+    account_service second_start;
+    assert(second_start.initialize(config_path));
+    assert(second_start.state() == service_state_t::Ready);
+
+    const order_entry* restored = second_start.orders().find_order(static_cast<internal_order_id_t>(7001));
+    const order_entry* not_downstream = second_start.orders().find_order(static_cast<internal_order_id_t>(7002));
+    const order_entry* terminal = second_start.orders().find_order(static_cast<internal_order_id_t>(7003));
+    assert(restored != nullptr);
+    assert(not_downstream == nullptr);
+    assert(terminal == nullptr);
+
+    int run_rc = -1;
+    std::thread worker([&second_start, &run_rc]() { run_rc = second_start.run(); });
+
+    trade_response response{};
+    response.internal_order_id = static_cast<internal_order_id_t>(7001);
+    response.internal_security_id = internal_security_id_t("SZ.000001");
+    response.trade_side = trade_side_t::Buy;
+    response.new_status = order_status_t::BrokerAccepted;
+    response.recv_time_ns = now_ns();
+    assert(trades->response_queue.try_push(response));
+
+    assert(wait_until([&second_start]() {
+        const order_entry* order = second_start.orders().find_order(static_cast<internal_order_id_t>(7001));
+        if (!order) {
+            return false;
+        }
+        return order->request.order_status.load(std::memory_order_acquire) == order_status_t::BrokerAccepted;
+    }));
+
+    second_start.stop();
+    worker.join();
+    assert(run_rc == 0);
+
+    orders_manager.close();
+    trades_manager.close();
+    (void)SHMManager::unlink(cfg.shm.upstream_shm_name);
+    (void)SHMManager::unlink(cfg.shm.downstream_shm_name);
+    (void)SHMManager::unlink(cfg.shm.trades_shm_name);
+    (void)SHMManager::unlink(dated_orders_name);
+    (void)SHMManager::unlink(cfg.shm.positions_shm_name);
+    std::remove(config_path.c_str());
+}
+
 TEST(initialize_rejects_invalid_config) {
     config cfg;
     cfg.account_id = 0;
@@ -507,6 +621,7 @@ int main() {
     printf("=== Account Service Test Suite ===\n\n");
 
     RUN_TEST(initialize_and_run_processes_orders);
+    RUN_TEST(restart_recovers_downstream_active_orders);
     RUN_TEST(initialize_rejects_invalid_config);
     RUN_TEST(position_loader_file_mode_only_on_fresh_shm);
     RUN_TEST(position_loader_db_mode_only_on_fresh_shm);

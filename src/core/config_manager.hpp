@@ -24,6 +24,8 @@ struct event_loop_config {
     uint32_t poll_batch_size = 64;
     uint32_t idle_sleep_us = 0;
     uint32_t stats_interval_ms = 1000;
+    bool archive_terminal_orders = false;
+    uint32_t terminal_archive_delay_ms = 2000;
     bool pin_cpu = false;
     int cpu_core = -1;
 };

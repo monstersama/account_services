@@ -108,11 +108,27 @@ TEST(parent_error_latch) {
     assert(parent->request.order_status.load(std::memory_order_acquire) == order_status_t::TraderError);
 }
 
+TEST(ensure_next_order_id_at_least) {
+    auto book = std::make_unique<order_book>();
+
+    const internal_order_id_t first = book->next_order_id();
+    assert(first == static_cast<internal_order_id_t>(1));
+
+    book->ensure_next_order_id_at_least(static_cast<internal_order_id_t>(5000));
+    const internal_order_id_t seeded = book->next_order_id();
+    assert(seeded == static_cast<internal_order_id_t>(5000));
+
+    book->ensure_next_order_id_at_least(static_cast<internal_order_id_t>(100));
+    const internal_order_id_t next = book->next_order_id();
+    assert(next == static_cast<internal_order_id_t>(5001));
+}
+
 int main() {
     printf("=== Order Book Split Tracking Test Suite ===\n\n");
 
     RUN_TEST(split_mapping_and_aggregation);
     RUN_TEST(parent_error_latch);
+    RUN_TEST(ensure_next_order_id_at_least);
 
     printf("\n=== All tests passed! ===\n");
     return 0;

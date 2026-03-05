@@ -369,6 +369,15 @@ internal_order_id_t order_book::next_order_id() noexcept {
     return next_order_id_.fetch_add(1, std::memory_order_relaxed);
 }
 
+void order_book::ensure_next_order_id_at_least(internal_order_id_t next_id) noexcept {
+    internal_order_id_t current = next_order_id_.load(std::memory_order_acquire);
+    while (current < next_id) {
+        if (next_order_id_.compare_exchange_weak(current, next_id, std::memory_order_acq_rel, std::memory_order_acquire)) {
+            break;
+        }
+    }
+}
+
 void order_book::clear() {
     lock_guard<spinlock> guard(lock_);
 

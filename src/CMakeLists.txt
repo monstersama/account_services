@@ -66,6 +66,7 @@ endif()
 # order 核心库 (order_book, order_router, order_splitter)
 add_library(acct_order_core STATIC
     order/order_book.cpp
+    order/order_recovery.cpp
     order/order_router.cpp
     order/order_splitter.cpp
 )

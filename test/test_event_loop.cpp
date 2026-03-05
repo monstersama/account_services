@@ -199,10 +199,99 @@ TEST(process_order_and_trade_response) {
     assert(loop.stats().responses_processed >= 1);
 }
 
+TEST(delay_archive_allows_late_terminal_trade) {
+    auto upstream = make_upstream_shm();
+    auto downstream = make_downstream_shm();
+    auto trades = make_trades_shm();
+    auto orders_shm = make_orders_shm();
+    auto positions_shm = make_positions_shm();
+
+    position_manager positions(positions_shm.get());
+    assert(positions.initialize(1));
+    assert(positions.add_security("000001", "PingAn", market_t::SZ) == std::string_view("SZ.000001"));
+
+    risk_config risk_cfg;
+    risk_cfg.enable_position_check = false;
+    risk_cfg.enable_price_limit_check = false;
+    risk_cfg.enable_duplicate_check = false;
+    risk_cfg.max_order_volume = 0;
+    risk_cfg.max_order_value = 0;
+    risk_cfg.max_orders_per_second = 0;
+    risk_manager risk(positions, risk_cfg);
+
+    auto book = std::make_unique<order_book>();
+    split_config split_cfg;
+    split_cfg.strategy = split_strategy_t::None;
+    order_router router(*book, downstream.get(), orders_shm.get(), split_cfg);
+
+    event_loop_config loop_cfg;
+    loop_cfg.busy_polling = false;
+    loop_cfg.idle_sleep_us = 50;
+    loop_cfg.poll_batch_size = 32;
+    loop_cfg.stats_interval_ms = 0;
+    loop_cfg.archive_terminal_orders = true;
+    loop_cfg.terminal_archive_delay_ms = 80;
+    event_loop loop(loop_cfg, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router, positions, risk);
+
+    std::thread worker([&loop]() { loop.run(); });
+
+    const internal_order_id_t order_id = 700;
+    order_request req = make_order(order_id, 100);
+    order_index_t order_index = kInvalidOrderIndex;
+    assert(orders_shm_append(
+        orders_shm.get(), req, order_slot_stage_t::UpstreamQueued, order_slot_source_t::Strategy, now_ns(), order_index));
+    assert(upstream->strategy_order_queue.try_push(order_index));
+
+    assert(wait_until([&downstream]() { return downstream->order_queue.size() > 0; }));
+    order_index_t downstream_index = kInvalidOrderIndex;
+    assert(downstream->order_queue.try_pop(downstream_index));
+
+    trade_response first_terminal{};
+    first_terminal.internal_order_id = order_id;
+    first_terminal.internal_security_id = internal_security_id_t("SZ.000001");
+    first_terminal.trade_side = trade_side_t::Buy;
+    first_terminal.new_status = order_status_t::Finished;
+    first_terminal.recv_time_ns = now_ns();
+    assert(trades->response_queue.try_push(first_terminal));
+
+    assert(wait_until([&book, order_id]() {
+        const order_entry* order = book->find_order(order_id);
+        return order && order->request.order_status.load(std::memory_order_acquire) == order_status_t::Finished;
+    }));
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+    trade_response late_trade{};
+    late_trade.internal_order_id = order_id;
+    late_trade.internal_security_id = internal_security_id_t("SZ.000001");
+    late_trade.trade_side = trade_side_t::Buy;
+    late_trade.new_status = order_status_t::Finished;
+    late_trade.volume_traded = 40;
+    late_trade.dprice_traded = 1000;
+    late_trade.dvalue_traded = 40000;
+    late_trade.dfee = 8;
+    late_trade.md_time_traded = 93100000;
+    late_trade.recv_time_ns = now_ns();
+    assert(trades->response_queue.try_push(late_trade));
+
+    assert(wait_until([&book, order_id]() {
+        const order_entry* order = book->find_order(order_id);
+        return order && order->request.volume_traded == 40;
+    }));
+
+    assert(wait_until([&book, order_id]() { return book->find_order(order_id) == nullptr; }, 1500));
+
+    loop.stop();
+    worker.join();
+
+    assert(loop.stats().responses_processed >= 2);
+}
+
 int main() {
     printf("=== Event Loop Test Suite ===\n\n");
 
     RUN_TEST(process_order_and_trade_response);
+    RUN_TEST(delay_archive_allows_late_terminal_trade);
 
     printf("\n=== All tests passed! ===\n");
     return 0;

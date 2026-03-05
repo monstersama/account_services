@@ -23,6 +23,16 @@
 
 namespace {
 
+// 临时覆盖进程 umask，作用域结束时恢复，便于验证权限逻辑不受 umask 干扰。
+class ScopedUmaskOverride {
+public:
+    explicit ScopedUmaskOverride(mode_t value) : old_umask_(::umask(value)) {}
+    ~ScopedUmaskOverride() { (void)::umask(old_umask_); }
+
+private:
+    mode_t old_umask_;
+};
+
 std::string unique_shm_name(const char* tag) {
     static std::atomic<uint64_t> counter{0};
     const uint64_t seq = counter.fetch_add(1, std::memory_order_relaxed);
@@ -133,6 +143,32 @@ TEST(size_mismatch) {
     cleanup_shm(name);
 }
 
+TEST(create_mode_is_0660_and_ignores_umask) {
+    using namespace acct_service;
+
+    const std::string name = unique_shm_name("shm_mgr_create_mode_env");
+    cleanup_shm(name);
+
+    ScopedUmaskOverride mask_override(0077);
+
+    SHMManager creator;
+    auto* layout = creator.open_upstream(name, shm_mode::Create, 1);
+    assert(layout != nullptr);
+
+    const int fd = ::shm_open(name.c_str(), O_RDONLY | O_CLOEXEC, 0);
+    assert(fd >= 0);
+
+    struct stat st;
+    const int stat_rc = ::fstat(fd, &st);
+    assert(stat_rc == 0);
+    ::close(fd);
+
+    assert((st.st_mode & 0777) == 0660);
+
+    creator.close();
+    cleanup_shm(name);
+}
+
 int main() {
     printf("=== Shm Manager Test Suite ===\n\n");
 
@@ -140,6 +176,7 @@ int main() {
     RUN_TEST(open_or_create_no_reinit);
     RUN_TEST(open_orders_with_dated_name);
     RUN_TEST(size_mismatch);
+    RUN_TEST(create_mode_is_0660_and_ignores_umask);
 
     printf("\n=== All tests passed! ===\n");
     return 0;

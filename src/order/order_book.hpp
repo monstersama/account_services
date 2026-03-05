@@ -88,6 +88,9 @@ public:
     // 生成新的内部订单ID
     internal_order_id_t next_order_id() noexcept;
 
+    // 将内部订单ID生成器抬升到至少 next_id（避免重启恢复后分配冲突）
+    void ensure_next_order_id_at_least(internal_order_id_t next_id) noexcept;
+
     // 清空所有订单（仅用于初始化）
     void clear();
 

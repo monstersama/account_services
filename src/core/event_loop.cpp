@@ -4,6 +4,7 @@
 #include <csignal>
 #include <cstdio>
 #include <thread>
+#include <vector>
 
 #include "common/error.hpp"
 #include "common/log.hpp"
@@ -131,6 +132,9 @@ void event_loop::loop_iteration() {
 
     const std::size_t orders = process_upstream_orders();
     const std::size_t responses = process_downstream_responses();
+    if (config_.archive_terminal_orders) {
+        process_pending_archives(now_ns());
+    }
 
     if (orders == 0 && responses == 0) {
         ++stats_.idle_iterations;
@@ -376,8 +380,55 @@ void event_loop::handle_trade_response(const trade_response& response) {
         }
     }
 
-    if (is_terminal_status(response.new_status)) {
+    if (!is_terminal_status(response.new_status)) {
+        pending_archive_deadlines_ns_.erase(response.internal_order_id);
+        return;
+    }
+
+    if (!config_.archive_terminal_orders) {
+        pending_archive_deadlines_ns_.erase(response.internal_order_id);
+        return;
+    }
+
+    if (config_.terminal_archive_delay_ms == 0) {
         (void)order_book_.archive_order(response.internal_order_id);
+        pending_archive_deadlines_ns_.erase(response.internal_order_id);
+        return;
+    }
+
+    const timestamp_ns_t deadline_ns =
+        now_ns() + static_cast<timestamp_ns_t>(config_.terminal_archive_delay_ms) * 1000000ULL;
+    pending_archive_deadlines_ns_[response.internal_order_id] = deadline_ns;
+}
+
+void event_loop::process_pending_archives(timestamp_ns_t now_ns_value) {
+    if (pending_archive_deadlines_ns_.empty()) {
+        return;
+    }
+
+    std::vector<internal_order_id_t> due_order_ids;
+    due_order_ids.reserve(pending_archive_deadlines_ns_.size());
+    for (const auto& item : pending_archive_deadlines_ns_) {
+        if (now_ns_value >= item.second) {
+            due_order_ids.push_back(item.first);
+        }
+    }
+
+    for (internal_order_id_t order_id : due_order_ids) {
+        const order_entry* entry = order_book_.find_order(order_id);
+        if (!entry) {
+            pending_archive_deadlines_ns_.erase(order_id);
+            continue;
+        }
+
+        const order_status_t status = entry->request.order_status.load(std::memory_order_acquire);
+        if (!is_terminal_status(status)) {
+            pending_archive_deadlines_ns_.erase(order_id);
+            continue;
+        }
+
+        (void)order_book_.archive_order(order_id);
+        pending_archive_deadlines_ns_.erase(order_id);
     }
 }
 

@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <cstdio>
+#include <string>
 
 #include "common/log.hpp"
 #include "shm/orders_shm.hpp"
@@ -247,6 +248,10 @@ bool account_service::init_order_components() {
     if (!order_book_ || !order_router_) {
         raise_service_error(
             make_service_error(error_code::ComponentUnavailable, "failed to initialize order components"));
+        return false;
+    }
+    if (!order_router_->recover_downstream_active_orders(upstream_shm_)) {
+        raise_service_error(make_service_error(error_code::ComponentUnavailable, "failed to recover downstream active orders"));
         return false;
     }
     return true;

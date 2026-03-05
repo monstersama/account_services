@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <unordered_map>
 
 #include "common/types.hpp"
 #include "core/config_manager.hpp"
@@ -84,6 +85,9 @@ private:
     // 处理单笔成交回报
     void handle_trade_response(const trade_response& response);
 
+    // 处理到期的终态订单归档任务
+    void process_pending_archives(timestamp_ns_t now_ns_value);
+
     // 更新延迟统计
     void update_latency_stats(timestamp_ns_t start, timestamp_ns_t end);
 
@@ -108,6 +112,8 @@ private:
     std::atomic<bool> running_{false};  // 运行状态标志
     event_loop_stats stats_;            // 运行统计
 
+    std::unordered_map<internal_order_id_t, timestamp_ns_t>
+        pending_archive_deadlines_ns_;      // 终态订单 -> 延迟归档到期时间
     timestamp_ns_t last_stats_time_ = 0;  // 最近一次打印统计的单调时钟时间
 };
 

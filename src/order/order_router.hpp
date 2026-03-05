@@ -39,6 +39,9 @@ public:
     // 处理撤单请求
     bool route_cancel(internal_order_id_t orig_id, internal_order_id_t cancel_id, md_time_t time);
 
+    // 启动恢复：从 orders_shm 重建“已下游但未终态”订单到 order_book。
+    bool recover_downstream_active_orders(const upstream_shm_layout* upstream_shm);
+
     // 获取统计信息
     const router_stats& stats() const noexcept;
 
