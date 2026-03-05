@@ -25,9 +25,9 @@ namespace {
 
 using namespace acct_service;
 
-void init_header(shm_header& header) {
-    header.magic = shm_header::kMagic;
-    header.version = shm_header::kVersion;
+void init_header(SHMHeader& header) {
+    header.magic = SHMHeader::kMagic;
+    header.version = SHMHeader::kVersion;
     header.create_time = now_ns();
     header.last_update = header.create_time;
     header.next_order_id.store(1, std::memory_order_relaxed);
@@ -56,9 +56,9 @@ std::unique_ptr<trades_shm_layout> make_trades_shm() {
 
 std::unique_ptr<orders_shm_layout> make_orders_shm() {
     auto shm = std::make_unique<orders_shm_layout>();
-    shm->header.magic = orders_header::kMagic;
-    shm->header.version = orders_header::kVersion;
-    shm->header.header_size = static_cast<uint32_t>(sizeof(orders_header));
+    shm->header.magic = OrdersHeader::kMagic;
+    shm->header.version = OrdersHeader::kVersion;
+    shm->header.header_size = static_cast<uint32_t>(sizeof(OrdersHeader));
     shm->header.total_size = static_cast<uint32_t>(sizeof(orders_shm_layout));
     shm->header.capacity = static_cast<uint32_t>(kDailyOrderPoolCapacity);
     shm->header.init_state = 1;
@@ -72,9 +72,9 @@ std::unique_ptr<orders_shm_layout> make_orders_shm() {
 
 std::unique_ptr<positions_shm_layout> make_positions_shm() {
     auto shm = std::make_unique<positions_shm_layout>();
-    shm->header.magic = positions_header::kMagic;
-    shm->header.version = positions_header::kVersion;
-    shm->header.header_size = static_cast<uint32_t>(sizeof(positions_header));
+    shm->header.magic = PositionsHeader::kMagic;
+    shm->header.version = PositionsHeader::kVersion;
+    shm->header.header_size = static_cast<uint32_t>(sizeof(PositionsHeader));
     shm->header.total_size = static_cast<uint32_t>(sizeof(positions_shm_layout));
     shm->header.capacity = static_cast<uint32_t>(kMaxPositions);
     shm->header.init_state = 0;
@@ -96,10 +96,10 @@ bool wait_until(const std::function<bool()>& predicate, int timeout_ms = 1000) {
     return false;
 }
 
-order_request make_order(InternalOrderId order_id, Volume volume) {
-    order_request req;
+OrderRequest make_order(InternalOrderId order_id, Volume volume) {
+    OrderRequest req;
     req.init_new(
-        "000001", InternalSecurityId("SZ.000001"), order_id, trade_side_t::Buy, market_t::SZ, volume, 1000,
+        "000001", InternalSecurityId("SZ.000001"), order_id, TradeSide::Buy, Market::SZ, volume, 1000,
         93000000);
     req.order_state.store(OrderState::StrategySubmitted, std::memory_order_relaxed);
     return req;
@@ -114,20 +114,20 @@ TEST(process_order_and_trade_response) {
     auto orders_shm = make_orders_shm();
     auto positions_shm = make_positions_shm();
 
-    position_manager positions(positions_shm.get());
+    PositionManager positions(positions_shm.get());
     assert(positions.initialize(1));
-    assert(positions.add_security("000001", "PingAn", market_t::SZ) == std::string_view("SZ.000001"));
+    assert(positions.add_security("000001", "PingAn", Market::SZ) == std::string_view("SZ.000001"));
 
-    risk_config risk_cfg;
+    RiskConfig risk_cfg;
     risk_cfg.enable_position_check = false;
     risk_cfg.enable_price_limit_check = false;
     risk_cfg.enable_duplicate_check = false;
     risk_cfg.max_order_volume = 0;
     risk_cfg.max_order_value = 0;
     risk_cfg.max_orders_per_second = 0;
-    risk_manager risk(positions, risk_cfg);
+    RiskManager risk(positions, risk_cfg);
 
-    auto book = std::make_unique<order_book>();
+    auto book = std::make_unique<OrderBook>();
     split_config split_cfg;
     split_cfg.strategy = SplitStrategy::None;
     order_router router(*book, downstream.get(), orders_shm.get(), split_cfg);
@@ -142,25 +142,25 @@ TEST(process_order_and_trade_response) {
     std::thread worker([&loop]() { loop.run(); });
 
     const InternalOrderId order_id = 500;
-    order_request req = make_order(order_id, 100);
-    order_index_t order_index = kInvalidOrderIndex;
+    OrderRequest req = make_order(order_id, 100);
+    OrderIndex order_index = kInvalidOrderIndex;
     assert(orders_shm_append(
-        orders_shm.get(), req, order_slot_stage_t::UpstreamQueued, order_slot_source_t::Strategy, now_ns(), order_index));
+        orders_shm.get(), req, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy, now_ns(), order_index));
     assert(upstream->strategy_order_queue.try_push(order_index));
 
     assert(wait_until([&downstream]() { return downstream->order_queue.size() > 0; }));
 
-    order_index_t downstream_index = kInvalidOrderIndex;
+    OrderIndex downstream_index = kInvalidOrderIndex;
     assert(downstream->order_queue.try_pop(downstream_index));
     order_slot_snapshot sent_snapshot;
     assert(orders_shm_read_snapshot(orders_shm.get(), downstream_index, sent_snapshot));
     assert(sent_snapshot.request.internal_order_id == order_id);
-    assert(sent_snapshot.request.order_type == order_type_t::New);
+    assert(sent_snapshot.request.order_type == OrderType::New);
 
-    trade_response rsp{};
+    TradeResponse rsp{};
     rsp.internal_order_id = order_id;
     rsp.internal_security_id = InternalSecurityId("SZ.000001");
-    rsp.trade_side = trade_side_t::Buy;
+    rsp.trade_side = TradeSide::Buy;
     rsp.new_state = OrderState::MarketAccepted;
     rsp.volume_traded = 50;
     rsp.dprice_traded = 1000;
@@ -206,20 +206,20 @@ TEST(delay_archive_allows_late_terminal_trade) {
     auto orders_shm = make_orders_shm();
     auto positions_shm = make_positions_shm();
 
-    position_manager positions(positions_shm.get());
+    PositionManager positions(positions_shm.get());
     assert(positions.initialize(1));
-    assert(positions.add_security("000001", "PingAn", market_t::SZ) == std::string_view("SZ.000001"));
+    assert(positions.add_security("000001", "PingAn", Market::SZ) == std::string_view("SZ.000001"));
 
-    risk_config risk_cfg;
+    RiskConfig risk_cfg;
     risk_cfg.enable_position_check = false;
     risk_cfg.enable_price_limit_check = false;
     risk_cfg.enable_duplicate_check = false;
     risk_cfg.max_order_volume = 0;
     risk_cfg.max_order_value = 0;
     risk_cfg.max_orders_per_second = 0;
-    risk_manager risk(positions, risk_cfg);
+    RiskManager risk(positions, risk_cfg);
 
-    auto book = std::make_unique<order_book>();
+    auto book = std::make_unique<OrderBook>();
     split_config split_cfg;
     split_cfg.strategy = SplitStrategy::None;
     order_router router(*book, downstream.get(), orders_shm.get(), split_cfg);
@@ -236,20 +236,20 @@ TEST(delay_archive_allows_late_terminal_trade) {
     std::thread worker([&loop]() { loop.run(); });
 
     const InternalOrderId order_id = 700;
-    order_request req = make_order(order_id, 100);
-    order_index_t order_index = kInvalidOrderIndex;
+    OrderRequest req = make_order(order_id, 100);
+    OrderIndex order_index = kInvalidOrderIndex;
     assert(orders_shm_append(
-        orders_shm.get(), req, order_slot_stage_t::UpstreamQueued, order_slot_source_t::Strategy, now_ns(), order_index));
+        orders_shm.get(), req, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy, now_ns(), order_index));
     assert(upstream->strategy_order_queue.try_push(order_index));
 
     assert(wait_until([&downstream]() { return downstream->order_queue.size() > 0; }));
-    order_index_t downstream_index = kInvalidOrderIndex;
+    OrderIndex downstream_index = kInvalidOrderIndex;
     assert(downstream->order_queue.try_pop(downstream_index));
 
-    trade_response first_terminal{};
+    TradeResponse first_terminal{};
     first_terminal.internal_order_id = order_id;
     first_terminal.internal_security_id = InternalSecurityId("SZ.000001");
-    first_terminal.trade_side = trade_side_t::Buy;
+    first_terminal.trade_side = TradeSide::Buy;
     first_terminal.new_state = OrderState::Finished;
     first_terminal.recv_time_ns = now_ns();
     assert(trades->response_queue.try_push(first_terminal));
@@ -261,10 +261,10 @@ TEST(delay_archive_allows_late_terminal_trade) {
 
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
 
-    trade_response late_trade{};
+    TradeResponse late_trade{};
     late_trade.internal_order_id = order_id;
     late_trade.internal_security_id = InternalSecurityId("SZ.000001");
-    late_trade.trade_side = trade_side_t::Buy;
+    late_trade.trade_side = TradeSide::Buy;
     late_trade.new_state = OrderState::Finished;
     late_trade.volume_traded = 40;
     late_trade.dprice_traded = 1000;

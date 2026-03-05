@@ -85,7 +85,7 @@ const char* split_strategy_to_string(SplitStrategy strategy) {
     }
 }
 
-bool write_config_file(const std::string& path, const config& cfg) {
+bool write_config_file(const std::string& path, const Config& cfg) {
     std::ofstream out(path);
     if (!out.is_open()) {
         return false;
@@ -218,7 +218,7 @@ bool init_position_loader_schema(sqlite3* db) {
 }  // namespace
 
 TEST(initialize_and_run_processes_orders) {
-    config cfg;
+    Config cfg;
     cfg.account_id = 101;
     cfg.shm.upstream_shm_name = unique_shm_name("acct_upstream");
     cfg.shm.downstream_shm_name = unique_shm_name("acct_downstream");
@@ -270,29 +270,29 @@ TEST(initialize_and_run_processes_orders) {
     int run_rc = -1;
     std::thread worker([&service, &run_rc]() { run_rc = service.run(); });
 
-    order_request req;
+    OrderRequest req;
     req.init_new("000001", InternalSecurityId("SZ.000001"), static_cast<InternalOrderId>(5001),
-        trade_side_t::Buy, market_t::SZ, static_cast<Volume>(100), static_cast<DPrice>(1000), 93000000);
+        TradeSide::Buy, Market::SZ, static_cast<Volume>(100), static_cast<DPrice>(1000), 93000000);
     req.order_state.store(OrderState::StrategySubmitted, std::memory_order_relaxed);
 
-    order_index_t upstream_index = kInvalidOrderIndex;
+    OrderIndex upstream_index = kInvalidOrderIndex;
     assert(orders_shm_append(
-        orders, req, order_slot_stage_t::UpstreamQueued, order_slot_source_t::Strategy, now_ns(), upstream_index));
+        orders, req, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy, now_ns(), upstream_index));
     assert(upstream->strategy_order_queue.try_push(upstream_index));
 
     assert(wait_until([downstream]() { return downstream->order_queue.size() > 0; }));
 
-    order_index_t downstream_index = kInvalidOrderIndex;
+    OrderIndex downstream_index = kInvalidOrderIndex;
     assert(downstream->order_queue.try_pop(downstream_index));
     order_slot_snapshot sent_snapshot;
     assert(orders_shm_read_snapshot(orders, downstream_index, sent_snapshot));
-    assert(sent_snapshot.request.order_type == order_type_t::New);
+    assert(sent_snapshot.request.order_type == OrderType::New);
     assert(sent_snapshot.request.security_id.view() == "000001");
 
-    trade_response rsp{};
+    TradeResponse rsp{};
     rsp.internal_order_id = static_cast<InternalOrderId>(5001);
     rsp.internal_security_id = InternalSecurityId("SZ.000001");
-    rsp.trade_side = trade_side_t::Buy;
+    rsp.trade_side = TradeSide::Buy;
     rsp.new_state = OrderState::MarketAccepted;
     rsp.volume_traded = static_cast<Volume>(50);
     rsp.dprice_traded = static_cast<DPrice>(1000);
@@ -333,7 +333,7 @@ TEST(initialize_and_run_processes_orders) {
 }
 
 TEST(restart_recovers_downstream_active_orders) {
-    config cfg;
+    Config cfg;
     cfg.account_id = 104;
     cfg.shm.upstream_shm_name = unique_shm_name("acct_upstream_recover");
     cfg.shm.downstream_shm_name = unique_shm_name("acct_downstream_recover");
@@ -377,28 +377,28 @@ TEST(restart_recovers_downstream_active_orders) {
         assert(orders != nullptr);
         assert(trades != nullptr);
 
-        order_request recoverable;
+        OrderRequest recoverable;
         recoverable.init_new("000001", InternalSecurityId("SZ.000001"), static_cast<InternalOrderId>(7001),
-            trade_side_t::Buy, market_t::SZ, static_cast<Volume>(100), static_cast<DPrice>(1000), 93000000);
+            TradeSide::Buy, Market::SZ, static_cast<Volume>(100), static_cast<DPrice>(1000), 93000000);
         recoverable.order_state.store(OrderState::TraderSubmitted, std::memory_order_relaxed);
-        order_index_t recover_index = kInvalidOrderIndex;
-        assert(orders_shm_append(orders, recoverable, order_slot_stage_t::DownstreamQueued, order_slot_source_t::AccountInternal,
+        OrderIndex recover_index = kInvalidOrderIndex;
+        assert(orders_shm_append(orders, recoverable, OrderSlotState::DownstreamQueued, order_slot_source_t::AccountInternal,
             now_ns(), recover_index));
 
-        order_request non_downstream;
+        OrderRequest non_downstream;
         non_downstream.init_new("000002", InternalSecurityId("SZ.000002"), static_cast<InternalOrderId>(7002),
-            trade_side_t::Buy, market_t::SZ, static_cast<Volume>(100), static_cast<DPrice>(1000), 93000000);
+            TradeSide::Buy, Market::SZ, static_cast<Volume>(100), static_cast<DPrice>(1000), 93000000);
         non_downstream.order_state.store(OrderState::TraderSubmitted, std::memory_order_relaxed);
-        order_index_t non_downstream_index = kInvalidOrderIndex;
+        OrderIndex non_downstream_index = kInvalidOrderIndex;
         assert(orders_shm_append(
-            orders, non_downstream, order_slot_stage_t::UpstreamQueued, order_slot_source_t::Strategy, now_ns(), non_downstream_index));
+            orders, non_downstream, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy, now_ns(), non_downstream_index));
 
-        order_request terminal_downstream;
+        OrderRequest terminal_downstream;
         terminal_downstream.init_new("000003", InternalSecurityId("SZ.000003"), static_cast<InternalOrderId>(7003),
-            trade_side_t::Buy, market_t::SZ, static_cast<Volume>(100), static_cast<DPrice>(1000), 93000000);
+            TradeSide::Buy, Market::SZ, static_cast<Volume>(100), static_cast<DPrice>(1000), 93000000);
         terminal_downstream.order_state.store(OrderState::Finished, std::memory_order_relaxed);
-        order_index_t terminal_index = kInvalidOrderIndex;
-        assert(orders_shm_append(orders, terminal_downstream, order_slot_stage_t::DownstreamDequeued,
+        OrderIndex terminal_index = kInvalidOrderIndex;
+        assert(orders_shm_append(orders, terminal_downstream, OrderSlotState::DownstreamDequeued,
             order_slot_source_t::AccountInternal, now_ns(), terminal_index));
     }
 
@@ -416,10 +416,10 @@ TEST(restart_recovers_downstream_active_orders) {
     int run_rc = -1;
     std::thread worker([&second_start, &run_rc]() { run_rc = second_start.run(); });
 
-    trade_response response{};
+    TradeResponse response{};
     response.internal_order_id = static_cast<InternalOrderId>(7001);
     response.internal_security_id = InternalSecurityId("SZ.000001");
-    response.trade_side = trade_side_t::Buy;
+    response.trade_side = TradeSide::Buy;
     response.new_state = OrderState::BrokerAccepted;
     response.recv_time_ns = now_ns();
     assert(trades->response_queue.try_push(response));
@@ -447,7 +447,7 @@ TEST(restart_recovers_downstream_active_orders) {
 }
 
 TEST(initialize_rejects_invalid_config) {
-    config cfg;
+    Config cfg;
     cfg.account_id = 0;
 
     const std::string config_path = unique_config_path("acct_service_cfg_invalid");
@@ -461,7 +461,7 @@ TEST(initialize_rejects_invalid_config) {
 TEST(position_loader_file_mode_only_on_fresh_shm) {
     using namespace acct_service;
 
-    config cfg;
+    Config cfg;
     cfg.account_id = 102;
     cfg.shm.upstream_shm_name = unique_shm_name("acct_upstream_pos_boot");
     cfg.shm.downstream_shm_name = unique_shm_name("acct_downstream_pos_boot");
@@ -538,7 +538,7 @@ TEST(position_loader_file_mode_only_on_fresh_shm) {
 TEST(position_loader_db_mode_only_on_fresh_shm) {
     using namespace acct_service;
 
-    config cfg;
+    Config cfg;
     cfg.account_id = 103;
     cfg.shm.upstream_shm_name = unique_shm_name("acct_upstream_pos_boot_db");
     cfg.shm.downstream_shm_name = unique_shm_name("acct_downstream_pos_boot_db");

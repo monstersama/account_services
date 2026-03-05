@@ -50,7 +50,7 @@ TEST(load_and_export_roundtrip) {
         out << "  max_child_volume: 500\n";
     }
 
-    config_manager manager;
+    ConfigManager manager;
     assert(manager.load_from_file(in_path));
     assert(manager.account_id() == 7);
     assert(manager.get().trading_day == "20260225");
@@ -63,7 +63,7 @@ TEST(load_and_export_roundtrip) {
 
     assert(manager.export_to_file(out_path));
 
-    config_manager reloaded;
+    ConfigManager reloaded;
     assert(reloaded.load_from_file(out_path));
     assert(reloaded.account_id() == 7);
     assert(reloaded.get().trading_day == "20260225");
@@ -93,14 +93,14 @@ TEST(load_rejects_unknown_key) {
         out << "  unknown_field: 1\n";
     }
 
-    config_manager manager;
+    ConfigManager manager;
     assert(!manager.load_from_file(in_path));
 
     std::remove(in_path.c_str());
 }
 
 TEST(parse_command_line_and_validate) {
-    config_manager manager;
+    ConfigManager manager;
 
     char arg0[] = "test";
     char arg1[] = "--account-id";

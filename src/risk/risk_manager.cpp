@@ -6,7 +6,7 @@
 
 namespace acct_service {
 
-void risk_stats::reset() {
+void RiskState::reset() {
     total_checks = 0;
     passed = 0;
     rejected = 0;
@@ -20,11 +20,11 @@ void risk_stats::reset() {
     last_check_time = 0;
 }
 
-risk_manager::risk_manager(position_manager& positions, const risk_config& config) : positions_(positions), config_(config) {
+RiskManager::RiskManager(PositionManager& positions, const RiskConfig& config) : positions_(positions), config_(config) {
     initialize_default_rules();
 }
 
-risk_check_result risk_manager::check_order(const order_request& order) {
+risk_check_result RiskManager::check_order(const OrderRequest& order) {
     risk_check_result result = risk_check_result::pass();
 
     for (const auto& rule : rules_) {
@@ -45,20 +45,20 @@ risk_check_result risk_manager::check_order(const order_request& order) {
     return result;
 }
 
-std::vector<risk_check_result> risk_manager::check_orders(const std::vector<order_request>& orders) {
+std::vector<risk_check_result> RiskManager::check_orders(const std::vector<OrderRequest>& orders) {
     std::vector<risk_check_result> results;
     results.reserve(orders.size());
 
-    for (const order_request& order : orders) {
+    for (const OrderRequest& order : orders) {
         results.push_back(check_order(order));
     }
 
     return results;
 }
 
-void risk_manager::set_post_check_callback(post_check_callback_t callback) { post_check_callback_ = std::move(callback); }
+void RiskManager::set_post_check_callback(post_check_callback_t callback) { post_check_callback_ = std::move(callback); }
 
-void risk_manager::add_rule(std::unique_ptr<risk_rule> rule) {
+void RiskManager::add_rule(std::unique_ptr<risk_rule> rule) {
     if (!rule) {
         return;
     }
@@ -76,7 +76,7 @@ void risk_manager::add_rule(std::unique_ptr<risk_rule> rule) {
     rules_.push_back(std::move(rule));
 }
 
-bool risk_manager::remove_rule(const char* name) {
+bool RiskManager::remove_rule(const char* name) {
     if (!name) {
         return false;
     }
@@ -101,7 +101,7 @@ bool risk_manager::remove_rule(const char* name) {
     return false;
 }
 
-bool risk_manager::enable_rule(const char* name, bool enabled) {
+bool RiskManager::enable_rule(const char* name, bool enabled) {
     risk_rule* rule = get_rule(name);
     if (!rule) {
         return false;
@@ -110,7 +110,7 @@ bool risk_manager::enable_rule(const char* name, bool enabled) {
     return true;
 }
 
-risk_rule* risk_manager::get_rule(const char* name) {
+risk_rule* RiskManager::get_rule(const char* name) {
     if (!name) {
         return nullptr;
     }
@@ -125,7 +125,7 @@ risk_rule* risk_manager::get_rule(const char* name) {
     return nullptr;
 }
 
-const risk_rule* risk_manager::get_rule(const char* name) const {
+const risk_rule* RiskManager::get_rule(const char* name) const {
     if (!name) {
         return nullptr;
     }
@@ -140,30 +140,30 @@ const risk_rule* risk_manager::get_rule(const char* name) const {
     return nullptr;
 }
 
-void risk_manager::update_price_limits(InternalSecurityId security_id, DPrice limit_up, DPrice limit_down) {
+void RiskManager::update_price_limits(InternalSecurityId security_id, DPrice limit_up, DPrice limit_down) {
     if (price_limit_rule_) {
         price_limit_rule_->set_price_limits(security_id, limit_up, limit_down);
     }
 }
 
-void risk_manager::clear_price_limits() {
+void RiskManager::clear_price_limits() {
     if (price_limit_rule_) {
         price_limit_rule_->clear_price_limits();
     }
 }
 
-void risk_manager::update_config(const risk_config& config) {
+void RiskManager::update_config(const RiskConfig& config) {
     config_ = config;
     initialize_default_rules();
 }
 
-const risk_config& risk_manager::config() const noexcept { return config_; }
+const RiskConfig& RiskManager::config() const noexcept { return config_; }
 
-const risk_stats& risk_manager::stats() const noexcept { return stats_; }
+const RiskState& RiskManager::stats() const noexcept { return stats_; }
 
-void risk_manager::reset_stats() noexcept { stats_.reset(); }
+void RiskManager::reset_stats() noexcept { stats_.reset(); }
 
-void risk_manager::initialize_default_rules() {
+void RiskManager::initialize_default_rules() {
     rules_.clear();
     price_limit_rule_ = nullptr;
     duplicate_rule_ = nullptr;
@@ -200,7 +200,7 @@ void risk_manager::initialize_default_rules() {
     }
 }
 
-void risk_manager::update_stats(const risk_check_result& result) {
+void RiskManager::update_stats(const risk_check_result& result) {
     ++stats_.total_checks;
     stats_.last_check_time = now_ns();
 

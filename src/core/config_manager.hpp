@@ -31,7 +31,7 @@ struct EventLoopConfig {
 };
 
 // 日志配置
-struct log_config {
+struct LogConfig {
     std::string log_dir = "./logs";
     std::string log_level = "info";
     bool async_logging = true;
@@ -39,31 +39,31 @@ struct log_config {
 };
 
 // 数据库配置
-struct db_config {
+struct DBConfig {
     std::string db_path;
     bool enable_persistence = true;
     uint32_t sync_interval_ms = 1000;
 };
 
 // 完整配置
-struct config {
+struct Config {
     AccountId account_id = 1;
     std::string trading_day = "19700101";
     std::string config_file;
 
     SHMConfig shm;
     EventLoopConfig EventLoop;
-    risk_config risk;
+    RiskConfig risk;
     split_config split;
-    log_config log;
-    db_config db;
+    LogConfig log;
+    DBConfig db;
 };
 
 // 配置管理器
-class config_manager {
+class ConfigManager {
 public:
-    config_manager() = default;
-    ~config_manager() = default;
+    ConfigManager() = default;
+    ~ConfigManager() = default;
 
     // 从YAML文件加载配置
     bool load_from_file(const std::string& config_path);
@@ -75,17 +75,17 @@ public:
     bool validate() const;
 
     // 获取配置
-    const config& get() const noexcept;
-    config& get() noexcept;
+    const Config& get() const noexcept;
+    Config& get() noexcept;
 
     // 便捷访问器
     AccountId account_id() const noexcept;
     const SHMConfig& shm() const noexcept;
     const EventLoopConfig& EventLoop() const noexcept;
-    const risk_config& risk() const noexcept;
+    const RiskConfig& risk() const noexcept;
     const split_config& split() const noexcept;
-    const log_config& log() const noexcept;
-    const db_config& db() const noexcept;
+    const LogConfig& log() const noexcept;
+    const DBConfig& db() const noexcept;
 
     // 热更新支持
     bool reload();
@@ -94,7 +94,7 @@ public:
     bool export_to_file(const std::string& path) const;
 
 private:
-    config config_;
+    Config config_;
     std::string config_path_;
 };
 

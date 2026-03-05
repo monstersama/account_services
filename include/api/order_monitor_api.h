@@ -80,7 +80,7 @@ typedef struct acct_orders_mon_info {
 } acct_orders_mon_info_t;
 
 // ============ 订单快照 ============
-// 说明：这是稳定 C ABI 快照结构，不等价于内部 order_request 内存布局。
+// 说明：这是稳定 C ABI 快照结构，不等价于内部 OrderRequest 内存布局。
 typedef struct acct_orders_mon_snapshot {
     uint32_t index;          // 槽位索引
     uint64_t seq;            // seqlock 序号（偶数稳定，奇数写入中）

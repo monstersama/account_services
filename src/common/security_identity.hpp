@@ -9,15 +9,15 @@
 namespace acct_service {
 
 // 将 market 枚举转换为内部证券键前缀（大写）。
-inline std::string_view market_to_prefix(market_t market) noexcept {
+inline std::string_view market_to_prefix(Market market) noexcept {
     switch (market) {
-        case market_t::SZ:
+        case Market::SZ:
             return "SZ";
-        case market_t::SH:
+        case Market::SH:
             return "SH";
-        case market_t::BJ:
+        case Market::BJ:
             return "BJ";
-        case market_t::HK:
+        case Market::HK:
             return "HK";
         default:
             return {};
@@ -25,7 +25,7 @@ inline std::string_view market_to_prefix(market_t market) noexcept {
 }
 
 // 构造 internal_security_id，格式固定为 "<MARKET>.<security_id>"。
-inline bool build_internal_security_id(market_t market, std::string_view security_id, InternalSecurityId& out_id) {
+inline bool build_internal_security_id(Market market, std::string_view security_id, InternalSecurityId& out_id) {
     // 约束 security_id 最大长度，避免 16 字节定长字段截断。
     if (security_id.empty() || security_id.size() > 12) {
         return false;

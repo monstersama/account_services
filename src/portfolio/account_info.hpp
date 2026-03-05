@@ -34,7 +34,7 @@ struct account_info {
     DValue max_daily_amount = 0;
 
     // 计算手续费
-    DValue calculate_fee(trade_side_t side, DValue traded_value) const;
+    DValue calculate_fee(TradeSide side, DValue traded_value) const;
 };
 
 // 账户信息管理器
@@ -54,7 +54,7 @@ public:
     account_info& info() noexcept;
 
     // 检查交易权限
-    bool can_trade(trade_side_t side) const noexcept;
+    bool can_trade(TradeSide side) const noexcept;
 
     // 更新账户状态
     void set_state(AccountState state);

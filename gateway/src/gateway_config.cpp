@@ -13,7 +13,7 @@ namespace acct_service::gateway {
 
 namespace {
 
-constexpr const char* kDefaultGatewayConfigPath = "config/gateway.yaml";
+constexpr const char* kDefaultGatewayConfigPath = "Config/gateway.yaml";
 
 std::string trim_copy(std::string text) {
     const auto not_space = [](unsigned char ch) { return !std::isspace(ch); };
@@ -85,7 +85,7 @@ bool contains_key(std::string_view key, const std::string_view (&allowed_keys)[N
     return false;
 }
 
-bool apply_config_value(gateway_config& config, std::string_view key, const std::string& raw_value, std::string& error_message) {
+bool apply_config_value(gateway_config& Config, std::string_view key, const std::string& raw_value, std::string& error_message) {
     const std::string value = trim_copy(raw_value);
 
     if (key == "account_id") {
@@ -94,20 +94,20 @@ bool apply_config_value(gateway_config& config, std::string_view key, const std:
             error_message = "invalid value for account_id";
             return false;
         }
-        config.account_id = static_cast<AccountId>(parsed);
+        Config.account_id = static_cast<AccountId>(parsed);
         return true;
     }
 
     if (key == "downstream_shm" || key == "downstream_shm_name") {
-        config.downstream_shm_name = value;
+        Config.downstream_shm_name = value;
         return true;
     }
     if (key == "trades_shm" || key == "trades_shm_name") {
-        config.trades_shm_name = value;
+        Config.trades_shm_name = value;
         return true;
     }
     if (key == "orders_shm" || key == "orders_shm_name") {
-        config.orders_shm_name = value;
+        Config.orders_shm_name = value;
         return true;
     }
 
@@ -116,16 +116,16 @@ bool apply_config_value(gateway_config& config, std::string_view key, const std:
             error_message = "invalid value for trading_day";
             return false;
         }
-        config.trading_day = value;
+        Config.trading_day = value;
         return true;
     }
 
     if (key == "broker_type") {
-        config.broker_type = value;
+        Config.broker_type = value;
         return true;
     }
     if (key == "adapter_so" || key == "adapter_plugin_so") {
-        config.adapter_plugin_so = value;
+        Config.adapter_plugin_so = value;
         return true;
     }
 
@@ -135,7 +135,7 @@ bool apply_config_value(gateway_config& config, std::string_view key, const std:
             error_message = "invalid value for create_if_not_exist";
             return false;
         }
-        config.create_if_not_exist = parsed;
+        Config.create_if_not_exist = parsed;
         return true;
     }
 
@@ -145,7 +145,7 @@ bool apply_config_value(gateway_config& config, std::string_view key, const std:
             error_message = "invalid value for poll_batch_size";
             return false;
         }
-        config.poll_batch_size = parsed;
+        Config.poll_batch_size = parsed;
         return true;
     }
 
@@ -155,7 +155,7 @@ bool apply_config_value(gateway_config& config, std::string_view key, const std:
             error_message = "invalid value for idle_sleep_us";
             return false;
         }
-        config.idle_sleep_us = parsed;
+        Config.idle_sleep_us = parsed;
         return true;
     }
 
@@ -165,7 +165,7 @@ bool apply_config_value(gateway_config& config, std::string_view key, const std:
             error_message = "invalid value for stats_interval_ms";
             return false;
         }
-        config.stats_interval_ms = parsed;
+        Config.stats_interval_ms = parsed;
         return true;
     }
 
@@ -175,7 +175,7 @@ bool apply_config_value(gateway_config& config, std::string_view key, const std:
             error_message = "invalid value for max_retries";
             return false;
         }
-        config.max_retry_attempts = parsed;
+        Config.max_retry_attempts = parsed;
         return true;
     }
 
@@ -185,17 +185,17 @@ bool apply_config_value(gateway_config& config, std::string_view key, const std:
             error_message = "invalid value for retry_interval_us";
             return false;
         }
-        config.retry_interval_us = parsed;
+        Config.retry_interval_us = parsed;
         return true;
     }
 
-    error_message = std::string("unknown config key: ") + std::string(key);
+    error_message = std::string("unknown Config key: ") + std::string(key);
     return false;
 }
 
-bool load_config_yaml(const std::string& config_path, gateway_config& config, std::string& error_message) {
+bool load_config_yaml(const std::string& config_path, gateway_config& Config, std::string& error_message) {
     if (config_path.empty()) {
-        error_message = "empty --config path";
+        error_message = "empty --Config path";
         return false;
     }
 
@@ -203,17 +203,17 @@ bool load_config_yaml(const std::string& config_path, gateway_config& config, st
     try {
         root = YAML::LoadFile(config_path);
     } catch (const YAML::Exception& ex) {
-        error_message = std::string("failed to load config file: ") + ex.what();
+        error_message = std::string("failed to load Config file: ") + ex.what();
         return false;
     }
 
     if (!root || root.IsNull()) {
-        config.config_file = config_path;
+        Config.config_file = config_path;
         return true;
     }
 
     if (!root.IsMap()) {
-        error_message = "gateway config root must be a YAML map";
+        error_message = "gateway Config root must be a YAML map";
         return false;
     }
 
@@ -227,7 +227,7 @@ bool load_config_yaml(const std::string& config_path, gateway_config& config, st
         const YAML::Node value_node = entry.second;
 
         if (!key_node.IsScalar()) {
-            error_message = "gateway config key must be scalar";
+            error_message = "gateway Config key must be scalar";
             return false;
         }
         if (!value_node.IsScalar()) {
@@ -237,7 +237,7 @@ bool load_config_yaml(const std::string& config_path, gateway_config& config, st
             } catch (...) {
                 key_text = "<unknown>";
             }
-            error_message = "gateway config value must be scalar: " + key_text;
+            error_message = "gateway Config value must be scalar: " + key_text;
             return false;
         }
 
@@ -247,41 +247,41 @@ bool load_config_yaml(const std::string& config_path, gateway_config& config, st
             key = key_node.as<std::string>();
             value = value_node.as<std::string>();
         } catch (const YAML::Exception& ex) {
-            error_message = std::string("failed to parse gateway config field: ") + ex.what();
+            error_message = std::string("failed to parse gateway Config field: ") + ex.what();
             return false;
         }
 
         if (!contains_key(key, kAllowedKeys)) {
-            error_message = "unknown gateway config key: " + key;
+            error_message = "unknown gateway Config key: " + key;
             return false;
         }
 
-        if (!apply_config_value(config, key, value, error_message)) {
+        if (!apply_config_value(Config, key, value, error_message)) {
             return false;
         }
     }
 
-    config.config_file = config_path;
+    Config.config_file = config_path;
     return true;
 }
 
-bool validate_config(const gateway_config& config, std::string& error_message) {
+bool validate_config(const gateway_config& Config, std::string& error_message) {
     // 共享内存名称是必须项。
-    if (config.downstream_shm_name.empty() || config.trades_shm_name.empty() || config.orders_shm_name.empty()) {
+    if (Config.downstream_shm_name.empty() || Config.trades_shm_name.empty() || Config.orders_shm_name.empty()) {
         error_message = "shared memory names must be non-empty";
         return false;
     }
-    if (!is_valid_trading_day(config.trading_day)) {
+    if (!is_valid_trading_day(Config.trading_day)) {
         error_message = "trading_day must be YYYYMMDD";
         return false;
     }
 
-    if (config.broker_type != "sim" && config.broker_type != "plugin") {
+    if (Config.broker_type != "sim" && Config.broker_type != "plugin") {
         error_message = "--broker-type must be sim or plugin";
         return false;
     }
 
-    if (config.broker_type == "plugin" && config.adapter_plugin_so.empty()) {
+    if (Config.broker_type == "plugin" && Config.adapter_plugin_so.empty()) {
         error_message = "--adapter-so is required when --broker-type=plugin";
         return false;
     }
@@ -294,14 +294,14 @@ bool validate_config(const gateway_config& config, std::string& error_message) {
 // 打印网关命令行参数说明。
 void print_usage(const char* program) {
     std::fprintf(stderr,
-        "Usage: %s [--config <path>] [config_path]\n"
-        "  --config <path>   specify gateway config path (default: config/gateway.yaml)\n"
+        "Usage: %s [--Config <path>] [config_path]\n"
+        "  --Config <path>   specify gateway Config path (default: Config/gateway.yaml)\n"
         "  -h, --help                   show this help\n",
         program ? program : "acct_broker_gateway");
 }
 
 // 解析命令行参数并填充 gateway_config，遇到非法输入时返回 Error。
-parse_result_t parse_args(int argc, char* argv[], gateway_config& config, std::string& error_message) {
+parse_result_t parse_args(int argc, char* argv[], gateway_config& Config, std::string& error_message) {
     error_message.clear();
     std::string config_path;
 
@@ -317,14 +317,14 @@ parse_result_t parse_args(int argc, char* argv[], gateway_config& config, std::s
             return parse_result_t::Help;
         }
 
-        if (option == "--config") {
+        if (option == "--Config") {
             std::string value;
             if (!require_value(argc, i, argv, value, error_message)) {
                 return parse_result_t::Error;
             }
             ++i;
             if (!config_path.empty()) {
-                error_message = "duplicated config path";
+                error_message = "duplicated Config path";
                 return parse_result_t::Error;
             }
             config_path = value;
@@ -337,7 +337,7 @@ parse_result_t parse_args(int argc, char* argv[], gateway_config& config, std::s
         }
 
         if (!config_path.empty()) {
-            error_message = std::string("duplicated config path: ") + option;
+            error_message = std::string("duplicated Config path: ") + option;
             return parse_result_t::Error;
         }
         config_path = option;
@@ -347,11 +347,11 @@ parse_result_t parse_args(int argc, char* argv[], gateway_config& config, std::s
         config_path = kDefaultGatewayConfigPath;
     }
 
-    if (!load_config_yaml(config_path, config, error_message)) {
+    if (!load_config_yaml(config_path, Config, error_message)) {
         return parse_result_t::Error;
     }
 
-    if (!validate_config(config, error_message)) {
+    if (!validate_config(Config, error_message)) {
         return parse_result_t::Error;
     }
 

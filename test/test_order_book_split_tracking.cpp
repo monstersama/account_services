@@ -22,7 +22,7 @@ order_entry make_new_entry(InternalOrderId order_id, Volume volume, bool is_spli
     InternalOrderId parent_order_id = 0) {
     order_entry entry{};
     entry.request.init_new(
-        "000001", InternalSecurityId("SZ.000001"), order_id, trade_side_t::Buy, market_t::SZ, volume, 1000,
+        "000001", InternalSecurityId("SZ.000001"), order_id, TradeSide::Buy, Market::SZ, volume, 1000,
         93000000);
     entry.request.order_state.store(OrderState::StrategySubmitted, std::memory_order_relaxed);
     entry.submit_time_ns = now_ns();
@@ -42,7 +42,7 @@ bool contains(const std::vector<InternalOrderId>& ids, InternalOrderId id) {
 }  // namespace
 
 TEST(split_mapping_and_aggregation) {
-    auto book = std::make_unique<order_book>();
+    auto book = std::make_unique<OrderBook>();
 
     const InternalOrderId parent_id = book->next_order_id();
     const InternalOrderId child1_id = book->next_order_id();
@@ -89,7 +89,7 @@ TEST(split_mapping_and_aggregation) {
 }
 
 TEST(parent_error_latch) {
-    auto book = std::make_unique<order_book>();
+    auto book = std::make_unique<OrderBook>();
 
     const InternalOrderId parent_id = book->next_order_id();
     const InternalOrderId child1_id = book->next_order_id();
@@ -109,7 +109,7 @@ TEST(parent_error_latch) {
 }
 
 TEST(ensure_next_order_id_at_least) {
-    auto book = std::make_unique<order_book>();
+    auto book = std::make_unique<OrderBook>();
 
     const InternalOrderId first = book->next_order_id();
     assert(first == static_cast<InternalOrderId>(1));

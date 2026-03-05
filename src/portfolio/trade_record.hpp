@@ -15,7 +15,7 @@ struct alignas(64) trade_record {
     uint64_t trade_id;
     InternalOrderId order_id;
     InternalSecurityId security_id;
-    trade_side_t side;
+    TradeSide side;
     Volume volume;
     DPrice price;
     DValue value;

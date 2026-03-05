@@ -8,11 +8,11 @@ namespace acct_service::gateway {
 namespace {
 
 // 订单类型映射到 broker_api 类型。
-broker_api::request_type to_broker_request_type(order_type_t type_value) noexcept {
+broker_api::request_type to_broker_request_type(OrderType type_value) noexcept {
     switch (type_value) {
-        case order_type_t::New:
+        case OrderType::New:
             return broker_api::request_type::New;
-        case order_type_t::Cancel:
+        case OrderType::Cancel:
             return broker_api::request_type::Cancel;
         default:
             return broker_api::request_type::Unknown;
@@ -20,15 +20,15 @@ broker_api::request_type to_broker_request_type(order_type_t type_value) noexcep
 }
 
 // 市场枚举映射到 broker_api 市场。
-broker_api::market to_broker_market(market_t market_value) noexcept {
+broker_api::market to_broker_market(Market market_value) noexcept {
     switch (market_value) {
-        case market_t::SZ:
+        case Market::SZ:
             return broker_api::market::SZ;
-        case market_t::SH:
+        case Market::SH:
             return broker_api::market::SH;
-        case market_t::BJ:
+        case Market::BJ:
             return broker_api::market::BJ;
-        case market_t::HK:
+        case Market::HK:
             return broker_api::market::HK;
         default:
             return broker_api::market::Unknown;
@@ -66,11 +66,11 @@ void copy_internal_security_id(const InternalSecurityId& source, char* destinati
 }  // namespace
 
 // 将交易方向从共享内存协议映射到 broker_api 枚举。
-broker_api::side to_broker_side(trade_side_t side_value) noexcept {
+broker_api::side to_broker_side(TradeSide side_value) noexcept {
     switch (side_value) {
-        case trade_side_t::Buy:
+        case TradeSide::Buy:
             return broker_api::side::Buy;
-        case trade_side_t::Sell:
+        case TradeSide::Sell:
             return broker_api::side::Sell;
         default:
             return broker_api::side::Unknown;
@@ -78,19 +78,19 @@ broker_api::side to_broker_side(trade_side_t side_value) noexcept {
 }
 
 // 将 broker_api 方向映射回订单协议方向。
-trade_side_t to_order_side(broker_api::side side_value) noexcept {
+TradeSide to_order_side(broker_api::side side_value) noexcept {
     switch (side_value) {
         case broker_api::side::Buy:
-            return trade_side_t::Buy;
+            return TradeSide::Buy;
         case broker_api::side::Sell:
-            return trade_side_t::Sell;
+            return TradeSide::Sell;
         default:
-            return trade_side_t::NotSet;
+            return TradeSide::NotSet;
     }
 }
 
-// 将上游 order_request 转换为 broker_order_request；输入不合法时返回 false。
-bool map_order_request_to_broker(const order_request& request, broker_api::broker_order_request& out_request) noexcept {
+// 将上游 OrderRequest 转换为 broker_order_request；输入不合法时返回 false。
+bool map_order_request_to_broker(const OrderRequest& request, broker_api::broker_order_request& out_request) noexcept {
     // 基本合法性检查。
     if (request.internal_order_id == 0) {
         return false;

@@ -20,9 +20,9 @@ using namespace acct_service;
 
 std::unique_ptr<positions_shm_layout> make_positions_shm() {
     auto shm = std::make_unique<positions_shm_layout>();
-    shm->header.magic = positions_header::kMagic;
-    shm->header.version = positions_header::kVersion;
-    shm->header.header_size = static_cast<uint32_t>(sizeof(positions_header));
+    shm->header.magic = PositionsHeader::kMagic;
+    shm->header.version = PositionsHeader::kVersion;
+    shm->header.header_size = static_cast<uint32_t>(sizeof(PositionsHeader));
     shm->header.total_size = static_cast<uint32_t>(sizeof(positions_shm_layout));
     shm->header.capacity = static_cast<uint32_t>(kMaxPositions);
     shm->header.init_state = 0;
@@ -33,9 +33,9 @@ std::unique_ptr<positions_shm_layout> make_positions_shm() {
     return shm;
 }
 
-order_request make_buy_order(InternalOrderId order_id, Volume volume) {
-    order_request req;
-    req.init_new("000001", InternalSecurityId("SZ.000001"), order_id, trade_side_t::Buy, market_t::SZ, volume,
+OrderRequest make_buy_order(InternalOrderId order_id, Volume volume) {
+    OrderRequest req;
+    req.init_new("000001", InternalSecurityId("SZ.000001"), order_id, TradeSide::Buy, Market::SZ, volume,
         1000, 93000000);
     req.order_state.store(OrderState::StrategySubmitted, std::memory_order_relaxed);
     return req;
@@ -45,11 +45,11 @@ order_request make_buy_order(InternalOrderId order_id, Volume volume) {
 
 TEST(fund_and_duplicate_rules) {
     auto shm = make_positions_shm();
-    position_manager positions(shm.get());
+    PositionManager positions(shm.get());
     assert(positions.initialize(1));
-    assert(positions.add_security("000001", "PingAn", market_t::SZ) == std::string_view("SZ.000001"));
+    assert(positions.add_security("000001", "PingAn", Market::SZ) == std::string_view("SZ.000001"));
 
-    risk_config cfg;
+    RiskConfig cfg;
     cfg.max_order_value = 0;
     cfg.max_order_volume = 0;
     cfg.max_orders_per_second = 0;
@@ -59,14 +59,14 @@ TEST(fund_and_duplicate_rules) {
     cfg.enable_duplicate_check = true;
     cfg.duplicate_window_ns = 1000000000ULL;
 
-    risk_manager manager(positions, cfg);
+    RiskManager manager(positions, cfg);
 
-    order_request large = make_buy_order(1, 200000);
+    OrderRequest large = make_buy_order(1, 200000);
     const risk_check_result large_result = manager.check_order(large);
     assert(!large_result.passed());
     assert(large_result.code == RiskResult::RejectInsufficientFund);
 
-    order_request small = make_buy_order(2, 100);
+    OrderRequest small = make_buy_order(2, 100);
     const risk_check_result first = manager.check_order(small);
     assert(first.passed());
 
@@ -74,12 +74,12 @@ TEST(fund_and_duplicate_rules) {
     assert(!second.passed());
     assert(second.code == RiskResult::RejectDuplicateOrder);
 
-    order_request same_params_new_id = small;
+    OrderRequest same_params_new_id = small;
     same_params_new_id.internal_order_id = 3;
     const risk_check_result third = manager.check_order(same_params_new_id);
     assert(third.passed());
 
-    const risk_stats& stats = manager.stats();
+    const RiskState& stats = manager.stats();
     assert(stats.total_checks == 4);
     assert(stats.passed == 2);
     assert(stats.rejected >= 2);

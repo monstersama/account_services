@@ -25,7 +25,7 @@ class risk_rule {
 public:
     virtual ~risk_rule() = default;
     virtual const char* name() const noexcept = 0;
-    virtual risk_check_result check(const order_request& order, const position_manager& positions) = 0;
+    virtual risk_check_result check(const OrderRequest& order, const PositionManager& positions) = 0;
     virtual bool enabled() const noexcept;
     virtual void set_enabled(bool enabled);
 
@@ -37,14 +37,14 @@ protected:
 class fund_check_rule : public risk_rule {
 public:
     const char* name() const noexcept override;
-    risk_check_result check(const order_request& order, const position_manager& positions) override;
+    risk_check_result check(const OrderRequest& order, const PositionManager& positions) override;
 };
 
 // 持仓检查
 class position_check_rule : public risk_rule {
 public:
     const char* name() const noexcept override;
-    risk_check_result check(const order_request& order, const position_manager& positions) override;
+    risk_check_result check(const OrderRequest& order, const PositionManager& positions) override;
 };
 
 // 单笔金额限制
@@ -52,7 +52,7 @@ class max_order_value_rule : public risk_rule {
 public:
     explicit max_order_value_rule(DValue max_value);
     const char* name() const noexcept override;
-    risk_check_result check(const order_request& order, const position_manager& positions) override;
+    risk_check_result check(const OrderRequest& order, const PositionManager& positions) override;
     void set_max_value(DValue max_value);
 
 private:
@@ -64,7 +64,7 @@ class max_order_volume_rule : public risk_rule {
 public:
     explicit max_order_volume_rule(Volume max_volume);
     const char* name() const noexcept override;
-    risk_check_result check(const order_request& order, const position_manager& positions) override;
+    risk_check_result check(const OrderRequest& order, const PositionManager& positions) override;
     void set_max_volume(Volume max_volume);
 
 private:
@@ -75,7 +75,7 @@ private:
 class price_limit_rule : public risk_rule {
 public:
     const char* name() const noexcept override;
-    risk_check_result check(const order_request& order, const position_manager& positions) override;
+    risk_check_result check(const OrderRequest& order, const PositionManager& positions) override;
     void set_price_limits(InternalSecurityId security_id, DPrice limit_up, DPrice limit_down);
     void clear_price_limits();
 
@@ -87,8 +87,8 @@ private:
 class duplicate_order_rule : public risk_rule {
 public:
     const char* name() const noexcept override;
-    risk_check_result check(const order_request& order, const position_manager& positions) override;
-    void record_order(const order_request& order);
+    risk_check_result check(const OrderRequest& order, const PositionManager& positions) override;
+    void record_order(const OrderRequest& order);
     void clear_history();
     void set_time_window_ns(TimestampNs window_ns);
 
@@ -102,7 +102,7 @@ class rate_limit_rule : public risk_rule {
 public:
     explicit rate_limit_rule(uint32_t max_orders_per_second);
     const char* name() const noexcept override;
-    risk_check_result check(const order_request& order, const position_manager& positions) override;
+    risk_check_result check(const OrderRequest& order, const PositionManager& positions) override;
     void set_max_orders_per_second(uint32_t max);
     void reset_counter();
 

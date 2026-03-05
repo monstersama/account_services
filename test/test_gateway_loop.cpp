@@ -27,9 +27,9 @@ namespace {
 using namespace acct_service;
 
 // 初始化共享内存头，模拟可用队列环境。
-void init_header(shm_header& header) {
-    header.magic = shm_header::kMagic;
-    header.version = shm_header::kVersion;
+void init_header(SHMHeader& header) {
+    header.magic = SHMHeader::kMagic;
+    header.version = SHMHeader::kVersion;
     header.create_time = now_ns();
     header.last_update = header.create_time;
     header.next_order_id.store(1, std::memory_order_relaxed);
@@ -53,9 +53,9 @@ std::unique_ptr<trades_shm_layout> make_trades_shm() {
 
 std::unique_ptr<orders_shm_layout> make_orders_shm() {
     auto shm = std::make_unique<orders_shm_layout>();
-    shm->header.magic = orders_header::kMagic;
-    shm->header.version = orders_header::kVersion;
-    shm->header.header_size = static_cast<uint32_t>(sizeof(orders_header));
+    shm->header.magic = OrdersHeader::kMagic;
+    shm->header.version = OrdersHeader::kVersion;
+    shm->header.header_size = static_cast<uint32_t>(sizeof(OrdersHeader));
     shm->header.total_size = static_cast<uint32_t>(sizeof(orders_shm_layout));
     shm->header.capacity = static_cast<uint32_t>(kDailyOrderPoolCapacity);
     shm->header.init_state = 1;
@@ -85,7 +85,7 @@ std::vector<OrderState> collect_statuses_for_order(
     std::vector<OrderState> statuses;
     const bool done = wait_until(
         [&statuses, trades, order_id, expected_count]() {
-            trade_response response;
+            TradeResponse response;
             while (trades->response_queue.try_pop(response)) {
                 if (response.internal_order_id == order_id) {
                     statuses.push_back(response.new_state);
@@ -136,14 +136,14 @@ TEST(process_new_order_end_to_end) {
     gateway::gateway_loop loop(make_config(), downstream.get(), trades.get(), orders.get(), adapter);
     std::thread worker([&loop]() { (void)loop.run(); });
 
-    order_request request;
+    OrderRequest request;
     request.init_new("000001", InternalSecurityId("SZ.000001"), static_cast<InternalOrderId>(9001),
-        trade_side_t::Buy, market_t::SZ, static_cast<Volume>(100), static_cast<DPrice>(1000), 93000000);
+        TradeSide::Buy, Market::SZ, static_cast<Volume>(100), static_cast<DPrice>(1000), 93000000);
     request.order_state.store(OrderState::TraderSubmitted, std::memory_order_relaxed);
 
-    order_index_t request_index = kInvalidOrderIndex;
+    OrderIndex request_index = kInvalidOrderIndex;
     assert(orders_shm_append(
-        orders.get(), request, order_slot_stage_t::DownstreamQueued, order_slot_source_t::AccountInternal, now_ns(), request_index));
+        orders.get(), request, OrderSlotState::DownstreamQueued, order_slot_source_t::AccountInternal, now_ns(), request_index));
     assert(downstream->order_queue.try_push(request_index));
 
     const std::vector<OrderState> statuses = collect_statuses_for_order(trades.get(), 9001, 3);
@@ -174,14 +174,14 @@ TEST(process_cancel_order_end_to_end) {
     gateway::gateway_loop loop(make_config(), downstream.get(), trades.get(), orders.get(), adapter);
     std::thread worker([&loop]() { (void)loop.run(); });
 
-    order_request cancel_request;
+    OrderRequest cancel_request;
     cancel_request.init_cancel(
         static_cast<InternalOrderId>(9101), 93100000, static_cast<InternalOrderId>(9001));
     cancel_request.order_state.store(OrderState::TraderSubmitted, std::memory_order_relaxed);
 
-    order_index_t cancel_index = kInvalidOrderIndex;
+    OrderIndex cancel_index = kInvalidOrderIndex;
     assert(orders_shm_append(
-        orders.get(), cancel_request, order_slot_stage_t::DownstreamQueued, order_slot_source_t::AccountInternal,
+        orders.get(), cancel_request, OrderSlotState::DownstreamQueued, order_slot_source_t::AccountInternal,
         now_ns(), cancel_index));
     assert(downstream->order_queue.try_push(cancel_index));
 

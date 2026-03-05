@@ -23,7 +23,7 @@ using namespace acct_service;
 order_entry make_parent_entry(InternalOrderId order_id, Volume volume) {
     order_entry entry{};
     entry.request.init_new(
-        "000001", InternalSecurityId("SZ.000001"), order_id, trade_side_t::Buy, market_t::SZ, volume, 1000,
+        "000001", InternalSecurityId("SZ.000001"), order_id, TradeSide::Buy, Market::SZ, volume, 1000,
         93000000);
     entry.request.order_state.store(OrderState::RiskControllerAccepted, std::memory_order_relaxed);
     entry.submit_time_ns = now_ns();
@@ -38,8 +38,8 @@ order_entry make_parent_entry(InternalOrderId order_id, Volume volume) {
 
 std::unique_ptr<downstream_shm_layout> make_downstream() {
     auto downstream = std::make_unique<downstream_shm_layout>();
-    downstream->header.magic = shm_header::kMagic;
-    downstream->header.version = shm_header::kVersion;
+    downstream->header.magic = SHMHeader::kMagic;
+    downstream->header.version = SHMHeader::kVersion;
     downstream->header.create_time = now_ns();
     downstream->header.last_update = downstream->header.create_time;
     downstream->header.next_order_id.store(1, std::memory_order_relaxed);
@@ -49,9 +49,9 @@ std::unique_ptr<downstream_shm_layout> make_downstream() {
 
 std::unique_ptr<orders_shm_layout> make_orders() {
     auto orders = std::make_unique<orders_shm_layout>();
-    orders->header.magic = orders_header::kMagic;
-    orders->header.version = orders_header::kVersion;
-    orders->header.header_size = static_cast<uint32_t>(sizeof(orders_header));
+    orders->header.magic = OrdersHeader::kMagic;
+    orders->header.version = OrdersHeader::kVersion;
+    orders->header.header_size = static_cast<uint32_t>(sizeof(OrdersHeader));
     orders->header.total_size = static_cast<uint32_t>(sizeof(orders_shm_layout));
     orders->header.capacity = static_cast<uint32_t>(kDailyOrderPoolCapacity);
     orders->header.init_state = 1;
@@ -75,15 +75,15 @@ split_config make_split_config() {
 }  // namespace
 
 TEST(split_cancel_fanout_tracks_parent) {
-    auto book = std::make_unique<order_book>();
+    auto book = std::make_unique<OrderBook>();
     auto downstream = make_downstream();
     auto orders = make_orders();
     order_router router(*book, downstream.get(), orders.get(), make_split_config());
 
     const InternalOrderId parent_id = book->next_order_id();
     order_entry parent = make_parent_entry(parent_id, 250);
-    order_index_t parent_index = kInvalidOrderIndex;
-    assert(orders_shm_append(orders.get(), parent.request, order_slot_stage_t::UpstreamDequeued,
+    OrderIndex parent_index = kInvalidOrderIndex;
+    assert(orders_shm_append(orders.get(), parent.request, OrderSlotState::UpstreamDequeued,
         order_slot_source_t::AccountInternal, now_ns(), parent_index));
     parent.shm_order_index = parent_index;
     assert(book->add_order(parent));
@@ -94,12 +94,12 @@ TEST(split_cancel_fanout_tracks_parent) {
     assert(children.size() == 3);
 
     std::set<InternalOrderId> child_ids_from_new_orders;
-    order_index_t index = kInvalidOrderIndex;
+    OrderIndex index = kInvalidOrderIndex;
     while (downstream->order_queue.try_pop(index)) {
         order_slot_snapshot snapshot;
         assert(orders_shm_read_snapshot(orders.get(), index, snapshot));
-        const order_request& request = snapshot.request;
-        if (request.order_type == order_type_t::New) {
+        const OrderRequest& request = snapshot.request;
+        if (request.order_type == OrderType::New) {
             child_ids_from_new_orders.insert(request.internal_order_id);
         }
     }
@@ -117,8 +117,8 @@ TEST(split_cancel_fanout_tracks_parent) {
     while (downstream->order_queue.try_pop(index)) {
         order_slot_snapshot snapshot;
         assert(orders_shm_read_snapshot(orders.get(), index, snapshot));
-        const order_request& request = snapshot.request;
-        assert(request.order_type == order_type_t::Cancel);
+        const OrderRequest& request = snapshot.request;
+        assert(request.order_type == OrderType::Cancel);
         cancelled_child_ids.insert(request.orig_internal_order_id);
 
         InternalOrderId reverse_parent = 0;
@@ -134,29 +134,29 @@ TEST(split_cancel_fanout_tracks_parent) {
 }
 
 TEST(partial_send_failure_latches_parent_error) {
-    auto book = std::make_unique<order_book>();
+    auto book = std::make_unique<OrderBook>();
     auto downstream = make_downstream();
     auto orders = make_orders();
     order_router router(*book, downstream.get(), orders.get(), make_split_config());
 
     const std::size_t capacity = decltype(downstream->order_queue)::capacity();
-    order_request dummy;
+    OrderRequest dummy;
     dummy.init_new(
-        "000001", InternalSecurityId("SZ.000001"), 999999, trade_side_t::Buy, market_t::SZ, 1, 1000, 93000000);
+        "000001", InternalSecurityId("SZ.000001"), 999999, TradeSide::Buy, Market::SZ, 1, 1000, 93000000);
     dummy.order_state.store(OrderState::TraderSubmitted, std::memory_order_relaxed);
 
     for (std::size_t i = 0; i < capacity - 1; ++i) {
         dummy.internal_order_id = static_cast<InternalOrderId>(1000 + i);
-        order_index_t dummy_index = kInvalidOrderIndex;
-        assert(orders_shm_append(orders.get(), dummy, order_slot_stage_t::DownstreamQueued,
+        OrderIndex dummy_index = kInvalidOrderIndex;
+        assert(orders_shm_append(orders.get(), dummy, OrderSlotState::DownstreamQueued,
             order_slot_source_t::AccountInternal, now_ns(), dummy_index));
         assert(downstream->order_queue.try_push(dummy_index));
     }
 
     const InternalOrderId parent_id = book->next_order_id();
     order_entry parent = make_parent_entry(parent_id, 300);
-    order_index_t parent_index = kInvalidOrderIndex;
-    assert(orders_shm_append(orders.get(), parent.request, order_slot_stage_t::UpstreamDequeued,
+    OrderIndex parent_index = kInvalidOrderIndex;
+    assert(orders_shm_append(orders.get(), parent.request, OrderSlotState::UpstreamDequeued,
         order_slot_source_t::AccountInternal, now_ns(), parent_index));
     parent.shm_order_index = parent_index;
     assert(book->add_order(parent));

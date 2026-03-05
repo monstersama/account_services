@@ -167,7 +167,7 @@ bool apply_key(account_info& info, const std::string& key, const std::string& ra
 
 }  // namespace
 
-DValue account_info::calculate_fee(trade_side_t side, DValue traded_value) const {
+DValue account_info::calculate_fee(TradeSide side, DValue traded_value) const {
     const double traded = static_cast<double>(traded_value);
 
     DValue commission = static_cast<DValue>(traded * commission_rate + 0.5);
@@ -177,7 +177,7 @@ DValue account_info::calculate_fee(trade_side_t side, DValue traded_value) const
 
     const DValue transfer_fee = static_cast<DValue>(traded * transfer_fee_rate + 0.5);
     const DValue stamp_tax =
-        (side == trade_side_t::Sell) ? static_cast<DValue>(traded * stamp_tax_rate + 0.5) : 0;
+        (side == TradeSide::Sell) ? static_cast<DValue>(traded * stamp_tax_rate + 0.5) : 0;
 
     return commission + transfer_fee + stamp_tax;
 }
@@ -242,11 +242,11 @@ const account_info& account_info_manager::info() const noexcept { return info_; 
 
 account_info& account_info_manager::info() noexcept { return info_; }
 
-bool account_info_manager::can_trade(trade_side_t side) const noexcept {
+bool account_info_manager::can_trade(TradeSide side) const noexcept {
     switch (side) {
-        case trade_side_t::Buy:
+        case TradeSide::Buy:
             return info_.can_buy;
-        case trade_side_t::Sell:
+        case TradeSide::Sell:
             return info_.can_sell;
         default:
             return false;

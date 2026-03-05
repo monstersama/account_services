@@ -47,14 +47,14 @@ bool validate_header(const acct_service::positions_shm_layout* shm) noexcept {
         return false;
     }
 
-    const acct_service::positions_header& header = shm->header;
-    if (header.magic != acct_service::positions_header::kMagic) {
+    const acct_service::PositionsHeader& header = shm->header;
+    if (header.magic != acct_service::PositionsHeader::kMagic) {
         return false;
     }
-    if (header.version != acct_service::positions_header::kVersion) {
+    if (header.version != acct_service::PositionsHeader::kVersion) {
         return false;
     }
-    if (header.header_size != static_cast<uint32_t>(sizeof(acct_service::positions_header))) {
+    if (header.header_size != static_cast<uint32_t>(sizeof(acct_service::PositionsHeader))) {
         return false;
     }
     if (header.total_size != static_cast<uint32_t>(sizeof(acct_service::positions_shm_layout))) {
@@ -234,7 +234,7 @@ ACCT_POS_MON_API acct_pos_mon_error_t acct_positions_mon_info(
         return ACCT_POS_MON_ERR_NOT_INITIALIZED;
     }
 
-    const acct_service::positions_header& header = context->positions_shm->header;
+    const acct_service::PositionsHeader& header = context->positions_shm->header;
     out_info->magic = header.magic;
     out_info->version = header.version;
     out_info->capacity = header.capacity;

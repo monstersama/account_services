@@ -87,28 +87,28 @@ bool parse_u64_field(std::string_view text, uint64_t& out) {
 }
 
 // 解析内部证券 id 前缀的市场段。
-bool parse_market_prefix(std::string_view prefix, market_t& market) {
+bool parse_market_prefix(std::string_view prefix, Market& market) {
     if (prefix == "SZ") {
-        market = market_t::SZ;
+        market = Market::SZ;
         return true;
     }
     if (prefix == "SH") {
-        market = market_t::SH;
+        market = Market::SH;
         return true;
     }
     if (prefix == "BJ") {
-        market = market_t::BJ;
+        market = Market::BJ;
         return true;
     }
     if (prefix == "HK") {
-        market = market_t::HK;
+        market = Market::HK;
         return true;
     }
     return false;
 }
 
 // 将 "SZ.000001" 解析为 market + code，供 add_security 使用。
-bool parse_internal_security_id(std::string_view internal_id, market_t& market, std::string_view& code) {
+bool parse_internal_security_id(std::string_view internal_id, Market& market, std::string_view& code) {
     const std::size_t dot = internal_id.find('.');
     if (dot == std::string_view::npos || dot == 0 || dot + 1 >= internal_id.size()) {
         return false;
@@ -121,12 +121,12 @@ bool parse_internal_security_id(std::string_view internal_id, market_t& market, 
 }
 
 // 将一行 position 快照写入持仓管理器（新增证券行并回填字段）。
-bool apply_position_seed_row(const std::vector<std::string>& columns, position_manager& manager) {
+bool apply_position_seed_row(const std::vector<std::string>& columns, PositionManager& manager) {
     if (columns.size() < 14) {
         return false;
     }
 
-    market_t market = market_t::NotSet;
+    Market market = Market::NotSet;
     std::string_view code;
     if (!parse_internal_security_id(columns[1], market, code)) {
         return false;
@@ -180,8 +180,8 @@ bool apply_position_seed_row(const std::vector<std::string>& columns, position_m
 }
 
 // 将一行 DB 持仓快照写入持仓管理器；重复证券按后出现行覆盖。
-bool apply_position_db_row(const db_position_row& row, position_manager& manager) {
-    market_t market = market_t::NotSet;
+bool apply_position_db_row(const db_position_row& row, PositionManager& manager) {
+    Market market = Market::NotSet;
     std::string_view code;
     if (!parse_internal_security_id(row.internal_security_id, market, code)) {
         return false;
@@ -213,7 +213,7 @@ bool apply_position_db_row(const db_position_row& row, position_manager& manager
 }
 
 // 读取可选 CSV 快照；文件不存在视作未加载，格式错误返回失败。
-bool load_positions_csv_if_exists(std::string_view path, position_manager& manager, bool& loaded) {
+bool load_positions_csv_if_exists(std::string_view path, PositionManager& manager, bool& loaded) {
     loaded = false;
     if (path.empty()) {
         return true;
@@ -372,7 +372,7 @@ bool load_fund_from_db(sqlite3* db, AccountId account_id, fund_info& fund) {
 }
 
 // 从 positions 全表读取证券持仓并回写到持仓管理器。
-bool load_positions_from_db(sqlite3* db, position_manager& manager) {
+bool load_positions_from_db(sqlite3* db, PositionManager& manager) {
     sqlite_stmt_ptr stmt(nullptr, sqlite3_finalize);
     if (!prepare_statement(db, kPositionQuerySql, stmt)) {
         return false;
@@ -428,7 +428,7 @@ position_loader::position_loader(file_source source)
 position_loader::position_loader(db_source source) : source_type_(source_type::Db), source_path_(std::move(source.path)) {}
 
 // 按已选模式加载快照，不做 DB/File 自动回退。
-bool position_loader::load(AccountId account_id, position_manager& manager) {
+bool position_loader::load(AccountId account_id, PositionManager& manager) {
     switch (source_type_) {
         case source_type::File:
             return load_from_file(manager);
@@ -439,7 +439,7 @@ bool position_loader::load(AccountId account_id, position_manager& manager) {
 }
 
 // 执行文件模式加载；CSV 缺失时保持默认空仓。
-bool position_loader::load_from_file(position_manager& manager) const {
+bool position_loader::load_from_file(PositionManager& manager) const {
     if (source_path_.empty()) {
         return true;
     }
@@ -450,7 +450,7 @@ bool position_loader::load_from_file(position_manager& manager) const {
 }
 
 // 执行 DB 模式加载；先加载 FUND，再加载全量证券持仓。
-bool position_loader::load_from_db(AccountId account_id, position_manager& manager) const {
+bool position_loader::load_from_db(AccountId account_id, PositionManager& manager) const {
     sqlite_db_ptr db(nullptr, sqlite3_close);
     if (!open_sqlite_readonly(source_path_, db)) {
         return false;

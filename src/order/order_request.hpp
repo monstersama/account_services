@@ -9,20 +9,20 @@
 
 namespace acct_service {
 
-enum class order_type_t : uint8_t {
+enum class OrderType : uint8_t {
     NotSet = 0,
     New = 1,
     Cancel = 2,
     Unknown = 0xFF,
 };
 
-enum class trade_side_t : uint8_t {
+enum class TradeSide : uint8_t {
     NotSet = 0,
     Buy = 1,
     Sell = 2,
 };
 
-enum class market_t : uint8_t {
+enum class Market : uint8_t {
     NotSet = 0,
     SZ = 1,
     SH = 2,
@@ -49,13 +49,13 @@ enum class OrderState : uint8_t {
     Unknown = 0xFF,
 };
 
-struct alignas(64) order_request {
+struct alignas(64) OrderRequest {
     // cache line 0
     InternalOrderId internal_order_id{0};  // 系统内部订单ID，唯一标识
     uint8_t padding0_0{0};
-    order_type_t order_type{order_type_t::NotSet};  // 订单类型：报单、撤单
-    trade_side_t trade_side{trade_side_t::NotSet};  // 买卖方向：买入、卖出
-    market_t market{market_t::NotSet};              // 市场：深、沪、北、港
+    OrderType order_type{OrderType::NotSet};  // 订单类型：报单、撤单
+    TradeSide trade_side{TradeSide::NotSet};  // 买卖方向：买入、卖出
+    Market market{Market::NotSet};              // 市场：深、沪、北、港
     Volume volume_entrust{0};                     // 委托数量
     DPrice dprice_entrust{0};                     // 委托价格
     InternalOrderId orig_internal_order_id{0};  // 原始订单ID（仅撤单请求使用）
@@ -87,8 +87,8 @@ struct alignas(64) order_request {
     std::atomic<OrderState> order_state{OrderState::NotSet};  // 订单当前状态
     uint8_t padding2[15]{};                                            // 填充以对齐缓存行
 
-    order_request() = default;
-    order_request(const order_request& other) {
+    OrderRequest() = default;
+    OrderRequest(const OrderRequest& other) {
         internal_order_id = other.internal_order_id;
         padding0_0 = other.padding0_0;
         order_type = other.order_type;
@@ -116,7 +116,7 @@ struct alignas(64) order_request {
         md_time_traded_latest = other.md_time_traded_latest;
         order_state.store(other.order_state.load(std::memory_order_relaxed), std::memory_order_relaxed);
     }
-    order_request& operator=(const order_request& other) {
+    OrderRequest& operator=(const OrderRequest& other) {
         if (this != &other) {
             internal_order_id = other.internal_order_id;
             padding0_0 = other.padding0_0;
@@ -149,9 +149,9 @@ struct alignas(64) order_request {
     }
 
     void init_new(std::string_view sec_id, InternalSecurityId internal_sec_id, InternalOrderId internal_id,
-                  trade_side_t side, market_t mkt, Volume vol, DPrice dpx, MdTime md_time_driven_) {
+                  TradeSide side, Market mkt, Volume vol, DPrice dpx, MdTime md_time_driven_) {
         internal_order_id = internal_id;
-        order_type = order_type_t::New;
+        order_type = OrderType::New;
         trade_side = side;
         market = mkt;
         volume_entrust = vol;
@@ -172,9 +172,9 @@ struct alignas(64) order_request {
 
     void init_cancel(InternalOrderId internal_id, MdTime md_time_driven_, InternalOrderId orig_internal_id) {
         internal_order_id = internal_id;
-        order_type = order_type_t::Cancel;
-        trade_side = trade_side_t::NotSet;
-        market = market_t::NotSet;
+        order_type = OrderType::Cancel;
+        trade_side = TradeSide::NotSet;
+        market = Market::NotSet;
         volume_entrust = 0;
         dprice_entrust = 0;
         md_time_driven = md_time_driven_;
@@ -199,8 +199,8 @@ struct alignas(64) order_request {
     }
 };
 
-static_assert(sizeof(order_request) == 192, "order_request must be 192 bytes (3 cache lines)");
-static_assert(alignof(order_request) == 64, "order_request must be 64-byte aligned");
-static_assert(offsetof(order_request, broker_order_id) == 64, "broker_order_id must start at cache line 1");
-static_assert(offsetof(order_request, dfee_estimate) == 128, "dfee_estimate must start at cache line 2");
+static_assert(sizeof(OrderRequest) == 192, "order_request must be 192 bytes (3 cache lines)");
+static_assert(alignof(OrderRequest) == 64, "order_request must be 64-byte aligned");
+static_assert(offsetof(OrderRequest, broker_order_id) == 64, "broker_order_id must start at cache line 1");
+static_assert(offsetof(OrderRequest, dfee_estimate) == 128, "dfee_estimate must start at cache line 2");
 };  // namespace acct_service

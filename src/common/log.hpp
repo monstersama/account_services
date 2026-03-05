@@ -11,7 +11,7 @@
 
 namespace acct_service {
 
-struct log_config;
+struct LogConfig;
 
 enum class log_level : uint8_t {
     debug = 0,
@@ -39,7 +39,7 @@ public:
     async_logger() = default;
     ~async_logger() noexcept;
 
-    bool init(const log_config& config, AccountId account_id);
+    bool init(const LogConfig& config, AccountId account_id);
     void shutdown() noexcept;
     bool flush(uint32_t timeout_ms);
     bool log(const log_record& record);
@@ -55,7 +55,7 @@ private:
     std::unique_ptr<impl> impl_{};
 };
 
-bool init_logger(const log_config& config, AccountId account_id);
+bool init_logger(const LogConfig& config, AccountId account_id);
 void shutdown_logger();
 bool flush_logger(uint32_t timeout_ms);
 bool logger_healthy() noexcept;

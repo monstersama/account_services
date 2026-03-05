@@ -22,7 +22,7 @@ struct split_config {
 // 拆单结果
 struct split_result {
     bool success = false;
-    std::vector<order_request> child_orders;
+    std::vector<OrderRequest> child_orders;
     std::string error_msg;
 };
 
@@ -37,10 +37,10 @@ public:
     void set_order_id_generator(order_id_generator_t gen);
 
     // 执行拆单
-    split_result split(const order_request& parent_order);
+    split_result split(const OrderRequest& parent_order);
 
     // 判断是否需要拆单
-    bool should_split(const order_request& order) const;
+    bool should_split(const OrderRequest& order) const;
 
     // 更新拆单配置
     void update_config(const split_config& config);
@@ -48,9 +48,9 @@ public:
     const split_config& config() const noexcept;
 
 private:
-    split_result split_fixed_size(const order_request& parent);
-    split_result split_iceberg(const order_request& parent);
-    split_result split_twap(const order_request& parent);
+    split_result split_fixed_size(const OrderRequest& parent);
+    split_result split_iceberg(const OrderRequest& parent);
+    split_result split_twap(const OrderRequest& parent);
 
     split_config config_;
     order_id_generator_t id_generator_;

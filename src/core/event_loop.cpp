@@ -56,13 +56,13 @@ double event_loop_stats::avg_latency_ns() const {
 
 EventLoop::EventLoop(const EventLoopConfig& config, upstream_shm_layout* upstream_shm,
     downstream_shm_layout* downstream_shm, trades_shm_layout* trades_shm, orders_shm_layout* orders_shm,
-    order_book& order_book, order_router& router, position_manager& positions, risk_manager& risk)
+    OrderBook& OrderBook, order_router& router, PositionManager& positions, RiskManager& risk)
     : config_(config),
       upstream_shm_(upstream_shm),
       downstream_shm_(downstream_shm),
       trades_shm_(trades_shm),
       orders_shm_(orders_shm),
-      order_book_(order_book),
+      order_book_(OrderBook),
       router_(router),
       positions_(positions),
       risk_(risk) {
@@ -163,7 +163,7 @@ std::size_t EventLoop::process_upstream_orders() {
     const std::size_t batch_limit = (config_.poll_batch_size == 0) ? 1 : config_.poll_batch_size;
     std::size_t processed = 0;
 
-    order_index_t order_index = kInvalidOrderIndex;
+    OrderIndex order_index = kInvalidOrderIndex;
     while (processed < batch_limit && upstream_shm_->strategy_order_queue.try_pop(order_index)) {
         order_slot_snapshot snapshot;
         if (!orders_shm_read_snapshot(orders_shm_, order_index, snapshot)) {
@@ -174,7 +174,7 @@ std::size_t EventLoop::process_upstream_orders() {
             continue;
         }
 
-        (void)orders_shm_update_stage(orders_shm_, order_index, order_slot_stage_t::UpstreamDequeued, now_ns());
+        (void)orders_shm_update_stage(orders_shm_, order_index, OrderSlotState::UpstreamDequeued, now_ns());
         handle_order_request(order_index, snapshot.request);
         ++processed;
     }
@@ -195,7 +195,7 @@ std::size_t EventLoop::process_downstream_responses() {
     const std::size_t batch_limit = (config_.poll_batch_size == 0) ? 1 : config_.poll_batch_size;
     std::size_t processed = 0;
 
-    trade_response response;
+    TradeResponse response;
     while (processed < batch_limit && trades_shm_->response_queue.try_pop(response)) {
         handle_trade_response(response);
         ++processed;
@@ -209,12 +209,12 @@ std::size_t EventLoop::process_downstream_responses() {
     return processed;
 }
 
-void EventLoop::handle_order_request(order_index_t index, order_request& request) {
-    if (request.order_type == order_type_t::New && request.internal_security_id.empty() && !request.security_id.empty()) {
+void EventLoop::handle_order_request(OrderIndex index, OrderRequest& request) {
+    if (request.order_type == OrderType::New && request.internal_security_id.empty() && !request.security_id.empty()) {
         if (!build_internal_security_id(request.market, request.security_id.view(), request.internal_security_id)) {
             request.order_state.store(OrderState::TraderError, std::memory_order_release);
             (void)orders_shm_sync_order(orders_shm_, index, request, now_ns());
-            (void)orders_shm_update_stage(orders_shm_, index, order_slot_stage_t::QueuePushFailed, now_ns());
+            (void)orders_shm_update_stage(orders_shm_, index, OrderSlotState::QueuePushFailed, now_ns());
             error_status status = ACCT_MAKE_ERROR(
                 ErrorDomain::order, error_code::InvalidParam, "EventLoop", "invalid market/security_id for internal key", 0);
             record_error(status);
@@ -240,9 +240,9 @@ void EventLoop::handle_order_request(order_index_t index, order_request& request
     entry.shm_order_index = index;
 
     if (!order_book_.add_order(entry)) {
-        (void)orders_shm_update_stage(orders_shm_, index, order_slot_stage_t::QueuePushFailed, now_ns());
+        (void)orders_shm_update_stage(orders_shm_, index, OrderSlotState::QueuePushFailed, now_ns());
         error_status status = ACCT_MAKE_ERROR(
-            ErrorDomain::order, error_code::OrderBookFull, "EventLoop", "order_book add_order failed", 0);
+            ErrorDomain::order, error_code::OrderBookFull, "EventLoop", "OrderBook add_order failed", 0);
         record_error(status);
         ACCT_LOG_ERROR_STATUS(status);
         return;
@@ -250,7 +250,7 @@ void EventLoop::handle_order_request(order_index_t index, order_request& request
     // 风控检查
     order_book_.update_state(request.internal_order_id, OrderState::RiskControllerPending);
 
-    if (request.order_type == order_type_t::New) {
+    if (request.order_type == OrderType::New) {
         const risk_check_result risk_result = risk_.check_order(request);
 
         if (OrderEntry* active = order_book_.find_order(request.internal_order_id)) {
@@ -259,7 +259,7 @@ void EventLoop::handle_order_request(order_index_t index, order_request& request
 
         if (!risk_result.passed()) {
             order_book_.update_state(request.internal_order_id, OrderState::RiskControllerRejected);
-            (void)orders_shm_update_stage(orders_shm_, index, order_slot_stage_t::RiskRejected, now_ns());
+            (void)orders_shm_update_stage(orders_shm_, index, OrderSlotState::RiskRejected, now_ns());
             return;
         }
 
@@ -272,7 +272,7 @@ void EventLoop::handle_order_request(order_index_t index, order_request& request
     OrderEntry* active = order_book_.find_order(request.internal_order_id);
     if (!active || !router_.route_order(*active)) {
         order_book_.update_state(request.internal_order_id, OrderState::TraderError);
-        (void)orders_shm_update_stage(orders_shm_, index, order_slot_stage_t::QueuePushFailed, now_ns());
+        (void)orders_shm_update_stage(orders_shm_, index, OrderSlotState::QueuePushFailed, now_ns());
         error_status status = ACCT_MAKE_ERROR(
             ErrorDomain::order, error_code::RouteFailed, "EventLoop", "route_order failed", 0);
         record_error(status);
@@ -290,10 +290,10 @@ void EventLoop::on_order_book_changed(const OrderEntry& entry, order_book_event_
 
     bool synced = false;
     if (event == order_book_event_t::Archived || is_terminal_state(status)) {
-        synced = orders_shm_write_order(orders_shm_, entry.shm_order_index, entry.request, order_slot_stage_t::Terminal,
+        synced = orders_shm_write_order(orders_shm_, entry.shm_order_index, entry.request, OrderSlotState::Terminal,
             order_slot_source_t::AccountInternal, update_ns);
     } else if (status == OrderState::RiskControllerRejected) {
-        synced = orders_shm_write_order(orders_shm_, entry.shm_order_index, entry.request, order_slot_stage_t::RiskRejected,
+        synced = orders_shm_write_order(orders_shm_, entry.shm_order_index, entry.request, OrderSlotState::RiskRejected,
             order_slot_source_t::AccountInternal, update_ns);
     } else {
         synced = orders_shm_sync_order(orders_shm_, entry.shm_order_index, entry.request, update_ns);
@@ -307,7 +307,7 @@ void EventLoop::on_order_book_changed(const OrderEntry& entry, order_book_event_
     }
 }
 
-void EventLoop::handle_trade_response(const trade_response& response) {
+void EventLoop::handle_trade_response(const TradeResponse& response) {
     if (response.internal_order_id == 0) {
         return;
     }
@@ -319,15 +319,15 @@ void EventLoop::handle_trade_response(const trade_response& response) {
             response.dvalue_traded, response.dfee);
 
         const OrderEntry* order = order_book_.find_order(response.internal_order_id);
-        if (order && order->request.order_type == order_type_t::New) {
-            if (response.trade_side == trade_side_t::Buy) {
+        if (order && order->request.order_type == OrderType::New) {
+            if (response.trade_side == TradeSide::Buy) {
                 if (!positions_.apply_buy_trade_fund(response.dvalue_traded, response.dfee, response.internal_order_id)) {
                     error_status status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, error_code::PositionUpdateFailed,
                         "EventLoop", "failed to settle buy fund from trade response", 0);
                     record_error(status);
                     ACCT_LOG_ERROR_STATUS(status);
                 }
-            } else if (response.trade_side == trade_side_t::Sell) {
+            } else if (response.trade_side == TradeSide::Sell) {
                 if (!positions_.apply_sell_trade_fund(response.dvalue_traded, response.dfee, response.internal_order_id)) {
                     error_status status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, error_code::PositionUpdateFailed,
                         "EventLoop", "failed to settle sell fund from trade response", 0);
@@ -359,7 +359,7 @@ void EventLoop::handle_trade_response(const trade_response& response) {
                     }
                 }
 
-                if (response.trade_side == trade_side_t::Buy) {
+                if (response.trade_side == TradeSide::Buy) {
                     if (!positions_.add_position(
                             security_id, response.volume_traded, response.dprice_traded, response.internal_order_id)) {
                         error_status status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, error_code::PositionUpdateFailed,
@@ -367,7 +367,7 @@ void EventLoop::handle_trade_response(const trade_response& response) {
                         record_error(status);
                         ACCT_LOG_ERROR_STATUS(status);
                     }
-                } else if (response.trade_side == trade_side_t::Sell) {
+                } else if (response.trade_side == TradeSide::Sell) {
                     if (!positions_.deduct_position(
                             security_id, response.volume_traded, response.dvalue_traded, response.internal_order_id)) {
                         error_status status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, error_code::PositionUpdateFailed,

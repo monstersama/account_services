@@ -173,21 +173,21 @@ void *SHMManager::open_impl(std::string_view name, std::size_t size, shm_mode mo
 }
 
 // 初始化共享内存头部
-void SHMManager::init_header(shm_header *header, AccountId account_id) {
-    header->magic = shm_header::kMagic;
-    header->version = shm_header::kVersion;
+void SHMManager::init_header(SHMHeader *header, AccountId account_id) {
+    header->magic = SHMHeader::kMagic;
+    header->version = SHMHeader::kVersion;
     header->create_time = now_ns();
     header->last_update = now_ns();
     header->next_order_id.store(1, std::memory_order_relaxed);
 }
 
 // 验证共享内存头部
-bool SHMManager::validate_header(const shm_header *header) {
-    if (header->magic != shm_header::kMagic) {
+bool SHMManager::validate_header(const SHMHeader *header) {
+    if (header->magic != SHMHeader::kMagic) {
         (void)report_shm_error(error_code::ShmHeaderInvalid, name_, "invalid shm magic");
         return false;
     }
-    if (header->version != shm_header::kVersion) {
+    if (header->version != SHMHeader::kVersion) {
         (void)report_shm_error(error_code::ShmHeaderInvalid, name_, "invalid shm version");
         return false;
     }
@@ -277,9 +277,9 @@ orders_shm_layout* SHMManager::open_orders(std::string_view name, shm_mode mode,
     }
 
     if (last_open_is_new_) {
-        layout->header.magic = orders_header::kMagic;
-        layout->header.version = orders_header::kVersion;
-        layout->header.header_size = static_cast<uint32_t>(sizeof(orders_header));
+        layout->header.magic = OrdersHeader::kMagic;
+        layout->header.version = OrdersHeader::kVersion;
+        layout->header.header_size = static_cast<uint32_t>(sizeof(OrdersHeader));
         layout->header.total_size = static_cast<uint32_t>(sizeof(orders_shm_layout));
         layout->header.capacity = static_cast<uint32_t>(kDailyOrderPoolCapacity);
         layout->header.init_state = 0;
@@ -290,17 +290,17 @@ orders_shm_layout* SHMManager::open_orders(std::string_view name, shm_mode mode,
         std::memcpy(layout->header.trading_day, expected_trading_day, 9);
         layout->header.init_state = 1;
     } else {
-        if (layout->header.magic != orders_header::kMagic) {
+        if (layout->header.magic != OrdersHeader::kMagic) {
             (void)report_shm_error(error_code::ShmHeaderInvalid, name, "invalid orders shm magic");
             close();
             return nullptr;
         }
-        if (layout->header.version != orders_header::kVersion) {
+        if (layout->header.version != OrdersHeader::kVersion) {
             (void)report_shm_error(error_code::ShmHeaderInvalid, name, "invalid orders shm version");
             close();
             return nullptr;
         }
-        if (layout->header.header_size != static_cast<uint32_t>(sizeof(orders_header))) {
+        if (layout->header.header_size != static_cast<uint32_t>(sizeof(OrdersHeader))) {
             (void)report_shm_error(error_code::ShmHeaderInvalid, name, "invalid orders shm header size");
             close();
             return nullptr;
@@ -342,9 +342,9 @@ positions_shm_layout *SHMManager::open_positions(std::string_view name, shm_mode
 
     // 持仓共享内存使用 positions_header，需要单独处理
     if (last_open_is_new_) {
-        layout->header.magic = positions_header::kMagic;
-        layout->header.version = positions_header::kVersion;
-        layout->header.header_size = static_cast<uint32_t>(sizeof(positions_header));
+        layout->header.magic = PositionsHeader::kMagic;
+        layout->header.version = PositionsHeader::kVersion;
+        layout->header.header_size = static_cast<uint32_t>(sizeof(PositionsHeader));
         layout->header.total_size = static_cast<uint32_t>(sizeof(positions_shm_layout));
         layout->header.capacity = static_cast<uint32_t>(kMaxPositions);
         layout->header.init_state = 0;
@@ -353,17 +353,17 @@ positions_shm_layout *SHMManager::open_positions(std::string_view name, shm_mode
         layout->header.id.store(1, std::memory_order_relaxed);
         layout->position_count.store(0, std::memory_order_relaxed);
     } else {
-        if (layout->header.magic != positions_header::kMagic) {
+        if (layout->header.magic != PositionsHeader::kMagic) {
             (void)report_shm_error(error_code::ShmHeaderInvalid, name, "invalid positions shm magic");
             close();
             return nullptr;
         }
-        if (layout->header.version != positions_header::kVersion) {
+        if (layout->header.version != PositionsHeader::kVersion) {
             (void)report_shm_error(error_code::ShmHeaderInvalid, name, "invalid positions shm version");
             close();
             return nullptr;
         }
-        const uint32_t expected_header_size = static_cast<uint32_t>(sizeof(positions_header));
+        const uint32_t expected_header_size = static_cast<uint32_t>(sizeof(PositionsHeader));
         if (layout->header.header_size != expected_header_size) {
             (void)report_shm_error(error_code::ShmHeaderInvalid, name, "invalid positions header size");
             close();

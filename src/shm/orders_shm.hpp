@@ -15,8 +15,8 @@
 namespace acct_service {
 
 struct order_slot_snapshot {
-    order_request request{};
-    order_slot_stage_t stage{order_slot_stage_t::Empty};
+    OrderRequest request{};
+    OrderSlotState stage{OrderSlotState::Empty};
     order_slot_source_t source{order_slot_source_t::Unknown};
     TimestampNs last_update_ns{0};
 };
@@ -71,32 +71,32 @@ inline bool is_terminal_order_state(OrderState status) noexcept {
     }
 }
 
-inline bool orders_shm_index_exists(const orders_shm_layout* shm, order_index_t index) noexcept {
+inline bool orders_shm_index_exists(const orders_shm_layout* shm, OrderIndex index) noexcept {
     if (!shm || index == kInvalidOrderIndex) {
         return false;
     }
-    const order_index_t upper = shm->header.next_index.load(std::memory_order_acquire);
+    const OrderIndex upper = shm->header.next_index.load(std::memory_order_acquire);
     return index < upper && index < shm->header.capacity;
 }
 
-inline bool orders_shm_try_allocate(orders_shm_layout* shm, order_index_t& out_index) noexcept {
+inline bool orders_shm_try_allocate(orders_shm_layout* shm, OrderIndex& out_index) noexcept {
     if (!shm) {
         return false;
     }
 
-    order_index_t current = shm->header.next_index.load(std::memory_order_acquire);
+    OrderIndex current = shm->header.next_index.load(std::memory_order_acquire);
     while (true) {
         if (current >= shm->header.capacity) {
             shm->header.full_reject_count.fetch_add(1, std::memory_order_relaxed);
             return false;
         }
 
-        const order_index_t next = current + 1;
+        const OrderIndex next = current + 1;
         if (shm->header.next_index.compare_exchange_weak(
                 current, next, std::memory_order_acq_rel, std::memory_order_acquire)) {
             out_index = current;
-            const order_index_t warn80 = static_cast<order_index_t>((static_cast<uint64_t>(shm->header.capacity) * 80ULL) / 100ULL);
-            const order_index_t warn95 = static_cast<order_index_t>((static_cast<uint64_t>(shm->header.capacity) * 95ULL) / 100ULL);
+            const OrderIndex warn80 = static_cast<OrderIndex>((static_cast<uint64_t>(shm->header.capacity) * 80ULL) / 100ULL);
+            const OrderIndex warn95 = static_cast<OrderIndex>((static_cast<uint64_t>(shm->header.capacity) * 95ULL) / 100ULL);
             if (next == warn80) {
                 ACCT_LOG_WARN("orders_shm", "orders pool usage reached 80%");
             } else if (next == warn95) {
@@ -108,14 +108,14 @@ inline bool orders_shm_try_allocate(orders_shm_layout* shm, order_index_t& out_i
 }
 
 template <typename Mutator>
-inline bool orders_shm_mutate_slot(orders_shm_layout* shm, order_index_t index, Mutator&& mutator) noexcept {
-    static_assert(std::is_invocable_v<Mutator, order_slot&>, "mutator must be callable with order_slot&");
+inline bool orders_shm_mutate_slot(orders_shm_layout* shm, OrderIndex index, Mutator&& mutator) noexcept {
+    static_assert(std::is_invocable_v<Mutator, OrderSlot&>, "mutator must be callable with OrderSlot&");
 
     if (!orders_shm_index_exists(shm, index)) {
         return false;
     }
 
-    order_slot& slot = shm->slots[index];
+    OrderSlot& slot = shm->slots[index];
     uint64_t seq = slot.seq.load(std::memory_order_relaxed);
     if ((seq & 1ULL) != 0U) {
         ++seq;
@@ -131,9 +131,9 @@ inline bool orders_shm_mutate_slot(orders_shm_layout* shm, order_index_t index, 
     return true;
 }
 
-inline bool orders_shm_write_order(orders_shm_layout* shm, order_index_t index, const order_request& request,
-    order_slot_stage_t stage, order_slot_source_t source, TimestampNs update_ns) noexcept {
-    return orders_shm_mutate_slot(shm, index, [&](order_slot& slot) {
+inline bool orders_shm_write_order(orders_shm_layout* shm, OrderIndex index, const OrderRequest& request,
+    OrderSlotState stage, order_slot_source_t source, TimestampNs update_ns) noexcept {
+    return orders_shm_mutate_slot(shm, index, [&](OrderSlot& slot) {
         slot.request = request;
         slot.stage = stage;
         slot.source = source;
@@ -141,36 +141,36 @@ inline bool orders_shm_write_order(orders_shm_layout* shm, order_index_t index, 
     });
 }
 
-inline bool orders_shm_sync_order(orders_shm_layout* shm, order_index_t index, const order_request& request,
+inline bool orders_shm_sync_order(orders_shm_layout* shm, OrderIndex index, const OrderRequest& request,
     TimestampNs update_ns) noexcept {
-    return orders_shm_mutate_slot(shm, index, [&](order_slot& slot) {
+    return orders_shm_mutate_slot(shm, index, [&](OrderSlot& slot) {
         slot.request = request;
         slot.last_update_ns = update_ns;
     });
 }
 
 inline bool orders_shm_update_stage(
-    orders_shm_layout* shm, order_index_t index, order_slot_stage_t stage, TimestampNs update_ns) noexcept {
-    return orders_shm_mutate_slot(shm, index, [&](order_slot& slot) {
+    orders_shm_layout* shm, OrderIndex index, OrderSlotState stage, TimestampNs update_ns) noexcept {
+    return orders_shm_mutate_slot(shm, index, [&](OrderSlot& slot) {
         slot.stage = stage;
         slot.last_update_ns = update_ns;
     });
 }
 
-inline bool orders_shm_append(orders_shm_layout* shm, const order_request& request, order_slot_stage_t stage,
-    order_slot_source_t source, TimestampNs update_ns, order_index_t& out_index) noexcept {
+inline bool orders_shm_append(orders_shm_layout* shm, const OrderRequest& request, OrderSlotState stage,
+    order_slot_source_t source, TimestampNs update_ns, OrderIndex& out_index) noexcept {
     if (!orders_shm_try_allocate(shm, out_index)) {
         return false;
     }
     return orders_shm_write_order(shm, out_index, request, stage, source, update_ns);
 }
 
-inline bool orders_shm_read_snapshot(const orders_shm_layout* shm, order_index_t index, order_slot_snapshot& out) noexcept {
+inline bool orders_shm_read_snapshot(const orders_shm_layout* shm, OrderIndex index, order_slot_snapshot& out) noexcept {
     if (!orders_shm_index_exists(shm, index)) {
         return false;
     }
 
-    const order_slot& slot = shm->slots[index];
+    const OrderSlot& slot = shm->slots[index];
     for (uint32_t attempt = 0; attempt < 32; ++attempt) {
         const uint64_t seq0 = slot.seq.load(std::memory_order_acquire);
         if ((seq0 & 1ULL) != 0U) {

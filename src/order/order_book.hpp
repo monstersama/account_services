@@ -17,7 +17,7 @@ namespace acct_service {
 
 // 订单条目（扩展订单信息）
 struct OrderEntry {
-    order_request request;                  // 原始订单请求与可变成交状态
+    OrderRequest request;                  // 原始订单请求与可变成交状态
     TimestampNs submit_time_ns;          // 订单进入订单簿时间
     TimestampNs last_update_ns;          // 最近一次状态/成交更新时间
     StrategyId strategy_id;              // 来源策略ID
@@ -25,7 +25,7 @@ struct OrderEntry {
     uint8_t retry_count;                    // 路由重试次数
     bool is_split_child;                    // 是否为拆单子单（含子撤单）
     InternalOrderId parent_order_id;    // 父单ID（非子单时为0）
-    order_index_t shm_order_index{kInvalidOrderIndex};  // 对应 orders_shm 槽位索引
+    OrderIndex shm_order_index{kInvalidOrderIndex};  // 对应 orders_shm 槽位索引
 
     bool is_active() const noexcept;
     bool is_terminal() const noexcept;
@@ -42,14 +42,14 @@ enum class order_book_event_t : uint8_t {
 using order_change_callback_t = std::function<void(const OrderEntry&, order_book_event_t)>;
 
 // 订单簿管理器
-class order_book {
+class OrderBook {
 public:
-    order_book();
-    ~order_book() = default;
+    OrderBook();
+    ~OrderBook() = default;
 
     // 禁止拷贝·
-    order_book(const order_book&) = delete;
-    order_book& operator=(const order_book&) = delete;
+    OrderBook(const OrderBook&) = delete;
+    OrderBook& operator=(const OrderBook&) = delete;
 
     // 添加新订单
     bool add_order(const OrderEntry& entry);

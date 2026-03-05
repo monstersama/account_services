@@ -52,10 +52,10 @@ public:
     ServiceState state() const noexcept;
 
     // 获取各组件引用（用于测试）
-    const config_manager& config() const;
-    const order_book& orders() const;
-    const position_manager& positions() const;
-    const risk_manager& risk() const;
+    const ConfigManager& config() const;
+    const OrderBook& orders() const;
+    const PositionManager& positions() const;
+    const RiskManager& risk() const;
 
     // 获取统计信息
     void print_stats() const;
@@ -89,7 +89,7 @@ private:
     std::atomic<ServiceState> state_{ServiceState::Created};
 
     // 配置
-    config_manager config_manager_;
+    ConfigManager config_manager_;
 
     // 共享内存管理
     SHMManager upstream_shm_manager_;
@@ -107,10 +107,10 @@ private:
 
     // 核心组件
     std::unique_ptr<account_info_manager> account_info_;
-    std::unique_ptr<position_manager> position_manager_;
-    std::unique_ptr<order_book> order_book_;
+    std::unique_ptr<PositionManager> position_manager_;
+    std::unique_ptr<OrderBook> order_book_;
     std::unique_ptr<order_router> order_router_;
-    std::unique_ptr<risk_manager> risk_manager_;
+    std::unique_ptr<RiskManager> risk_manager_;
     std::unique_ptr<trade_record_manager> trade_records_;
     std::unique_ptr<entrust_record_manager> entrust_records_;
 

@@ -14,9 +14,9 @@
 - 示例：`acct_service`、`acct_service::broker_api`。
 
 2. 类型（`class` / `struct` / `enum` / 类型别名）
-- 统一使用 `snake_case`。
+- 统一使用 `PascalCase`。
 - 新代码避免再引入大写缩写类名或 `I` 前缀接口名。
-- 示例：`order_book`、`risk_manager`、`broker_adapter`。
+- 示例：`OrderBook`、`RiskManager`、`AccountService`。
 
 3. 函数/方法
 - 使用 `snake_case`，优先动词短语。

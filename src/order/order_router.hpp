@@ -22,7 +22,7 @@ struct router_stats {
 // 订单路由器
 class order_router {
 public:
-    order_router(order_book& book, downstream_shm_layout* downstream_shm, orders_shm_layout* orders_shm,
+    order_router(OrderBook& book, downstream_shm_layout* downstream_shm, orders_shm_layout* orders_shm,
         const split_config& config);
     ~order_router() = default;
 
@@ -39,7 +39,7 @@ public:
     // 处理撤单请求
     bool route_cancel(InternalOrderId orig_id, InternalOrderId cancel_id, MdTime time);
 
-    // 启动恢复：从 orders_shm 重建“已下游但未终态”订单到 order_book。
+    // 启动恢复：从 orders_shm 重建“已下游但未终态”订单到 OrderBook。
     bool recover_downstream_active_orders(const upstream_shm_layout* upstream_shm);
 
     // 获取统计信息
@@ -49,12 +49,12 @@ public:
     void reset_stats() noexcept;
 
 private:
-    bool send_to_downstream(order_index_t index);
+    bool send_to_downstream(OrderIndex index);
     bool handle_split_order(OrderEntry& parent);
     bool create_internal_order_slot(
-        const order_request& request, order_slot_stage_t stage, order_index_t& out_index, order_slot_source_t source);
+        const OrderRequest& request, OrderSlotState stage, OrderIndex& out_index, order_slot_source_t source);
 
-    order_book& order_book_;
+    OrderBook& order_book_;
     downstream_shm_layout* downstream_shm_;
     orders_shm_layout* orders_shm_;
     order_splitter splitter_;

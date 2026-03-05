@@ -7,12 +7,12 @@ namespace acct_service {
 
 namespace {
 
-uint64_t make_order_fingerprint(const order_request& order) {
+uint64_t make_order_fingerprint(const OrderRequest& order) {
     return static_cast<uint64_t>(order.internal_order_id);
 }
 
-bool is_new_order(const order_request& order) {
-    return order.order_type == order_type_t::New;
+bool is_new_order(const OrderRequest& order) {
+    return order.order_type == OrderType::New;
 }
 
 }  // namespace
@@ -31,8 +31,8 @@ void risk_rule::set_enabled(bool enabled) { enabled_ = enabled; }
 
 const char* fund_check_rule::name() const noexcept { return "fund_check"; }
 
-risk_check_result fund_check_rule::check(const order_request& order, const position_manager& positions) {
-    if (!enabled_ || !is_new_order(order) || order.trade_side != trade_side_t::Buy) {
+risk_check_result fund_check_rule::check(const OrderRequest& order, const PositionManager& positions) {
+    if (!enabled_ || !is_new_order(order) || order.trade_side != TradeSide::Buy) {
         return risk_check_result::pass();
     }
 
@@ -48,8 +48,8 @@ risk_check_result fund_check_rule::check(const order_request& order, const posit
 
 const char* position_check_rule::name() const noexcept { return "position_check"; }
 
-risk_check_result position_check_rule::check(const order_request& order, const position_manager& positions) {
-    if (!enabled_ || !is_new_order(order) || order.trade_side != trade_side_t::Sell) {
+risk_check_result position_check_rule::check(const OrderRequest& order, const PositionManager& positions) {
+    if (!enabled_ || !is_new_order(order) || order.trade_side != TradeSide::Sell) {
         return risk_check_result::pass();
     }
 
@@ -65,7 +65,7 @@ max_order_value_rule::max_order_value_rule(DValue max_value) : max_value_(max_va
 
 const char* max_order_value_rule::name() const noexcept { return "max_order_value"; }
 
-risk_check_result max_order_value_rule::check(const order_request& order, const position_manager& positions) {
+risk_check_result max_order_value_rule::check(const OrderRequest& order, const PositionManager& positions) {
     (void)positions;
     if (!enabled_ || !is_new_order(order) || max_value_ == 0) {
         return risk_check_result::pass();
@@ -86,7 +86,7 @@ max_order_volume_rule::max_order_volume_rule(Volume max_volume) : max_volume_(ma
 
 const char* max_order_volume_rule::name() const noexcept { return "max_order_volume"; }
 
-risk_check_result max_order_volume_rule::check(const order_request& order, const position_manager& positions) {
+risk_check_result max_order_volume_rule::check(const OrderRequest& order, const PositionManager& positions) {
     (void)positions;
     if (!enabled_ || !is_new_order(order) || max_volume_ == 0) {
         return risk_check_result::pass();
@@ -103,7 +103,7 @@ void max_order_volume_rule::set_max_volume(Volume max_volume) { max_volume_ = ma
 
 const char* price_limit_rule::name() const noexcept { return "price_limit"; }
 
-risk_check_result price_limit_rule::check(const order_request& order, const position_manager& positions) {
+risk_check_result price_limit_rule::check(const OrderRequest& order, const PositionManager& positions) {
     (void)positions;
     if (!enabled_ || !is_new_order(order)) {
         return risk_check_result::pass();
@@ -132,7 +132,7 @@ void price_limit_rule::clear_price_limits() { limits_.clear(); }
 
 const char* duplicate_order_rule::name() const noexcept { return "duplicate_order"; }
 
-risk_check_result duplicate_order_rule::check(const order_request& order, const position_manager& positions) {
+risk_check_result duplicate_order_rule::check(const OrderRequest& order, const PositionManager& positions) {
     (void)positions;
     if (!enabled_ || !is_new_order(order)) {
         return risk_check_result::pass();
@@ -150,7 +150,7 @@ risk_check_result duplicate_order_rule::check(const order_request& order, const 
     return risk_check_result::pass();
 }
 
-void duplicate_order_rule::record_order(const order_request& order) {
+void duplicate_order_rule::record_order(const OrderRequest& order) {
     recent_orders_[make_order_fingerprint(order)] = now_monotonic_ns();
 }
 
@@ -162,7 +162,7 @@ rate_limit_rule::rate_limit_rule(uint32_t max_orders_per_second) : max_orders_pe
 
 const char* rate_limit_rule::name() const noexcept { return "rate_limit"; }
 
-risk_check_result rate_limit_rule::check(const order_request& order, const position_manager& positions) {
+risk_check_result rate_limit_rule::check(const OrderRequest& order, const PositionManager& positions) {
     (void)positions;
     if (!enabled_ || !is_new_order(order) || max_orders_per_second_ == 0) {
         return risk_check_result::pass();

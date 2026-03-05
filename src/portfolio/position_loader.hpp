@@ -6,7 +6,7 @@
 
 namespace acct_service {
 
-class position_manager;
+class PositionManager;
 
 // 从外部快照（db/file）加载初始持仓，仅在 fresh SHM 初始化时生效。
 class position_loader {
@@ -26,13 +26,13 @@ public:
     ~position_loader() = default;
 
     // 按构造时选择的模式加载持仓快照。
-    bool load(AccountId account_id, position_manager& manager);
+    bool load(AccountId account_id, PositionManager& manager);
 
 private:
     enum class source_type { File, Db };
 
-    bool load_from_file(position_manager& manager) const;
-    bool load_from_db(AccountId account_id, position_manager& manager) const;
+    bool load_from_file(PositionManager& manager) const;
+    bool load_from_db(AccountId account_id, PositionManager& manager) const;
 
     source_type source_type_{source_type::File};
     std::string source_path_;

@@ -24,7 +24,7 @@ bool is_terminal(OrderState status) {
 
 }  // namespace
 
-entrust_record entrust_record::from_order_request(const order_request& req) {
+entrust_record entrust_record::from_order_request(const OrderRequest& req) {
     entrust_record record{};
     record.order_id = req.internal_order_id;
     record.security_id = req.internal_security_id;
@@ -68,7 +68,7 @@ void entrust_record_manager::add_or_update(const entrust_record& record) {
     security_index_[record.security_id].push_back(index);
 }
 
-void entrust_record_manager::update_from_order(const order_request& order) {
+void entrust_record_manager::update_from_order(const OrderRequest& order) {
     add_or_update(entrust_record::from_order_request(order));
 }
 

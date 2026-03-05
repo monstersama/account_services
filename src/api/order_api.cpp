@@ -108,7 +108,7 @@ struct acct_context {
     std::string trading_day;
 
     // 缓存的订单（new_order 创建，send_order 发送）
-    std::unordered_map<uint32_t, order_request> cached_orders;
+    std::unordered_map<uint32_t, OrderRequest> cached_orders;
 
     bool initialized = false;
 };
@@ -116,19 +116,19 @@ struct acct_context {
 namespace {
 
 acct_error_t enqueue_order(
-    acct_context* context, const order_request& request, order_slot_source_t source, order_index_t* out_index = nullptr) {
+    acct_context* context, const OrderRequest& request, order_slot_source_t source, OrderIndex* out_index = nullptr) {
     if (!context || !context->upstream_shm || !context->orders_shm) {
         return api_error(ACCT_ERR_NOT_INITIALIZED, error_code::InvalidState, "enqueue called before init");
     }
 
-    order_index_t index = kInvalidOrderIndex;
+    OrderIndex index = kInvalidOrderIndex;
     if (!orders_shm_append(
-            context->orders_shm, request, order_slot_stage_t::UpstreamQueued, source, now_ns(), index)) {
+            context->orders_shm, request, OrderSlotState::UpstreamQueued, source, now_ns(), index)) {
         return api_error(ACCT_ERR_ORDER_POOL_FULL, error_code::OrderPoolFull, "orders shm pool full");
     }
 
     if (!context->upstream_shm->strategy_order_queue.try_push(index)) {
-        (void)orders_shm_update_stage(context->orders_shm, index, order_slot_stage_t::QueuePushFailed, now_ns());
+        (void)orders_shm_update_stage(context->orders_shm, index, OrderSlotState::QueuePushFailed, now_ns());
         return api_error(ACCT_ERR_QUEUE_FULL, error_code::QueuePushFailed, "enqueue upstream queue push failed");
     }
 
@@ -233,7 +233,7 @@ ACCT_API acct_error_t acct_new_order(acct_ctx_t ctx, const char* security_id, ui
     }
 
     InternalSecurityId internal_security_id;
-    if (!build_internal_security_id(static_cast<market_t>(market), std::string_view(security_id), internal_security_id)) {
+    if (!build_internal_security_id(static_cast<Market>(market), std::string_view(security_id), internal_security_id)) {
         return api_error(ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_new_order invalid security_id length/market");
     }
 
@@ -246,9 +246,9 @@ ACCT_API acct_error_t acct_new_order(acct_ctx_t ctx, const char* security_id, ui
     const MdTime md_time = get_current_md_time();
     (void)valid_sec;
 
-    order_request request;
+    OrderRequest request;
     request.init_new(std::string_view(security_id), internal_security_id,
-        static_cast<InternalOrderId>(order_id), static_cast<trade_side_t>(side), static_cast<market_t>(market),
+        static_cast<InternalOrderId>(order_id), static_cast<TradeSide>(side), static_cast<Market>(market),
         static_cast<Volume>(volume), internal_price, md_time);
     request.order_state.store(OrderState::NotSet, std::memory_order_relaxed);
 
@@ -309,7 +309,7 @@ ACCT_API acct_error_t acct_submit_order(acct_ctx_t ctx, const char* security_id,
     }
 
     InternalSecurityId internal_security_id;
-    if (!build_internal_security_id(static_cast<market_t>(market), std::string_view(security_id), internal_security_id)) {
+    if (!build_internal_security_id(static_cast<Market>(market), std::string_view(security_id), internal_security_id)) {
         return api_error(
             ACCT_ERR_INVALID_PARAM, error_code::InvalidParam, "acct_submit_order invalid security_id length/market");
     }
@@ -319,9 +319,9 @@ ACCT_API acct_error_t acct_submit_order(acct_ctx_t ctx, const char* security_id,
     const MdTime md_time = get_current_md_time();
     (void)valid_sec;
 
-    order_request request;
+    OrderRequest request;
     request.init_new(std::string_view(security_id), internal_security_id,
-        static_cast<InternalOrderId>(order_id), static_cast<trade_side_t>(side), static_cast<market_t>(market),
+        static_cast<InternalOrderId>(order_id), static_cast<TradeSide>(side), static_cast<Market>(market),
         static_cast<Volume>(volume), internal_price, md_time);
     request.order_state.store(OrderState::StrategySubmitted, std::memory_order_release);
 
@@ -354,7 +354,7 @@ ACCT_API acct_error_t acct_cancel_order(
     const MdTime md_time = get_current_md_time();
     (void)valid_sec;
 
-    order_request request;
+    OrderRequest request;
     request.init_cancel(
         static_cast<InternalOrderId>(cancel_id), md_time, static_cast<InternalOrderId>(orig_order_id));
     request.order_state.store(OrderState::StrategySubmitted, std::memory_order_release);

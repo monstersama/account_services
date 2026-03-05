@@ -14,7 +14,7 @@
 namespace acct_service {
 
 // 持仓变动记录
-struct position_change {
+struct PositionChangeRecord {
     InternalOrderId order_id;
     InternalSecurityId security_id;
     PositionChange change_type;
@@ -26,15 +26,15 @@ struct position_change {
 };
 
 // 持仓管理器
-class position_manager {
+class PositionManager {
 public:
-    explicit position_manager(
+    explicit PositionManager(
         positions_shm_layout* shm, std::string config_file_path = {}, std::string db_path = {}, bool db_enabled = false);
-    ~position_manager() = default;
+    ~PositionManager() = default;
 
     // 禁止拷贝
-    position_manager(const position_manager&) = delete;
-    position_manager& operator=(const position_manager&) = delete;
+    PositionManager(const PositionManager&) = delete;
+    PositionManager& operator=(const PositionManager&) = delete;
 
     // 初始化（新建/未完成初始化 SHM 时内部触发 loader 从外部加载）
     bool initialize(AccountId account_id);
@@ -70,7 +70,7 @@ public:
     bool overwrite_fund_info(const fund_info& fund);
     std::size_t position_count() const noexcept;
     std::optional<InternalSecurityId> find_security_id(std::string_view code) const;
-    InternalSecurityId add_security(std::string_view code, std::string_view name, market_t market);
+    InternalSecurityId add_security(std::string_view code, std::string_view name, Market market);
 
 private:
     positions_shm_layout* shm_;

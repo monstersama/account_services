@@ -7,9 +7,9 @@ namespace acct_service {
 
 namespace {
 
-order_request make_child_request(
-    const order_request& parent, InternalOrderId child_id, Volume child_volume) {
-    order_request child = parent;
+OrderRequest make_child_request(
+    const OrderRequest& parent, InternalOrderId child_id, Volume child_volume) {
+    OrderRequest child = parent;
     child.internal_order_id = child_id;
     child.volume_entrust = child_volume;
     child.volume_remain = child_volume;
@@ -33,7 +33,7 @@ order_splitter::order_splitter(const split_config& config) : config_(config) {}
 
 void order_splitter::set_order_id_generator(order_id_generator_t gen) { id_generator_ = std::move(gen); }
 
-split_result order_splitter::split(const order_request& parent_order) {
+split_result order_splitter::split(const OrderRequest& parent_order) {
     if (!should_split(parent_order)) {
         return split_result{true, {}, {}};
     }
@@ -50,8 +50,8 @@ split_result order_splitter::split(const order_request& parent_order) {
     }
 }
 
-bool order_splitter::should_split(const order_request& order) const {
-    if (order.order_type != order_type_t::New) {
+bool order_splitter::should_split(const OrderRequest& order) const {
+    if (order.order_type != OrderType::New) {
         return false;
     }
     if (config_.strategy == SplitStrategy::None) {
@@ -67,7 +67,7 @@ void order_splitter::update_config(const split_config& config) { config_ = confi
 
 const split_config& order_splitter::config() const noexcept { return config_; }
 
-split_result order_splitter::split_fixed_size(const order_request& parent) {
+split_result order_splitter::split_fixed_size(const OrderRequest& parent) {
     if (!id_generator_) {
         return split_result{false, {}, "order id generator is not set"};
     }
@@ -98,7 +98,7 @@ split_result order_splitter::split_fixed_size(const order_request& parent) {
         if (remaining > child_volume && config_.min_child_volume > 0 && child_volume < config_.min_child_volume &&
             !result.child_orders.empty()) {
             // 将过小余量并入最后一个子单，避免中间子单低于最小拆单数量。
-            order_request& last = result.child_orders.back();
+            OrderRequest& last = result.child_orders.back();
             last.volume_entrust += child_volume;
             last.volume_remain += child_volume;
             remaining -= child_volume;
@@ -120,11 +120,11 @@ split_result order_splitter::split_fixed_size(const order_request& parent) {
     return result;
 }
 
-split_result order_splitter::split_iceberg(const order_request& parent) {
+split_result order_splitter::split_iceberg(const OrderRequest& parent) {
     return split_fixed_size(parent);
 }
 
-split_result order_splitter::split_twap(const order_request& parent) {
+split_result order_splitter::split_twap(const OrderRequest& parent) {
     if (!id_generator_) {
         return split_result{false, {}, "order id generator is not set"};
     }

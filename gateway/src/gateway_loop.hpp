@@ -54,11 +54,11 @@ private:
 
     // 提交一次请求（含重试入队逻辑）。
     void submit_request(const broker_api::broker_order_request& request, uint32_t attempts);
-    // 写 trade_response 到共享内存（带短重试）。
-    bool push_response(const trade_response& response);
+    // 写 TradeResponse 到共享内存（带短重试）。
+    bool push_response(const TradeResponse& response);
     // 发送 TraderError 回报（不可恢复失败兜底）。
     void emit_trader_error(InternalOrderId internal_order_id, InternalSecurityId internal_security_id,
-        trade_side_t side_value);
+        TradeSide side_value);
     // 周期打印核心指标。
     void print_periodic_stats();
 

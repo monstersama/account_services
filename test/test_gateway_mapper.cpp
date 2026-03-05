@@ -21,9 +21,9 @@ using namespace acct_service;
 
 // 验证新单字段映射是否完整正确。
 TEST(map_new_order_request) {
-    order_request request;
+    OrderRequest request;
     request.init_new("600000", InternalSecurityId("SH.600000"), static_cast<InternalOrderId>(1001),
-        trade_side_t::Buy, market_t::SH, static_cast<Volume>(300), static_cast<DPrice>(1234), 93000000);
+        TradeSide::Buy, Market::SH, static_cast<Volume>(300), static_cast<DPrice>(1234), 93000000);
     request.md_time_entrust = 93010000;
 
     broker_api::broker_order_request mapped;
@@ -42,7 +42,7 @@ TEST(map_new_order_request) {
 
 // 验证撤单映射保留原订单关联关系。
 TEST(map_cancel_order_request) {
-    order_request request;
+    OrderRequest request;
     request.init_cancel(static_cast<InternalOrderId>(2001), 93100000, static_cast<InternalOrderId>(1001));
 
     broker_api::broker_order_request mapped;
@@ -67,13 +67,13 @@ TEST(map_trade_event_response) {
     event.fee = 30;
     event.md_time_traded = 100001000;
 
-    trade_response response;
+    TradeResponse response;
     assert(gateway::map_broker_event_to_trade_response(event, response));
 
     assert(response.internal_order_id == 3001);
     assert(response.broker_order_id == 7001);
     assert(response.internal_security_id == std::string_view("SZ.000009"));
-    assert(response.trade_side == trade_side_t::Sell);
+    assert(response.trade_side == TradeSide::Sell);
     assert(response.new_state == OrderState::MarketAccepted);
     assert(response.volume_traded == 88);
     assert(response.dprice_traded == 3210);

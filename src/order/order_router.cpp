@@ -7,14 +7,14 @@
 
 namespace acct_service {
 
-order_router::order_router(order_book& book, downstream_shm_layout* downstream_shm, orders_shm_layout* orders_shm,
+order_router::order_router(OrderBook& book, downstream_shm_layout* downstream_shm, orders_shm_layout* orders_shm,
                            const split_config& config)
     : order_book_(book), downstream_shm_(downstream_shm), orders_shm_(orders_shm), splitter_(config) {
     splitter_.set_order_id_generator([this]() { return order_book_.next_order_id(); });
 }
 
 bool order_router::route_order(OrderEntry& entry) {
-    if (entry.request.order_type == order_type_t::Cancel) {
+    if (entry.request.order_type == OrderType::Cancel) {
         return route_cancel(entry.request.orig_internal_order_id, entry.request.internal_order_id,
                             entry.request.md_time_driven);
     }
@@ -74,7 +74,7 @@ bool order_router::route_cancel(InternalOrderId orig_id, InternalOrderId cancel_
 
         for (InternalOrderId child_id : children) {
             const OrderEntry* child = order_book_.find_order(child_id);
-            if (!child || child->request.order_type != order_type_t::New || child->is_terminal()) {
+            if (!child || child->request.order_type != OrderType::New || child->is_terminal()) {
                 continue;
             }
 
@@ -84,12 +84,12 @@ bool order_router::route_cancel(InternalOrderId orig_id, InternalOrderId cancel_
             }
             used_cancel_id = true;
 
-            order_request cancel_request;
+            OrderRequest cancel_request;
             cancel_request.init_cancel(child_cancel_id, time, child_id);
             cancel_request.order_state.store(OrderState::TraderPending, std::memory_order_relaxed);
 
-            order_index_t cancel_index = kInvalidOrderIndex;
-            if (!create_internal_order_slot(cancel_request, order_slot_stage_t::UpstreamDequeued, cancel_index,
+            OrderIndex cancel_index = kInvalidOrderIndex;
+            if (!create_internal_order_slot(cancel_request, OrderSlotState::UpstreamDequeued, cancel_index,
                                             order_slot_source_t::AccountInternal)) {
                 any_failed = true;
                 ++stats_.orders_rejected;
@@ -112,7 +112,7 @@ bool order_router::route_cancel(InternalOrderId orig_id, InternalOrderId cancel_
             cancel_entry.shm_order_index = cancel_index;
 
             if (!order_book_.add_order(cancel_entry)) {
-                (void)orders_shm_update_stage(orders_shm_, cancel_index, order_slot_stage_t::QueuePushFailed, now_ns());
+                (void)orders_shm_update_stage(orders_shm_, cancel_index, OrderSlotState::QueuePushFailed, now_ns());
                 any_failed = true;
                 ++stats_.orders_rejected;
                 error_status status = ACCT_MAKE_ERROR(ErrorDomain::order, error_code::OrderBookFull, "order_router",
@@ -146,12 +146,12 @@ bool order_router::route_cancel(InternalOrderId orig_id, InternalOrderId cancel_
         return any_sent;
     }
 
-    order_request cancel_request;
+    OrderRequest cancel_request;
     cancel_request.init_cancel(cancel_id, time, orig_id);
     cancel_request.order_state.store(OrderState::TraderPending, std::memory_order_relaxed);
 
-    order_index_t cancel_index = kInvalidOrderIndex;
-    if (!create_internal_order_slot(cancel_request, order_slot_stage_t::UpstreamDequeued, cancel_index,
+    OrderIndex cancel_index = kInvalidOrderIndex;
+    if (!create_internal_order_slot(cancel_request, OrderSlotState::UpstreamDequeued, cancel_index,
                                     order_slot_source_t::AccountInternal)) {
         ++stats_.orders_rejected;
         error_status status = ACCT_MAKE_ERROR(ErrorDomain::order, error_code::OrderPoolFull, "order_router",
@@ -172,7 +172,7 @@ bool order_router::route_cancel(InternalOrderId orig_id, InternalOrderId cancel_
     cancel_entry.shm_order_index = cancel_index;
 
     if (!order_book_.add_order(cancel_entry)) {
-        (void)orders_shm_update_stage(orders_shm_, cancel_index, order_slot_stage_t::QueuePushFailed, now_ns());
+        (void)orders_shm_update_stage(orders_shm_, cancel_index, OrderSlotState::QueuePushFailed, now_ns());
         ++stats_.orders_rejected;
         error_status status = ACCT_MAKE_ERROR(ErrorDomain::order, error_code::OrderBookFull, "order_router",
                                               "failed to add cancel order", 0);
@@ -208,7 +208,7 @@ const router_stats& order_router::stats() const noexcept { return stats_; }
 
 void order_router::reset_stats() noexcept { stats_ = router_stats{}; }
 
-bool order_router::send_to_downstream(order_index_t index) {
+bool order_router::send_to_downstream(OrderIndex index) {
     if (!downstream_shm_ || !orders_shm_) {
         error_status status = ACCT_MAKE_ERROR(ErrorDomain::order, error_code::ComponentUnavailable, "order_router",
                                               "downstream/orders shm unavailable", 0);
@@ -220,9 +220,9 @@ bool order_router::send_to_downstream(order_index_t index) {
     const bool pushed = downstream_shm_->order_queue.try_push(index);
     if (pushed) {
         downstream_shm_->header.last_update = now_ns();
-        (void)orders_shm_update_stage(orders_shm_, index, order_slot_stage_t::DownstreamQueued, now_ns());
+        (void)orders_shm_update_stage(orders_shm_, index, OrderSlotState::DownstreamQueued, now_ns());
     } else {
-        (void)orders_shm_update_stage(orders_shm_, index, order_slot_stage_t::QueuePushFailed, now_ns());
+        (void)orders_shm_update_stage(orders_shm_, index, OrderSlotState::QueuePushFailed, now_ns());
     }
     return pushed;
 }
@@ -244,9 +244,9 @@ bool order_router::handle_split_order(OrderEntry& parent) {
     bool any_sent = false;
     bool any_failed = false;
 
-    for (order_request& child_request : result.child_orders) {
-        order_index_t child_index = kInvalidOrderIndex;
-        if (!create_internal_order_slot(child_request, order_slot_stage_t::UpstreamDequeued, child_index,
+    for (OrderRequest& child_request : result.child_orders) {
+        OrderIndex child_index = kInvalidOrderIndex;
+        if (!create_internal_order_slot(child_request, OrderSlotState::UpstreamDequeued, child_index,
                                         order_slot_source_t::AccountInternal)) {
             any_failed = true;
             ++stats_.orders_rejected;
@@ -270,7 +270,7 @@ bool order_router::handle_split_order(OrderEntry& parent) {
         child_entry.request.order_state.store(OrderState::TraderPending, std::memory_order_relaxed);
 
         if (!order_book_.add_order(child_entry)) {
-            (void)orders_shm_update_stage(orders_shm_, child_index, order_slot_stage_t::QueuePushFailed, now_ns());
+            (void)orders_shm_update_stage(orders_shm_, child_index, OrderSlotState::QueuePushFailed, now_ns());
             any_failed = true;
             ++stats_.orders_rejected;
             error_status status = ACCT_MAKE_ERROR(ErrorDomain::order, error_code::OrderBookFull, "order_router",
@@ -304,8 +304,8 @@ bool order_router::handle_split_order(OrderEntry& parent) {
     return any_sent;
 }
 
-bool order_router::create_internal_order_slot(const order_request& request, order_slot_stage_t stage,
-                                              order_index_t& out_index, order_slot_source_t source) {
+bool order_router::create_internal_order_slot(const OrderRequest& request, OrderSlotState stage,
+                                              OrderIndex& out_index, order_slot_source_t source) {
     if (!orders_shm_) {
         return false;
     }

@@ -56,9 +56,9 @@ const std::string& test_data_dir() {
 }
 
 void setup_header(acct_service::positions_shm_layout& shm, uint32_t init_state) {
-    shm.header.magic = acct_service::positions_header::kMagic;
-    shm.header.version = acct_service::positions_header::kVersion;
-    shm.header.header_size = static_cast<uint32_t>(sizeof(acct_service::positions_header));
+    shm.header.magic = acct_service::PositionsHeader::kMagic;
+    shm.header.version = acct_service::PositionsHeader::kVersion;
+    shm.header.header_size = static_cast<uint32_t>(sizeof(acct_service::PositionsHeader));
     shm.header.total_size = static_cast<uint32_t>(sizeof(acct_service::positions_shm_layout));
     shm.header.capacity = static_cast<uint32_t>(acct_service::kMaxPositions);
     shm.header.init_state = init_state;
@@ -173,7 +173,7 @@ TEST(initialize_sets_fund_row) {
     using namespace acct_service;
 
     auto shm = make_shm(0);
-    position_manager manager(shm.get());
+    PositionManager manager(shm.get());
 
     const bool ok = manager.initialize(1);
     assert(ok);
@@ -195,11 +195,11 @@ TEST(add_security_uses_internal_key_and_excludes_fund_row) {
     using namespace acct_service;
 
     auto shm = make_shm(0);
-    position_manager manager(shm.get());
+    PositionManager manager(shm.get());
     assert(manager.initialize(1));
 
-    const InternalSecurityId first = manager.add_security("000001", "PingAn", market_t::SZ);
-    const InternalSecurityId second = manager.add_security("600000", "PuFa", market_t::SH);
+    const InternalSecurityId first = manager.add_security("000001", "PingAn", Market::SZ);
+    const InternalSecurityId second = manager.add_security("600000", "PuFa", Market::SH);
     assert(first == std::string_view("SZ.000001"));
     assert(second == std::string_view("SH.600000"));
     assert(manager.position_count() == 2);
@@ -219,7 +219,7 @@ TEST(fund_ops_write_into_fund_row) {
     using namespace acct_service;
 
     auto shm = make_shm(0);
-    position_manager manager(shm.get());
+    PositionManager manager(shm.get());
     assert(manager.initialize(1));
 
     assert(manager.freeze_fund(100, 1));
@@ -242,12 +242,12 @@ TEST(add_position_requires_registered_security) {
     using namespace acct_service;
 
     auto shm = make_shm(0);
-    position_manager manager(shm.get());
+    PositionManager manager(shm.get());
     assert(manager.initialize(1));
 
     assert(!manager.add_position(InternalSecurityId("SZ.000001"), 100, 123, 1));
 
-    const InternalSecurityId sec_id = manager.add_security("000001", "PingAn", market_t::SZ);
+    const InternalSecurityId sec_id = manager.add_security("000001", "PingAn", Market::SZ);
     assert(sec_id == std::string_view("SZ.000001"));
     assert(manager.add_position(sec_id, 100, 123, 2));
 
@@ -263,10 +263,10 @@ TEST(sellable_volume_uses_t0_only) {
     using namespace acct_service;
 
     auto shm = make_shm(0);
-    position_manager manager(shm.get());
+    PositionManager manager(shm.get());
     assert(manager.initialize(1));
 
-    const InternalSecurityId sec_id = manager.add_security("000001", "PingAn", market_t::SZ);
+    const InternalSecurityId sec_id = manager.add_security("000001", "PingAn", Market::SZ);
     assert(sec_id == std::string_view("SZ.000001"));
 
     position* pos = manager.get_position_mut(sec_id);
@@ -327,7 +327,7 @@ TEST(initialize_rebuilds_code_map_from_existing_rows) {
     shm->positions[2].id.assign("SH.600000");
     shm->positions[2].name.assign("PuFa");
 
-    position_manager manager(shm.get());
+    PositionManager manager(shm.get());
     assert(manager.initialize(1));
 
     assert(shm->positions[kFundPositionIndex].id == std::string_view(kFundPositionId));
@@ -344,7 +344,7 @@ TEST(initialize_uses_loader_only_for_uninitialized_shm) {
     assert(write_seed_csv(seed_csv_path, "position,SZ.000001,PingAn,321,0,0,0,0,0,0,0,0,0,0"));
 
     auto fresh_shm = make_shm(0);
-    position_manager fresh_manager(fresh_shm.get(), seed_base_path, "", false);
+    PositionManager fresh_manager(fresh_shm.get(), seed_base_path, "", false);
     assert(fresh_manager.initialize(1));
     assert(fresh_manager.position_count() == 1);
     assert(fresh_manager.get_sellable_volume(InternalSecurityId("SZ.000001")) == 321);
@@ -355,7 +355,7 @@ TEST(initialize_uses_loader_only_for_uninitialized_shm) {
     existing_shm->positions[1].name.assign("Vanke");
     existing_shm->positions[1].volume_available_t0 = 222;
 
-    position_manager existing_manager(existing_shm.get(), seed_base_path, "", false);
+    PositionManager existing_manager(existing_shm.get(), seed_base_path, "", false);
     assert(existing_manager.initialize(1));
     assert(existing_manager.position_count() == 1);
     assert(existing_manager.get_sellable_volume(InternalSecurityId("SZ.000002")) == 222);
@@ -372,7 +372,7 @@ TEST(initialize_fails_when_loader_fails_on_uninitialized_shm) {
     assert(write_seed_csv(seed_csv_path, "bad_record,SZ.000001,PingAn,1,0,0,0,0,0,0,0,0,0,0"));
 
     auto shm = make_shm(0);
-    position_manager manager(shm.get(), seed_base_path, "", false);
+    PositionManager manager(shm.get(), seed_base_path, "", false);
     assert(!manager.initialize(1));
     assert(shm->header.init_state == 0);
 
@@ -407,7 +407,7 @@ TEST(initialize_loads_from_sqlite_when_db_enabled) {
     db.reset();
 
     auto shm = make_shm(0);
-    position_manager manager(shm.get(), "", db_path, true);
+    PositionManager manager(shm.get(), "", db_path, true);
     assert(manager.initialize(1));
     assert(manager.position_count() == 2);
 
@@ -449,7 +449,7 @@ TEST(initialize_fails_when_account_row_missing_in_db) {
     db.reset();
 
     auto shm = make_shm(0);
-    position_manager manager(shm.get(), "", db_path, true);
+    PositionManager manager(shm.get(), "", db_path, true);
     assert(!manager.initialize(1));
     assert(shm->header.init_state == 0);
 
@@ -474,7 +474,7 @@ TEST(initialize_fails_when_internal_security_id_invalid_in_db) {
     db.reset();
 
     auto shm = make_shm(0);
-    position_manager manager(shm.get(), "", db_path, true);
+    PositionManager manager(shm.get(), "", db_path, true);
     assert(!manager.initialize(1));
     assert(shm->header.init_state == 0);
 

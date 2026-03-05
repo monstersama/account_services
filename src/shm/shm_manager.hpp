@@ -61,10 +61,10 @@ private:
     void* open_impl(std::string_view name, std::size_t size, shm_mode mode);
 
     // 初始化共享内存头部(暂时不用account_id,只做预留)
-    void init_header(shm_header* header, AccountId account_id);
+    void init_header(SHMHeader* header, AccountId account_id);
 
     // 验证共享内存头部
-    bool validate_header(const shm_header* header);
+    bool validate_header(const SHMHeader* header);
 
     std::string name_;
     void* ptr_ = nullptr;

@@ -14,7 +14,7 @@ namespace acct_service {
 namespace {
 
 struct recovered_order_candidate {
-    order_index_t index{kInvalidOrderIndex};
+    OrderIndex index{kInvalidOrderIndex};
     order_slot_snapshot snapshot{};
 };
 
@@ -22,8 +22,8 @@ constexpr uint32_t kRecoverReadMaxAttempts = 5;
 constexpr uint32_t kRecoverReadBackoffUs = 50;
 
 // 仅恢复已经进入下游队列的订单阶段，避免把上游未发出的订单误恢复到本地簿。
-bool is_recoverable_stage(order_slot_stage_t stage) noexcept {
-    return stage == order_slot_stage_t::DownstreamQueued || stage == order_slot_stage_t::DownstreamDequeued;
+bool is_recoverable_stage(OrderSlotState stage) noexcept {
+    return stage == OrderSlotState::DownstreamQueued || stage == OrderSlotState::DownstreamDequeued;
 }
 
 // 计算下一个可分配内部订单ID，达到上限后保持饱和避免溢出。
@@ -36,19 +36,19 @@ InternalOrderId saturated_next_order_id(InternalOrderId order_id) noexcept {
 
 // 扫描 orders_shm 并重建下游在途订单，保障重启后成交回报可继续命中 order_book。
 bool recover_downstream_active_orders_from_shm(
-    const orders_shm_layout* orders_shm, const upstream_shm_layout* upstream_shm, order_book& book) {
+    const orders_shm_layout* orders_shm, const upstream_shm_layout* upstream_shm, OrderBook& book) {
     if (!orders_shm) {
         return false;
     }
 
-    const order_index_t upper = orders_shm->header.next_index.load(std::memory_order_acquire);
+    const OrderIndex upper = orders_shm->header.next_index.load(std::memory_order_acquire);
     order_recovery_stats stats{};
 
     std::unordered_map<InternalOrderId, recovered_order_candidate> candidates;
     candidates.reserve(static_cast<std::size_t>(upper));
 
     // 读取 slot 快照时做短重试，规避并发写入窗口导致的瞬时不可读。
-    auto read_snapshot_with_retry = [&](order_index_t index, order_slot_snapshot& out) -> bool {
+    auto read_snapshot_with_retry = [&](OrderIndex index, order_slot_snapshot& out) -> bool {
         for (uint32_t attempt = 0; attempt < kRecoverReadMaxAttempts; ++attempt) {
             if (orders_shm_read_snapshot(orders_shm, index, out)) {
                 return true;
@@ -61,7 +61,7 @@ bool recover_downstream_active_orders_from_shm(
     };
 
     // 第一阶段：筛选可恢复候选，并按 internal_order_id 去重保留最新快照。
-    for (order_index_t index = 0; index < upper; ++index) {
+    for (OrderIndex index = 0; index < upper; ++index) {
         ++stats.scanned;
 
         order_slot_snapshot snapshot;

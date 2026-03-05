@@ -110,7 +110,7 @@ bool gateway_loop::process_orders(std::size_t batch_limit) {
 
     bool did_work = false;
     std::size_t processed = 0;
-    order_index_t index = kInvalidOrderIndex;
+    OrderIndex index = kInvalidOrderIndex;
 
     // 批量消费下游订单，减少每轮函数调用开销。
     while (processed < batch_limit && downstream_shm_->order_queue.try_pop(index)) {
@@ -129,8 +129,8 @@ bool gateway_loop::process_orders(std::size_t batch_limit) {
             continue;
         }
 
-        (void)orders_shm_update_stage(orders_shm_, index, order_slot_stage_t::DownstreamDequeued, now_ns());
-        const order_request& request = snapshot.request;
+        (void)orders_shm_update_stage(orders_shm_, index, OrderSlotState::DownstreamDequeued, now_ns());
+        const OrderRequest& request = snapshot.request;
 
         broker_api::broker_order_request mapped;
         if (!map_order_request_to_broker(request, mapped)) {
@@ -160,9 +160,9 @@ bool gateway_loop::process_events(std::size_t batch_limit) {
 
     stats_.events_received += count;
 
-    // 将适配器事件逐条映射为 trade_response。
+    // 将适配器事件逐条映射为 TradeResponse。
     for (std::size_t i = 0; i < count; ++i) {
-        trade_response response;
+        TradeResponse response;
         if (!map_broker_event_to_trade_response(events[i], response)) {
             ++stats_.responses_dropped;
             continue;
@@ -214,7 +214,7 @@ void gateway_loop::submit_request(const broker_api::broker_order_request& reques
     emit_trader_error(request.internal_order_id, internal_security_id, to_order_side(request.trade_side));
 }
 
-bool gateway_loop::push_response(const trade_response& response) {
+bool gateway_loop::push_response(const TradeResponse& response) {
     // 回报写队列满时短暂重试，尽量避免丢失状态。
     for (uint32_t attempt = 0; attempt < kResponsePushAttempts; ++attempt) {
         if (trades_shm_->response_queue.try_push(response)) {
@@ -228,12 +228,12 @@ bool gateway_loop::push_response(const trade_response& response) {
 }
 
 void gateway_loop::emit_trader_error(
-    InternalOrderId internal_order_id, InternalSecurityId internal_security_id, trade_side_t side_value) {
+    InternalOrderId internal_order_id, InternalSecurityId internal_security_id, TradeSide side_value) {
     if (internal_order_id == 0) {
         return;
     }
 
-    trade_response response{};
+    TradeResponse response{};
     response.internal_order_id = internal_order_id;
     response.internal_security_id = internal_security_id;
     response.trade_side = side_value;

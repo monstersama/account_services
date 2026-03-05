@@ -18,8 +18,8 @@ struct order_recovery_stats {
     InternalOrderId next_order_seed = 1;
 };
 
-// 从 orders_shm 恢复“已进入下游且未终态”的订单到 order_book。
+// 从 orders_shm 恢复“已进入下游且未终态”的订单到 OrderBook。
 bool recover_downstream_active_orders_from_shm(
-    const orders_shm_layout* orders_shm, const upstream_shm_layout* upstream_shm, order_book& book);
+    const orders_shm_layout* orders_shm, const upstream_shm_layout* upstream_shm, OrderBook& book);
 
 }  // namespace acct_service

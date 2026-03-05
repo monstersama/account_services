@@ -82,8 +82,8 @@ bool is_index_visible(const acct_service::orders_shm_layout* shm, uint32_t index
 }
 
 void fill_snapshot(acct_orders_mon_snapshot_t& out, uint32_t index, uint64_t seq, uint64_t last_update_ns,
-                   acct_service::order_slot_stage_t stage, acct_service::order_slot_source_t source,
-                   const acct_service::order_request& request) {
+                   acct_service::OrderSlotState stage, acct_service::order_slot_source_t source,
+                   const acct_service::OrderRequest& request) {
     out = acct_orders_mon_snapshot_t{};
     out.index = index;
     out.seq = seq;
@@ -129,7 +129,7 @@ bool try_read_stable_snapshot(const acct_service::orders_shm_layout* shm, uint32
         return false;
     }
 
-    const acct_service::order_slot& slot = shm->slots[index];
+    const acct_service::OrderSlot& slot = shm->slots[index];
     for (uint32_t attempt = 0; attempt < 32; ++attempt) {
         const uint64_t seq0 = slot.seq.load(std::memory_order_acquire);
         if ((seq0 & 1ULL) != 0U) {
@@ -137,9 +137,9 @@ bool try_read_stable_snapshot(const acct_service::orders_shm_layout* shm, uint32
         }
 
         const uint64_t last_update_ns = slot.last_update_ns;
-        const acct_service::order_slot_stage_t stage = slot.stage;
+        const acct_service::OrderSlotState stage = slot.stage;
         const acct_service::order_slot_source_t source = slot.source;
-        const acct_service::order_request request = slot.request;
+        const acct_service::OrderRequest request = slot.request;
 
         std::atomic_thread_fence(std::memory_order_acquire);
         const uint64_t seq1 = slot.seq.load(std::memory_order_acquire);
@@ -157,14 +157,14 @@ bool validate_header(const acct_service::orders_shm_layout* shm, std::string_vie
         return false;
     }
 
-    const acct_service::orders_header& header = shm->header;
-    if (header.magic != acct_service::orders_header::kMagic) {
+    const acct_service::OrdersHeader& header = shm->header;
+    if (header.magic != acct_service::OrdersHeader::kMagic) {
         return false;
     }
-    if (header.version != acct_service::orders_header::kVersion) {
+    if (header.version != acct_service::OrdersHeader::kVersion) {
         return false;
     }
-    if (header.header_size != static_cast<uint32_t>(sizeof(acct_service::orders_header))) {
+    if (header.header_size != static_cast<uint32_t>(sizeof(acct_service::OrdersHeader))) {
         return false;
     }
     if (header.total_size != static_cast<uint32_t>(sizeof(acct_service::orders_shm_layout))) {
@@ -279,7 +279,7 @@ ACCT_MON_API acct_mon_error_t acct_orders_mon_info(acct_orders_mon_ctx_t ctx, ac
         return ACCT_MON_ERR_NOT_INITIALIZED;
     }
 
-    const acct_service::orders_header& header = context->orders_shm->header;
+    const acct_service::OrdersHeader& header = context->orders_shm->header;
     out_info->magic = header.magic;
     out_info->version = header.version;
     out_info->capacity = header.capacity;

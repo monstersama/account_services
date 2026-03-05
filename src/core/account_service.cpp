@@ -114,19 +114,19 @@ const error_status& AccountService::last_error() const noexcept { return last_er
 
 ServiceState AccountService::state() const noexcept { return state_.load(std::memory_order_acquire); }
 
-const config_manager& AccountService::config() const { return config_manager_; }
+const ConfigManager& AccountService::config() const { return config_manager_; }
 
-const order_book& AccountService::orders() const {
+const OrderBook& AccountService::orders() const {
     assert(order_book_ != nullptr);
     return *order_book_;
 }
 
-const position_manager& AccountService::positions() const {
+const PositionManager& AccountService::positions() const {
     assert(position_manager_ != nullptr);
     return *position_manager_;
 }
 
-const risk_manager& AccountService::risk() const {
+const RiskManager& AccountService::risk() const {
     assert(risk_manager_ != nullptr);
     return *risk_manager_;
 }
@@ -146,7 +146,7 @@ void AccountService::print_stats() const {
     }
 
     if (risk_manager_) {
-        const risk_stats& stats = risk_manager_->stats();
+        const RiskState& stats = risk_manager_->stats();
         std::fprintf(stderr, "[AccountService] risk_checks=%llu passed=%llu rejected=%llu\n",
             static_cast<unsigned long long>(stats.total_checks), static_cast<unsigned long long>(stats.passed),
             static_cast<unsigned long long>(stats.rejected));
@@ -169,7 +169,7 @@ bool AccountService::init_config(const std::string& config_path) {
 
 bool AccountService::init_shared_memory() {
     const SHMConfig& shm_cfg = config_manager_.shm();
-    const acct_service::config& cfg = config_manager_.get();
+    const acct_service::Config& cfg = config_manager_.get();
     const AccountId account_id = config_manager_.account_id();
     const shm_mode mode = shm_cfg.create_if_not_exist ? shm_mode::OpenOrCreate : shm_mode::Open;
 
@@ -212,9 +212,9 @@ bool AccountService::init_portfolio() {
     trade_records_ = std::make_unique<trade_record_manager>();
     entrust_records_ = std::make_unique<entrust_record_manager>();
 
-    const acct_service::config& cfg = config_manager_.get();
+    const acct_service::Config& cfg = config_manager_.get();
     position_manager_ =
-        std::make_unique<position_manager>(positions_shm_, cfg.config_file, cfg.db.db_path, cfg.db.enable_persistence);
+        std::make_unique<PositionManager>(positions_shm_, cfg.config_file, cfg.db.db_path, cfg.db.enable_persistence);
     if (!position_manager_ || !position_manager_->initialize(config_manager_.account_id())) {
         raise_service_error(
             make_service_error(error_code::ComponentUnavailable, "failed to initialize position manager"));
@@ -229,7 +229,7 @@ bool AccountService::init_risk_manager() {
         raise_service_error(make_service_error(error_code::ComponentUnavailable, "position manager unavailable"));
         return false;
     }
-    risk_manager_ = std::make_unique<risk_manager>(*position_manager_, config_manager_.risk());
+    risk_manager_ = std::make_unique<RiskManager>(*position_manager_, config_manager_.risk());
     if (!risk_manager_) {
         raise_service_error(make_service_error(error_code::ComponentUnavailable, "failed to create risk manager"));
         return false;
@@ -243,7 +243,7 @@ bool AccountService::init_order_components() {
         return false;
     }
 
-    order_book_ = std::make_unique<order_book>();
+    order_book_ = std::make_unique<OrderBook>();
     order_router_ = std::make_unique<order_router>(*order_book_, downstream_shm_, orders_shm_, config_manager_.split());
     if (!order_book_ || !order_router_) {
         raise_service_error(
@@ -280,7 +280,7 @@ bool AccountService::load_account_info() {
         return false;
     }
 
-    const acct_service::config& cfg = config_manager_.get();
+    const acct_service::Config& cfg = config_manager_.get();
     bool loaded = false;
 
     if (!cfg.config_file.empty()) {
@@ -315,7 +315,7 @@ bool AccountService::load_today_trades() {
         return false;
     }
 
-    const acct_service::config& cfg = config_manager_.get();
+    const acct_service::Config& cfg = config_manager_.get();
     if (!cfg.db.enable_persistence || cfg.db.db_path.empty()) {
         return true;
     }
@@ -333,7 +333,7 @@ bool AccountService::load_today_entrusts() {
         return false;
     }
 
-    const acct_service::config& cfg = config_manager_.get();
+    const acct_service::Config& cfg = config_manager_.get();
     if (!cfg.db.enable_persistence || cfg.db.db_path.empty()) {
         return true;
     }

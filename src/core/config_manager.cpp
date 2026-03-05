@@ -18,7 +18,7 @@ namespace acct_service {
 namespace {
 
 bool report_config_error(error_code code, std::string_view message) {
-    error_status status = ACCT_MAKE_ERROR(ErrorDomain::config, code, "config_manager", message, 0);
+    error_status status = ACCT_MAKE_ERROR(ErrorDomain::config, code, "ConfigManager", message, 0);
     record_error(status);
     ACCT_LOG_ERROR_STATUS(status);
     return false;
@@ -178,7 +178,7 @@ std::string escape_yaml_string(std::string_view value) {
     return out;
 }
 
-bool apply_value(config& cfg, const std::string& key, const std::string& raw_value) {
+bool apply_value(Config& cfg, const std::string& key, const std::string& raw_value) {
     const std::string value = trim_copy(raw_value);
 
     if (key == "account_id") {
@@ -419,7 +419,7 @@ bool check_allowed_keys(const YAML::Node& map_node, std::string_view section_nam
     return true;
 }
 
-bool parse_section(config& cfg, const YAML::Node& root, std::string_view section_name,
+bool parse_section(Config& cfg, const YAML::Node& root, std::string_view section_name,
     std::initializer_list<std::string_view> allowed_keys) {
     const YAML::Node section = root[std::string(section_name)];
     if (!section) {
@@ -458,8 +458,8 @@ bool parse_section(config& cfg, const YAML::Node& root, std::string_view section
 
 }  // namespace
 
-bool config_manager::load_from_file(const std::string& config_path) {
-    config loaded = config_;
+bool ConfigManager::load_from_file(const std::string& config_path) {
+    Config loaded = config_;
     loaded.config_file = config_path;
 
     YAML::Node root;
@@ -539,7 +539,7 @@ bool config_manager::load_from_file(const std::string& config_path) {
     return validate();
 }
 
-bool config_manager::parse_command_line(int argc, char* argv[]) {
+bool ConfigManager::parse_command_line(int argc, char* argv[]) {
     if (argc <= 1 || !argv) {
         return validate();
     }
@@ -653,7 +653,7 @@ bool config_manager::parse_command_line(int argc, char* argv[]) {
     return validate();
 }
 
-bool config_manager::validate() const {
+bool ConfigManager::validate() const {
     if (config_.account_id == 0) {
         (void)report_config_error(error_code::ConfigValidateFailed, "account_id must be non-zero");
         return false;
@@ -684,32 +684,32 @@ bool config_manager::validate() const {
     return true;
 }
 
-const config& config_manager::get() const noexcept { return config_; }
+const Config& ConfigManager::get() const noexcept { return config_; }
 
-config& config_manager::get() noexcept { return config_; }
+Config& ConfigManager::get() noexcept { return config_; }
 
-AccountId config_manager::account_id() const noexcept { return config_.account_id; }
+AccountId ConfigManager::account_id() const noexcept { return config_.account_id; }
 
-const SHMConfig& config_manager::shm() const noexcept { return config_.shm; }
+const SHMConfig& ConfigManager::shm() const noexcept { return config_.shm; }
 
-const EventLoopConfig& config_manager::EventLoop() const noexcept { return config_.EventLoop; }
+const EventLoopConfig& ConfigManager::EventLoop() const noexcept { return config_.EventLoop; }
 
-const risk_config& config_manager::risk() const noexcept { return config_.risk; }
+const RiskConfig& ConfigManager::risk() const noexcept { return config_.risk; }
 
-const split_config& config_manager::split() const noexcept { return config_.split; }
+const split_config& ConfigManager::split() const noexcept { return config_.split; }
 
-const log_config& config_manager::log() const noexcept { return config_.log; }
+const LogConfig& ConfigManager::log() const noexcept { return config_.log; }
 
-const db_config& config_manager::db() const noexcept { return config_.db; }
+const DBConfig& ConfigManager::db() const noexcept { return config_.db; }
 
-bool config_manager::reload() {
+bool ConfigManager::reload() {
     if (config_path_.empty()) {
         return report_config_error(error_code::InvalidState, "reload requested before load_from_file");
     }
     return load_from_file(config_path_);
 }
 
-bool config_manager::export_to_file(const std::string& path) const {
+bool ConfigManager::export_to_file(const std::string& path) const {
     std::ofstream out(path);
     if (!out.is_open()) {
         return report_config_error(error_code::InvalidConfig, "failed to open config export path");

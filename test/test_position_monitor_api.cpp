@@ -63,9 +63,9 @@ TEST(open_info_read_close) {
     positions_shm_layout* positions_shm = writer_manager.open_positions(shm_name, shm_mode::Create, 1001);
     assert(positions_shm != nullptr);
 
-    position_manager positions(positions_shm);
+    PositionManager positions(positions_shm);
     assert(positions.initialize(1001));
-    const InternalSecurityId sec_id = positions.add_security("000001", "PingAn", market_t::SZ);
+    const InternalSecurityId sec_id = positions.add_security("000001", "PingAn", Market::SZ);
     assert(sec_id == std::string_view("SZ.000001"));
     assert(positions.add_position(sec_id, 300, 1000, 5001));
 
@@ -109,7 +109,7 @@ TEST(read_not_found) {
     positions_shm_layout* positions_shm = writer_manager.open_positions(shm_name, shm_mode::Create, 1002);
     assert(positions_shm != nullptr);
 
-    position_manager positions(positions_shm);
+    PositionManager positions(positions_shm);
     assert(positions.initialize(1002));
 
     acct_positions_mon_options_t options{};

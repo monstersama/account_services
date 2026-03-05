@@ -39,7 +39,7 @@ public:
     // 构造事件循环并绑定各核心组件
     EventLoop(const EventLoopConfig& config, upstream_shm_layout* upstream_shm,
         downstream_shm_layout* downstream_shm, trades_shm_layout* trades_shm, orders_shm_layout* orders_shm,
-        order_book& order_book, order_router& router, position_manager& positions, risk_manager& risk);
+        OrderBook& OrderBook, order_router& router, PositionManager& positions, RiskManager& risk);
 
     // 析构时会确保循环停止
     ~EventLoop();
@@ -77,13 +77,13 @@ private:
     std::size_t process_downstream_responses();
 
     // 处理单笔上游订单请求
-    void handle_order_request(order_index_t index, order_request& request);
+    void handle_order_request(OrderIndex index, OrderRequest& request);
 
     // 订单簿变更回调，回写订单池镜像
     void on_order_book_changed(const OrderEntry& entry, order_book_event_t event);
 
     // 处理单笔成交回报
-    void handle_trade_response(const trade_response& response);
+    void handle_trade_response(const TradeResponse& response);
 
     // 处理到期的终态订单归档任务
     void process_pending_archives(TimestampNs now_ns_value);
@@ -104,10 +104,10 @@ private:
     trades_shm_layout* trades_shm_;  // 成交回报共享内存（交易->账户）
     orders_shm_layout* orders_shm_;  // 订单池共享内存（监控可见）
 
-    order_book& order_book_;        // 订单簿组件
+    OrderBook& order_book_;        // 订单簿组件
     order_router& router_;          // 路由组件
-    position_manager& positions_;   // 持仓/资金组件
-    risk_manager& risk_;            // 风控组件
+    PositionManager& positions_;   // 持仓/资金组件
+    RiskManager& risk_;            // 风控组件
 
     std::atomic<bool> running_{false};  // 运行状态标志
     event_loop_stats stats_;            // 运行统计

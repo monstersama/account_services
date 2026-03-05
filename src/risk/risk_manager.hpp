@@ -12,7 +12,7 @@
 namespace acct_service {
 
 // 风控配置
-struct risk_config {
+struct RiskConfig {
     DValue max_order_value = 0;
     Volume max_order_volume = 0;
     DValue max_daily_turnover = 0;
@@ -25,7 +25,7 @@ struct risk_config {
 };
 
 // 风控统计
-struct risk_stats {
+struct RiskState {
     uint64_t total_checks = 0;
     uint64_t passed = 0;
     uint64_t rejected = 0;
@@ -42,21 +42,21 @@ struct risk_stats {
 };
 
 // 风控管理器
-class risk_manager {
+class RiskManager {
 public:
-    risk_manager(position_manager& positions, const risk_config& config);
-    ~risk_manager() = default;
+    RiskManager(PositionManager& positions, const RiskConfig& config);
+    ~RiskManager() = default;
 
     // 禁止拷贝
-    risk_manager(const risk_manager&) = delete;
-    risk_manager& operator=(const risk_manager&) = delete;
+    RiskManager(const RiskManager&) = delete;
+    RiskManager& operator=(const RiskManager&) = delete;
 
     // 风控检查
-    risk_check_result check_order(const order_request& order);
-    std::vector<risk_check_result> check_orders(const std::vector<order_request>& orders);
+    risk_check_result check_order(const OrderRequest& order);
+    std::vector<risk_check_result> check_orders(const std::vector<OrderRequest>& orders);
 
     // 回调
-    using post_check_callback_t = std::function<void(const order_request&, const risk_check_result&)>;
+    using post_check_callback_t = std::function<void(const OrderRequest&, const risk_check_result&)>;
     void set_post_check_callback(post_check_callback_t callback);
 
     // 规则管理
@@ -71,21 +71,21 @@ public:
     void clear_price_limits();
 
     // 配置
-    void update_config(const risk_config& config);
-    const risk_config& config() const noexcept;
+    void update_config(const RiskConfig& config);
+    const RiskConfig& config() const noexcept;
 
     // 统计
-    const risk_stats& stats() const noexcept;
+    const RiskState& stats() const noexcept;
     void reset_stats() noexcept;
 
 private:
     void initialize_default_rules();
     void update_stats(const risk_check_result& result);
 
-    position_manager& positions_;
-    risk_config config_;
+    PositionManager& positions_;
+    RiskConfig config_;
     std::vector<std::unique_ptr<risk_rule>> rules_;
-    risk_stats stats_;
+    RiskState stats_;
     post_check_callback_t post_check_callback_;
     price_limit_rule* price_limit_rule_ = nullptr;
     duplicate_order_rule* duplicate_rule_ = nullptr;

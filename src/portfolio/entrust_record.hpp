@@ -14,9 +14,9 @@ namespace acct_service {
 struct entrust_record {
     InternalOrderId order_id;
     InternalSecurityId security_id;
-    order_type_t order_type;
-    trade_side_t side;
-    market_t market;
+    OrderType order_type;
+    TradeSide side;
+    Market market;
     OrderState status;
     Volume volume_entrust;
     Volume volume_traded;
@@ -31,7 +31,7 @@ struct entrust_record {
     fixed_string<16> security_code;
 
     // 从 order_request 转换
-    static entrust_record from_order_request(const order_request& req);
+    static entrust_record from_order_request(const OrderRequest& req);
 };
 
 // 委托记录管理器
@@ -47,7 +47,7 @@ public:
     void add_or_update(const entrust_record& record);
 
     // 从 order_request 更新
-    void update_from_order(const order_request& order);
+    void update_from_order(const OrderRequest& order);
 
     // 查询接口
     const entrust_record* find_entrust(InternalOrderId order_id) const;

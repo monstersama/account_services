@@ -164,7 +164,7 @@ struct async_logger::impl {
 
 async_logger::~async_logger() noexcept { shutdown(); }
 
-bool async_logger::init(const log_config& config, AccountId account_id) {
+bool async_logger::init(const LogConfig& config, AccountId account_id) {
     shutdown();
 
     auto state = std::unique_ptr<impl>(new (std::nothrow) impl());
@@ -302,7 +302,7 @@ async_logger& global_logger() {
 
 }  // namespace
 
-bool init_logger(const log_config& config, AccountId account_id) {
+bool init_logger(const LogConfig& config, AccountId account_id) {
     return global_logger().init(config, account_id);
 }
 
