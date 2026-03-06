@@ -13,6 +13,8 @@ order_router::order_router(OrderBook& book, downstream_shm_layout* downstream_sh
     splitter_.set_order_id_generator([this]() { return order_book_.next_order_id(); });
 }
 
+bool order_router::should_split(const OrderRequest& request) const { return splitter_.should_split(request); }
+
 bool order_router::route_order(OrderEntry& entry) {
     if (entry.request.order_type == OrderType::Cancel) {
         return route_cancel(entry.request.orig_internal_order_id, entry.request.internal_order_id,

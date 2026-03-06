@@ -3,12 +3,14 @@
 #include <chrono>
 #include <csignal>
 #include <cstdio>
+#include <limits>
 #include <thread>
 #include <vector>
 
 #include "common/error.hpp"
 #include "common/log.hpp"
 #include "common/security_identity.hpp"
+#include "portfolio/account_info.hpp"
 #include "shm/orders_shm.hpp"
 
 #if defined(__linux__)
@@ -45,6 +47,24 @@ bool is_terminal_state(OrderState status) {
     }
 }
 
+bool try_calculate_trade_value(Volume volume, DPrice price, DValue& out_value) {
+    const __uint128_t value = static_cast<__uint128_t>(volume) * static_cast<__uint128_t>(price);
+    if (value > static_cast<__uint128_t>(std::numeric_limits<DValue>::max())) {
+        return false;
+    }
+    out_value = static_cast<DValue>(value);
+    return true;
+}
+
+bool try_total_with_fee(DValue amount, DValue fee, DValue& out_total) {
+    const __uint128_t total = static_cast<__uint128_t>(amount) + static_cast<__uint128_t>(fee);
+    if (total > static_cast<__uint128_t>(std::numeric_limits<DValue>::max())) {
+        return false;
+    }
+    out_total = static_cast<DValue>(total);
+    return true;
+}
+
 }  // namespace
 
 double event_loop_stats::avg_latency_ns() const {
@@ -56,7 +76,8 @@ double event_loop_stats::avg_latency_ns() const {
 
 EventLoop::EventLoop(const EventLoopConfig& config, upstream_shm_layout* upstream_shm,
     downstream_shm_layout* downstream_shm, trades_shm_layout* trades_shm, orders_shm_layout* orders_shm,
-    OrderBook& OrderBook, order_router& router, PositionManager& positions, RiskManager& risk)
+    OrderBook& OrderBook, order_router& router, PositionManager& positions, RiskManager& risk,
+    const account_info* account_info)
     : config_(config),
       upstream_shm_(upstream_shm),
       downstream_shm_(downstream_shm),
@@ -65,10 +86,87 @@ EventLoop::EventLoop(const EventLoopConfig& config, upstream_shm_layout* upstrea
       order_book_(OrderBook),
       router_(router),
       positions_(positions),
-      risk_(risk) {
+      risk_(risk),
+      account_info_(account_info) {
     order_book_.set_change_callback([this](const OrderEntry& entry, order_book_event_t event) {
         on_order_book_changed(entry, event);
     });
+}
+
+// 为新单补齐手续费估算，避免风控通过但成交结算时手续费不足。
+void EventLoop::prepare_order_estimate(OrderRequest& request) const {
+    if (request.order_type != OrderType::New || request.dfee_estimate != 0) {
+        return;
+    }
+
+    DValue order_value = 0;
+    if (!try_calculate_trade_value(request.volume_entrust, request.dprice_entrust, order_value) || order_value == 0) {
+        return;
+    }
+
+    // 优先使用账户费率；单测或缺省场景回退到默认费率模型。
+    static const account_info default_account_info{};
+    const account_info* fee_model = account_info_ != nullptr ? account_info_ : &default_account_info;
+    request.dfee_estimate = fee_model->calculate_fee(request.trade_side, order_value);
+}
+
+// 在订单真正下游前冻结买单总额，避免并发新单重复占用同一笔可用资金。
+bool EventLoop::reserve_order_resources(OrderEntry& entry) {
+    if (entry.request.order_type != OrderType::New || entry.request.trade_side != TradeSide::Buy) {
+        return true;
+    }
+    if (router_.should_split(entry.request)) {
+        return true;
+    }
+
+    DValue order_value = 0;
+    DValue total = 0;
+    if (!try_calculate_trade_value(entry.request.volume_entrust, entry.request.dprice_entrust, order_value) ||
+        !try_total_with_fee(order_value, entry.request.dfee_estimate, total)) {
+        ACCT_LOG_WARN("EventLoop", "buy order fund reservation overflow");
+        return false;
+    }
+    if (!positions_.freeze_fund(total, entry.request.internal_order_id)) {
+        return false;
+    }
+
+    entry.fund_frozen = total;
+    return true;
+}
+
+// 释放订单剩余冻结资金，供发送失败、拒单和撤单完成后的尾款回收使用。
+void EventLoop::release_order_resources(OrderEntry& entry) {
+    if (entry.request.order_type != OrderType::New || entry.request.trade_side != TradeSide::Buy || entry.fund_frozen == 0) {
+        return;
+    }
+    if (!positions_.unfreeze_fund(entry.fund_frozen, entry.request.internal_order_id)) {
+        ACCT_LOG_WARN("EventLoop", "failed to unfreeze remaining buy fund");
+        return;
+    }
+
+    entry.fund_frozen = 0;
+}
+
+// 优先从订单冻结资金中扣减买入成交款；旧订单保留直接扣可用资金的兼容路径。
+bool EventLoop::settle_buy_trade_fund(OrderEntry& entry, DValue amount, DValue fee) {
+    if (entry.fund_frozen == 0) {
+        return positions_.apply_buy_trade_fund(amount, fee, entry.request.internal_order_id);
+    }
+
+    DValue total = 0;
+    if (!try_total_with_fee(amount, fee, total)) {
+        return false;
+    }
+    if (!positions_.deduct_fund(amount, fee, entry.request.internal_order_id)) {
+        return false;
+    }
+
+    if (entry.fund_frozen >= total) {
+        entry.fund_frozen -= total;
+    } else {
+        entry.fund_frozen = 0;
+    }
+    return true;
 }
 
 EventLoop::~EventLoop() {
@@ -228,6 +326,8 @@ void EventLoop::handle_order_request(OrderIndex index, OrderRequest& request) {
         (void)orders_shm_sync_order(orders_shm_, index, request, now_ns());
     }
 
+    prepare_order_estimate(request);
+
     OrderEntry entry{};
     entry.request = request;
     entry.submit_time_ns = now_ns();
@@ -268,9 +368,21 @@ void EventLoop::handle_order_request(OrderIndex index, OrderRequest& request) {
         order_book_.update_state(request.internal_order_id, OrderState::RiskControllerAccepted);
     }
 
-    // 进入订单路由
+    // 风控通过后立刻冻结买单资金，阻断并发订单重复占用可用余额。
     OrderEntry* active = order_book_.find_order(request.internal_order_id);
-    if (!active || !router_.route_order(*active)) {
+    if (!active) {
+        return;
+    }
+    if (!reserve_order_resources(*active)) {
+        order_book_.update_state(request.internal_order_id, OrderState::RiskControllerRejected);
+        (void)orders_shm_update_stage(orders_shm_, index, OrderSlotState::RiskRejected, now_ns());
+        ACCT_LOG_WARN("EventLoop", "buy order fund reservation failed after risk pass");
+        return;
+    }
+
+    // 进入订单路由
+    if (!router_.route_order(*active)) {
+        release_order_resources(*active);
         order_book_.update_state(request.internal_order_id, OrderState::TraderError);
         (void)orders_shm_update_stage(orders_shm_, index, OrderSlotState::QueuePushFailed, now_ns());
         ErrorStatus status = ACCT_MAKE_ERROR(
@@ -314,14 +426,16 @@ void EventLoop::handle_trade_response(const TradeResponse& response) {
 
     order_book_.update_state(response.internal_order_id, response.new_state);
 
+    OrderEntry* order = order_book_.find_order(response.internal_order_id);
+
     if (response.volume_traded > 0) {
         order_book_.update_trade(response.internal_order_id, response.volume_traded, response.dprice_traded,
             response.dvalue_traded, response.dfee);
 
-        const OrderEntry* order = order_book_.find_order(response.internal_order_id);
+        order = order_book_.find_order(response.internal_order_id);
         if (order && order->request.order_type == OrderType::New) {
             if (response.trade_side == TradeSide::Buy) {
-                if (!positions_.apply_buy_trade_fund(response.dvalue_traded, response.dfee, response.internal_order_id)) {
+                if (!settle_buy_trade_fund(*order, response.dvalue_traded, response.dfee)) {
                     ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::PositionUpdateFailed,
                         "EventLoop", "failed to settle buy fund from trade response", 0);
                     record_error(status);
@@ -377,6 +491,17 @@ void EventLoop::handle_trade_response(const TradeResponse& response) {
                     }
                 }
             }
+        }
+    }
+
+    if (order && is_terminal_state(order->request.order_state.load(std::memory_order_acquire))) {
+        release_order_resources(*order);
+    }
+    if (order && order->request.order_type == OrderType::Cancel &&
+        is_terminal_state(order->request.order_state.load(std::memory_order_acquire)) &&
+        order->request.orig_internal_order_id != 0) {
+        if (OrderEntry* original = order_book_.find_order(order->request.orig_internal_order_id)) {
+            release_order_resources(*original);
         }
     }
 

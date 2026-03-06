@@ -26,6 +26,7 @@ struct OrderEntry {
     bool is_split_child;                    // 是否为拆单子单（含子撤单）
     InternalOrderId parent_order_id;    // 父单ID（非子单时为0）
     OrderIndex shm_order_index{kInvalidOrderIndex};  // 对应 orders_shm 槽位索引
+    DValue fund_frozen{0};  // 订单剩余冻结资金（仅买单预冻结路径使用）
 
     bool is_active() const noexcept;
     bool is_terminal() const noexcept;

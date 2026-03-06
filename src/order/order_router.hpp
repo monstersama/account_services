@@ -33,6 +33,9 @@ public:
     // 路由订单（经过风控后调用）
     bool route_order(OrderEntry& entry);
 
+    // 判断订单是否会走拆单路径，供上游资源冻结策略复用。
+    bool should_split(const OrderRequest& request) const;
+
     // 批量路由
     std::size_t route_orders(std::vector<OrderEntry*>& entries);
 

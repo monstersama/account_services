@@ -8,6 +8,7 @@
 
 #include "common/constants.hpp"
 #include "core/event_loop.hpp"
+#include "portfolio/account_info.hpp"
 #include "order/order_router.hpp"
 #include "portfolio/position_manager.hpp"
 #include "risk/risk_manager.hpp"
@@ -185,8 +186,11 @@ TEST(process_order_and_trade_response) {
     assert(pos != nullptr);
     assert(pos->volume_buy_traded >= 50);
 
+    account_info fee_model;
+    const DValue reserved_total = 100 * 1000 + fee_model.calculate_fee(TradeSide::Buy, 100 * 1000);
     const fund_info fund = positions.get_fund_info();
-    assert(fund.available == 99949990);
+    assert(fund.available == 100000000 - reserved_total);
+    assert(fund.frozen == reserved_total - (50000 + 10));
     assert(fund.total_asset == 99999990);
     assert(fund.market_value == 50000);
 
@@ -287,11 +291,88 @@ TEST(delay_archive_allows_late_terminal_trade) {
     assert(loop.stats().responses_processed >= 2);
 }
 
+TEST(reject_second_buy_after_fund_reservation) {
+    auto upstream = make_upstream_shm();
+    auto downstream = make_downstream_shm();
+    auto trades = make_trades_shm();
+    auto orders_shm = make_orders_shm();
+    auto positions_shm = make_positions_shm();
+
+    PositionManager positions(positions_shm.get());
+    assert(positions.initialize(1));
+
+    fund_info constrained_fund;
+    constrained_fund.total_asset = 100000;
+    constrained_fund.available = 100000;
+    constrained_fund.frozen = 0;
+    constrained_fund.market_value = 0;
+    assert(positions.overwrite_fund_info(constrained_fund));
+
+    RiskConfig risk_cfg;
+    risk_cfg.enable_position_check = false;
+    risk_cfg.enable_price_limit_check = false;
+    risk_cfg.enable_duplicate_check = false;
+    risk_cfg.max_order_volume = 0;
+    risk_cfg.max_order_value = 0;
+    risk_cfg.max_orders_per_second = 0;
+    RiskManager risk(positions, risk_cfg);
+
+    auto book = std::make_unique<OrderBook>();
+    split_config split_cfg;
+    split_cfg.strategy = SplitStrategy::None;
+    order_router router(*book, downstream.get(), orders_shm.get(), split_cfg);
+
+    EventLoopConfig loop_cfg;
+    loop_cfg.busy_polling = false;
+    loop_cfg.idle_sleep_us = 50;
+    loop_cfg.poll_batch_size = 32;
+    loop_cfg.stats_interval_ms = 0;
+    EventLoop loop(loop_cfg, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router, positions, risk);
+
+    std::thread worker([&loop]() { loop.run(); });
+
+    OrderRequest first = make_order(800, 50);
+    OrderRequest second = make_order(801, 50);
+    OrderIndex first_index = kInvalidOrderIndex;
+    OrderIndex second_index = kInvalidOrderIndex;
+    assert(orders_shm_append(
+        orders_shm.get(), first, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy, now_ns(), first_index));
+    assert(orders_shm_append(
+        orders_shm.get(), second, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy, now_ns(), second_index));
+    assert(upstream->strategy_order_queue.try_push(first_index));
+    assert(upstream->strategy_order_queue.try_push(second_index));
+
+    assert(wait_until([&book]() {
+        const OrderEntry* first_order = book->find_order(800);
+        const OrderEntry* second_order = book->find_order(801);
+        return first_order != nullptr && second_order != nullptr &&
+               second_order->request.order_state.load(std::memory_order_acquire) == OrderState::RiskControllerRejected;
+    }));
+
+    const OrderEntry* first_order = book->find_order(800);
+    const OrderEntry* second_order = book->find_order(801);
+    assert(first_order != nullptr);
+    assert(second_order != nullptr);
+    assert(first_order->request.order_state.load(std::memory_order_acquire) == OrderState::TraderSubmitted);
+    assert(second_order->request.order_state.load(std::memory_order_acquire) == OrderState::RiskControllerRejected);
+
+    account_info fee_model;
+    const DValue order_value = 50 * 1000;
+    const DValue estimated_fee = fee_model.calculate_fee(TradeSide::Buy, order_value);
+    const fund_info fund = positions.get_fund_info();
+    assert(fund.available == 100000 - (order_value + estimated_fee));
+    assert(fund.frozen == order_value + estimated_fee);
+
+    loop.stop();
+    worker.join();
+}
+
 int main() {
     printf("=== Event Loop Test Suite ===\n\n");
 
     RUN_TEST(process_order_and_trade_response);
     RUN_TEST(delay_archive_allows_late_terminal_trade);
+    RUN_TEST(reject_second_buy_after_fund_reservation);
 
     printf("\n=== All tests passed! ===\n");
     return 0;

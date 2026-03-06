@@ -14,6 +14,8 @@
 
 namespace acct_service {
 
+struct account_info;
+
 // 事件循环统计
 struct event_loop_stats {
     uint64_t total_iterations = 0;        // 事件循环总迭代次数
@@ -39,7 +41,8 @@ public:
     // 构造事件循环并绑定各核心组件
     EventLoop(const EventLoopConfig& config, upstream_shm_layout* upstream_shm,
         downstream_shm_layout* downstream_shm, trades_shm_layout* trades_shm, orders_shm_layout* orders_shm,
-        OrderBook& OrderBook, order_router& router, PositionManager& positions, RiskManager& risk);
+        OrderBook& OrderBook, order_router& router, PositionManager& positions, RiskManager& risk,
+        const account_info* account_info = nullptr);
 
     // 析构时会确保循环停止
     ~EventLoop();
@@ -79,6 +82,18 @@ private:
     // 处理单笔上游订单请求
     void handle_order_request(OrderIndex index, OrderRequest& request);
 
+    // 为新单补齐手续费估算，保证风控与冻结使用一致口径。
+    void prepare_order_estimate(OrderRequest& request) const;
+
+    // 在路由前冻结买单资金，防止并发订单超用可用资金。
+    bool reserve_order_resources(OrderEntry& entry);
+
+    // 在终态或发送失败时释放订单剩余冻结资金。
+    void release_order_resources(OrderEntry& entry);
+
+    // 优先从订单冻结资金结算买入成交；旧订单回退到可用资金结算。
+    bool settle_buy_trade_fund(OrderEntry& entry, DValue amount, DValue fee);
+
     // 订单簿变更回调，回写订单池镜像
     void on_order_book_changed(const OrderEntry& entry, order_book_event_t event);
 
@@ -108,6 +123,7 @@ private:
     order_router& router_;          // 路由组件
     PositionManager& positions_;   // 持仓/资金组件
     RiskManager& risk_;            // 风控组件
+    const account_info* account_info_ = nullptr;  // 账户费率快照（可为空）
 
     std::atomic<bool> running_{false};  // 运行状态标志
     event_loop_stats stats_;            // 运行统计

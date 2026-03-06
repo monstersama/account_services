@@ -266,7 +266,8 @@ bool AccountService::init_event_loop() {
     }
 
     event_loop_ = std::make_unique<EventLoop>(config_manager_.EventLoop(), upstream_shm_, downstream_shm_, trades_shm_,
-        orders_shm_, *order_book_, *order_router_, *position_manager_, *risk_manager_);
+        orders_shm_, *order_book_, *order_router_, *position_manager_, *risk_manager_,
+        account_info_ ? &account_info_->info() : nullptr);
     if (!event_loop_) {
         raise_service_error(make_service_error(ErrorCode::ComponentUnavailable, "failed to initialize event loop"));
         return false;
