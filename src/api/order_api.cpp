@@ -129,7 +129,11 @@ acct_error_t enqueue_order(
 
     if (!context->upstream_shm->strategy_order_queue.try_push(index)) {
         (void)orders_shm_update_stage(context->orders_shm, index, OrderSlotState::QueuePushFailed, now_ns());
-        return api_error(ACCT_ERR_QUEUE_FULL, ErrorCode::QueuePushFailed, "enqueue upstream queue push failed");
+        const std::size_t queue_size = context->upstream_shm->strategy_order_queue.size();
+        const std::size_t queue_capacity = kStrategyOrderQueueCapacity - 1;
+        const std::string message = "enqueue upstream queue push failed: queue_size=" + std::to_string(queue_size) +
+                                    "/" + std::to_string(queue_capacity);
+        return api_error(ACCT_ERR_QUEUE_FULL, ErrorCode::QueuePushFailed, message);
     }
 
     context->upstream_shm->header.last_update = now_ns();

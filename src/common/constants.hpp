@@ -6,9 +6,9 @@
 namespace acct_service {
 
 // 队列容量定义（必须是2的幂）
-inline constexpr std::size_t kStrategyOrderQueueCapacity = 65536;
-inline constexpr std::size_t kDownstreamQueueCapacity = 65536;
-inline constexpr std::size_t kResponseQueueCapacity = 131072;
+inline constexpr std::size_t kStrategyOrderQueueCapacity = 262144;
+inline constexpr std::size_t kDownstreamQueueCapacity = 262144;
+inline constexpr std::size_t kResponseQueueCapacity = 262144;
 inline constexpr std::size_t kMaxPositions = 8192;
 inline constexpr std::size_t kMaxActiveOrders = 1048576;  // 2^20
 inline constexpr std::size_t kDailyOrderPoolCapacity = kMaxActiveOrders;

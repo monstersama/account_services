@@ -86,10 +86,44 @@ TEST(fund_and_duplicate_rules) {
     assert(stats.rejected_duplicate >= 1);
 }
 
+TEST(fund_rule_reserves_fee_buffer) {
+    auto shm = make_positions_shm();
+    PositionManager positions(shm.get());
+    assert(positions.initialize(1));
+
+    RiskConfig cfg;
+    cfg.max_order_value = 0;
+    cfg.max_order_volume = 0;
+    cfg.max_orders_per_second = 0;
+    cfg.enable_fund_check = true;
+    cfg.enable_position_check = false;
+    cfg.enable_price_limit_check = false;
+    cfg.enable_duplicate_check = false;
+
+    RiskManager manager(positions, cfg);
+
+    OrderRequest exact_value_no_fee = make_buy_order(10, 100000);
+    const risk_check_result no_fee_result = manager.check_order(exact_value_no_fee);
+    assert(!no_fee_result.passed());
+    assert(no_fee_result.code == RiskResult::RejectInsufficientFund);
+
+    OrderRequest explicit_fee_fit = make_buy_order(11, 99999);
+    explicit_fee_fit.dfee_estimate = 1000;
+    const risk_check_result explicit_fee_fit_result = manager.check_order(explicit_fee_fit);
+    assert(explicit_fee_fit_result.passed());
+
+    OrderRequest explicit_fee_over = make_buy_order(12, 99999);
+    explicit_fee_over.dfee_estimate = 1001;
+    const risk_check_result explicit_fee_over_result = manager.check_order(explicit_fee_over);
+    assert(!explicit_fee_over_result.passed());
+    assert(explicit_fee_over_result.code == RiskResult::RejectInsufficientFund);
+}
+
 int main() {
     printf("=== Risk Manager Test Suite ===\n\n");
 
     RUN_TEST(fund_and_duplicate_rules);
+    RUN_TEST(fund_rule_reserves_fee_buffer);
 
     printf("\n=== All tests passed! ===\n");
     return 0;

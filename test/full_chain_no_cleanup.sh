@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 启动 account_service + gateway 后固定发送 100 条订单，并保持运行以便持续保留共享内存。
+# 启动 account_service + gateway 后固定发送 200 条订单，并保持运行以便持续保留共享内存。
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BUILD_DIR="${1:-${SOURCE_DIR}/build}"
 BUILD_DIR="$(cd "${BUILD_DIR}" && pwd)"
 
 RUN_ID="$(date +%Y%m%d_%H%M%S)_$$"
-RUN_DIR="${RUN_DIR:-${BUILD_DIR}/e2e_artifacts/submit_100_${RUN_ID}}"
+RUN_DIR="${RUN_DIR:-${BUILD_DIR}/e2e_artifacts/submit_200_${RUN_ID}}"
 mkdir -p "${RUN_DIR}"
 RUN_DIR="$(cd "${RUN_DIR}" && pwd)"
 
@@ -79,23 +79,23 @@ cleanup() {
 trap cleanup EXIT
 
 if [[ ! -x "${SERVICE_BIN}" ]]; then
-  echo "[submit_100_no_cleanup] missing binary: ${SERVICE_BIN}" >&2
+  echo "[submit_200_no_cleanup] missing binary: ${SERVICE_BIN}" >&2
   exit 1
 fi
 if [[ ! -x "${GATEWAY_BIN}" ]]; then
-  echo "[submit_100_no_cleanup] missing binary: ${GATEWAY_BIN}" >&2
+  echo "[submit_200_no_cleanup] missing binary: ${GATEWAY_BIN}" >&2
   exit 1
 fi
 if [[ ! -f "${SERVICE_CFG}" ]]; then
-  echo "[submit_100_no_cleanup] missing config file: ${SERVICE_CFG}" >&2
+  echo "[submit_200_no_cleanup] missing config file: ${SERVICE_CFG}" >&2
   exit 1
 fi
 if [[ ! -f "${GATEWAY_CFG}" ]]; then
-  echo "[submit_100_no_cleanup] missing config file: ${GATEWAY_CFG}" >&2
+  echo "[submit_200_no_cleanup] missing config file: ${GATEWAY_CFG}" >&2
   exit 1
 fi
 if [[ ! -x "${SUBMIT_SCRIPT}" ]]; then
-  echo "[submit_100_no_cleanup] missing executable script: ${SUBMIT_SCRIPT}" >&2
+  echo "[submit_200_no_cleanup] missing executable script: ${SUBMIT_SCRIPT}" >&2
   exit 1
 fi
 
@@ -117,30 +117,30 @@ if [[ "${MONITOR_CONSOLE}" -eq 1 ]]; then
 fi
 
 wait_for_path "${UPSTREAM_SHM_PATH}" 10 || {
-  echo "[submit_100_no_cleanup] upstream shm not ready: ${UPSTREAM_SHM_PATH}" >&2
+  echo "[submit_200_no_cleanup] upstream shm not ready: ${UPSTREAM_SHM_PATH}" >&2
   exit 1
 }
 wait_for_path "${ORDERS_SHM_PATH}" 10 || {
-  echo "[submit_100_no_cleanup] orders shm not ready: ${ORDERS_SHM_PATH}" >&2
+  echo "[submit_200_no_cleanup] orders shm not ready: ${ORDERS_SHM_PATH}" >&2
   exit 1
 }
 wait_for_path "${POSITIONS_SHM_PATH}" 10 || {
-  echo "[submit_100_no_cleanup] positions shm not ready: ${POSITIONS_SHM_PATH}" >&2
+  echo "[submit_200_no_cleanup] positions shm not ready: ${POSITIONS_SHM_PATH}" >&2
   exit 1
 }
 
-# 固定发 100 单；共享内存保留由 full_chain_submit.sh 内置 no-cleanup 参数保证。
-ORDER_COUNT=100 "${SUBMIT_SCRIPT}" "${BUILD_DIR}"
+# 固定发 200 单；共享内存保留由 full_chain_submit.sh 内置 no-cleanup 参数保证。
+ORDER_COUNT=200 "${SUBMIT_SCRIPT}" "${BUILD_DIR}"
 
-echo "[submit_100_no_cleanup] submitted 100 orders." >&2
-echo "[submit_100_no_cleanup] run_dir=${RUN_DIR}" >&2
-echo "[submit_100_no_cleanup] service_pid=${SERVICE_PID} gateway_pid=${GATEWAY_PID}" >&2
-echo "[submit_100_no_cleanup] processes remain running; press Ctrl+C to stop." >&2
+echo "[submit_200_no_cleanup] submitted 200 orders." >&2
+echo "[submit_200_no_cleanup] run_dir=${RUN_DIR}" >&2
+echo "[submit_200_no_cleanup] service_pid=${SERVICE_PID} gateway_pid=${GATEWAY_PID}" >&2
+echo "[submit_200_no_cleanup] processes remain running; press Ctrl+C to stop." >&2
 
 if wait -n "${SERVICE_PID}" "${GATEWAY_PID}"; then
-  echo "[submit_100_no_cleanup] one process exited normally." >&2
+  echo "[submit_200_no_cleanup] one process exited normally." >&2
 else
   rc=$?
-  echo "[submit_100_no_cleanup] one process exited with rc=${rc}" >&2
+  echo "[submit_200_no_cleanup] one process exited with rc=${rc}" >&2
   exit "${rc}"
 fi
