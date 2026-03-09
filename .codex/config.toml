@@ -15,11 +15,11 @@ description = "execution-focused role for implementation and fixes."
 config_file = "agents/worker.toml"
 
 [agents.explorer]
-description = “Fast codebase explorer for read-heavy tasks.”
+description = "Fast codebase explorer for read-heavy tasks."
 config_file = "agents/explorer.toml"
 
 [agents.awaitor]
-description = “Long-running command and task monitoring role.”
+description = "Long-running command and task monitoring role."
 config_file = "agents/awaitor.toml"
 
 [agents.reviewer]
