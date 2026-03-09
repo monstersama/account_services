@@ -43,7 +43,7 @@ ctest -R test_full_chain_e2e --output-on-failure --test-dir build
 ./test/full_chain_submit.sh ./build
 ```
 
-启动 `account_service + gateway` 并固定发送 100 条订单（默认保持进程运行，不清理共享内存）时可使用：
+启动 `account_service + gateway` 并固定发送 200 条订单（默认保持进程运行，不清理共享内存）时可使用：
 
 ```bash
 ./test/full_chain_no_cleanup.sh ./build
