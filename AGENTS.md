@@ -40,6 +40,28 @@
 ### 本地运行
 - `./build/src/acct_service_main --config config/default.yaml`：使用默认配置启动主服务。
 
+### OrbStack / 虚拟机约束
+- 适用范围：凡是涉及编译、测试、启动服务、执行二进制或生成构建产物的命令，均应在 OrbStack 虚拟机内执行。
+- 文件操作：查看源码、搜索文件、阅读文档、修改仓库内文件等纯文件操作，不要求进入虚拟机，可直接在当前工作区进行。
+- 推荐流程：
+  1. 默认假设虚拟机已经启动，不应将启动虚拟机作为固定前置步骤。
+  2. 先使用 `orbctl list` 或其他 `orbctl` 查询命令检查 `ubuntu` 虚拟机的 `state`。
+  3. 若 `state` 为 `running`，则直接执行后续编译、测试或运行命令，不需要执行 `orbctl start ubuntu`。
+  4. 若 `state` 不是 `running`，再按需执行 `orbctl start ubuntu`；若相关命令执行失败需要唤醒实例，或用户明确要求启动，也可执行该命令。
+  5. 进入虚拟机后，仓库目录应使用 Linux 路径 `/home/ythe/repositories/account_services`。
+  6. 未进入虚拟机时，可优先使用 `orb -m ubuntu -u ythe -w /home/ythe/repositories/account_services <command>` 在虚拟机内单条执行命令。
+- 补充约定：如需补充具体进入方式或执行包装命令，应优先复用仓库既有脚本或用户提供的 OrbStack 命令约定。
+- 常用命令示例：
+  - 检查虚拟机状态：`orbctl list`
+  - 按需启动虚拟机：`orbctl start ubuntu`
+  - 进入虚拟机：`orb -m ubuntu -u ythe`
+  - 在虚拟机内进入仓库：`cd /home/ythe/repositories/account_services`
+  - 未进入虚拟机时直接生成构建目录：`orb -m ubuntu -u ythe -w /home/ythe/repositories/account_services cmake -S . -B build`
+  - 未进入虚拟机时直接编译：`orb -m ubuntu -u ythe -w /home/ythe/repositories/account_services cmake --build build -j4`
+  - 未进入虚拟机时直接运行测试：`orb -m ubuntu -u ythe -w /home/ythe/repositories/account_services ctest --test-dir build --output-on-failure`
+  - 未进入虚拟机时直接启动主服务：`orb -m ubuntu -u ythe -w /home/ythe/repositories/account_services ./build/src/acct_service_main --config config/default.yaml`
+  - 已进入虚拟机后的常用命令：`cmake -S . -B build`、`cmake --build build -j4`、`ctest --test-dir build --output-on-failure`、`./build/src/acct_service_main --config config/default.yaml`
+
 ## 编码风格与命名规范
 使用 C++20，并保持仓库现有风格：4 空格缩进，左花括号与声明同行，单个源文件职责尽量聚焦。命名遵循 `docs/cpp_naming_baseline.md`：命名空间和函数使用 `snake_case`，类型使用 `PascalCase`，成员变量使用带尾下划线的 `snake_case_`，常量使用 `kXxx`。C++ 头文件优先使用 `.hpp`，仅对 C 兼容接口保留 `.h`。修改 C/C++ 文件后，建议使用 `clang-format -i src/foo.cpp include/foo.hpp` 统一格式；如无额外样式文件，请至少保持与相邻代码一致。提交前确保代码可在 `-Wall -Wextra -Wpedantic` 下无新增告警。
 
