@@ -27,6 +27,7 @@ For C API / ABI surface (`include/api/*.h`, exported C symbols):
 - Keep ABI symbol names unchanged unless explicitly requested.
 
 For file names:
+- Use `snake_case` for filename.
 - Use `.hpp` for C++ internal headers.
 - Reserve `.h` for C-facing headers.
 
