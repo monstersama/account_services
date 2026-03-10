@@ -28,7 +28,7 @@
 
 ## 构建、测试与开发命令
 ### 构建
-- `cmake -S . -B build`：生成默认构建目录。
+- `CC=clang CXX=clang++ cmake -S . -B build`：使用 Clang/Clang++ 生成默认构建目录。
 - `cmake --build build -j4`：编译所有库、可执行文件、网关目标和测试。
 - `cmake --build build -j4 --target test_event_loop test_account_service`：仅重编译当前关注的测试目标。
 
@@ -50,20 +50,21 @@
   4. 若 `state` 不是 `running`，再按需执行 `orbctl start ubuntu`；若相关命令执行失败需要唤醒实例，或用户明确要求启动，也可执行该命令。
   5. 进入虚拟机后，仓库目录应使用 Linux 路径 `/home/ythe/repositories/account_services`。
   6. 未进入虚拟机时，可优先使用 `orb -m ubuntu -u ythe -w /home/ythe/repositories/account_services <command>` 在虚拟机内单条执行命令。
+  7. 仓库默认使用 `clang/clang++` 完成 CMake 配置；若从 GCC 切换到 Clang，先删除旧的 `build/` 目录或使用新的构建目录后再重新执行配置命令，避免复用旧编译器缓存。
 - 补充约定：如需补充具体进入方式或执行包装命令，应优先复用仓库既有脚本或用户提供的 OrbStack 命令约定。
 - 常用命令示例：
   - 检查虚拟机状态：`orbctl list`
   - 按需启动虚拟机：`orbctl start ubuntu`
   - 进入虚拟机：`orb -m ubuntu -u ythe`
   - 在虚拟机内进入仓库：`cd /home/ythe/repositories/account_services`
-  - 未进入虚拟机时直接生成构建目录：`orb -m ubuntu -u ythe -w /home/ythe/repositories/account_services cmake -S . -B build`
+  - 未进入虚拟机时直接生成构建目录：`orb -m ubuntu -u ythe -w /home/ythe/repositories/account_services env CC=clang CXX=clang++ cmake -S . -B build`
   - 未进入虚拟机时直接编译：`orb -m ubuntu -u ythe -w /home/ythe/repositories/account_services cmake --build build -j4`
   - 未进入虚拟机时直接运行测试：`orb -m ubuntu -u ythe -w /home/ythe/repositories/account_services ctest --test-dir build --output-on-failure`
   - 未进入虚拟机时直接启动主服务：`orb -m ubuntu -u ythe -w /home/ythe/repositories/account_services ./build/src/acct_service_main --config config/default.yaml`
-  - 已进入虚拟机后的常用命令：`cmake -S . -B build`、`cmake --build build -j4`、`ctest --test-dir build --output-on-failure`、`./build/src/acct_service_main --config config/default.yaml`
+  - 已进入虚拟机后的常用命令：`CC=clang CXX=clang++ cmake -S . -B build`、`cmake --build build -j4`、`ctest --test-dir build --output-on-failure`、`./build/src/acct_service_main --config config/default.yaml`
 
 ## 编码风格与命名规范
-使用 C++20，并保持仓库现有风格：4 空格缩进，左花括号与声明同行，单个源文件职责尽量聚焦。命名遵循 `docs/cpp_naming_baseline.md`：命名空间和函数使用 `snake_case`，类型使用 `PascalCase`，成员变量使用带尾下划线的 `snake_case_`，常量使用 `kXxx`。C++ 头文件优先使用 `.hpp`，仅对 C 兼容接口保留 `.h`。修改 C/C++ 文件后，建议使用 `clang-format -i src/foo.cpp include/foo.hpp` 统一格式；如无额外样式文件，请至少保持与相邻代码一致。提交前确保代码可在 `-Wall -Wextra -Wpedantic` 下无新增告警。
+使用 C++23，并保持仓库现有风格：4 空格缩进，左花括号与声明同行，单个源文件职责尽量聚焦。命名遵循 `docs/cpp_naming_baseline.md`：命名空间和函数使用 `snake_case`，类型使用 `PascalCase`，成员变量使用带尾下划线的 `snake_case_`，常量使用 `kXxx`。C++ 头文件优先使用 `.hpp`，仅对 C 兼容接口保留 `.h`。默认使用 Clang/Clang++ 进行本仓库的 CMake 配置与构建；修改 C/C++ 文件后，建议使用 `clang-format -i src/foo.cpp include/foo.hpp` 统一格式；如无额外样式文件，请至少保持与相邻代码一致。提交前确保代码可在 `-Wall -Wextra -Wpedantic` 下无新增告警。
 
 ## 测试规范
 ### 新增测试
