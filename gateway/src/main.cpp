@@ -2,13 +2,16 @@
 #include <csignal>
 #include <cstdio>
 #include <string>
+#include <string_view>
 
-#include "common/error.hpp"
 #include "adapter_loader.hpp"
+#include "common/error.hpp"
+#include "common/log.hpp"
+#include "core/config_manager.hpp"
 #include "gateway_config.hpp"
 #include "gateway_loop.hpp"
-#include "shm/shm_manager.hpp"
 #include "shm/orders_shm.hpp"
+#include "shm/shm_manager.hpp"
 #include "sim_broker_adapter.hpp"
 
 namespace {
@@ -29,6 +32,38 @@ void install_signal_handler() {
     std::signal(SIGINT, handle_signal);
     std::signal(SIGTERM, handle_signal);
 }
+
+// Creates a conservative logger config for the gateway process.
+acct_service::LogConfig make_gateway_log_config() {
+    acct_service::LogConfig config;
+    config.log_dir = "./logs";
+    config.log_level = "info";
+    config.async_logging = true;
+    config.async_queue_size = 8192;
+    return config;
+}
+
+// Flushes and closes the shared-memory logger on every gateway exit path.
+class LoggerGuard {
+public:
+    LoggerGuard() = default;
+    LoggerGuard(const LoggerGuard&) = delete;
+    LoggerGuard& operator=(const LoggerGuard&) = delete;
+
+    ~LoggerGuard() noexcept {
+        if (!armed_) {
+            return;
+        }
+        (void)acct_service::flush_logger(200);
+        acct_service::shutdown_logger();
+    }
+
+    // Enables automatic logger cleanup after successful initialization.
+    void arm() noexcept { armed_ = true; }
+
+private:
+    bool armed_ = false;
+};
 
 }  // namespace
 
@@ -51,6 +86,13 @@ int main(int argc, char* argv[]) {
         return 2;
     }
 
+    LoggerGuard logger_guard;
+    if (!init_logger(make_gateway_log_config(), config.account_id, "gateway")) {
+        std::fprintf(stderr, "failed to initialize gateway logger\n");
+        return 1;
+    }
+    logger_guard.arm();
+
     // 打开共享内存：读取下游订单，写入成交回报。
     SHMManager downstream_manager;
     SHMManager trades_manager;
@@ -61,18 +103,16 @@ int main(int argc, char* argv[]) {
         downstream_manager.open_downstream(config.downstream_shm_name, mode, config.account_id);
     if (!downstream) {
         const ErrorStatus& status = latest_error();
-        std::fprintf(stderr,
-            "failed to open downstream shm: domain=%s code=%s msg=%s\n",
-            to_string(status.domain), to_string(status.code), status.message.c_str());
+        std::fprintf(stderr, "failed to open downstream shm: domain=%s code=%s msg=%s\n", to_string(status.domain),
+                     to_string(status.code), status.message.c_str());
         return 1;
     }
 
     trades_shm_layout* trades = trades_manager.open_trades(config.trades_shm_name, mode, config.account_id);
     if (!trades) {
         const ErrorStatus& status = latest_error();
-        std::fprintf(stderr,
-            "failed to open trades shm: domain=%s code=%s msg=%s\n",
-            to_string(status.domain), to_string(status.code), status.message.c_str());
+        std::fprintf(stderr, "failed to open trades shm: domain=%s code=%s msg=%s\n", to_string(status.domain),
+                     to_string(status.code), status.message.c_str());
         return 1;
     }
 
@@ -80,9 +120,8 @@ int main(int argc, char* argv[]) {
     orders_shm_layout* orders = orders_manager.open_orders(dated_orders_name, mode, config.account_id);
     if (!orders) {
         const ErrorStatus& status = latest_error();
-        std::fprintf(stderr,
-            "failed to open orders shm: domain=%s code=%s msg=%s\n",
-            to_string(status.domain), to_string(status.code), status.message.c_str());
+        std::fprintf(stderr, "failed to open orders shm: domain=%s code=%s msg=%s\n", to_string(status.domain),
+                     to_string(status.code), status.message.c_str());
         return 1;
     }
 

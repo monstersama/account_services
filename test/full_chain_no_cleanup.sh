@@ -130,7 +130,7 @@ wait_for_path "${POSITIONS_SHM_PATH}" 10 || {
 }
 
 # 固定发 200 单；共享内存保留由 full_chain_submit.sh 内置 no-cleanup 参数保证。
-ORDER_COUNT=200 "${SUBMIT_SCRIPT}" "${BUILD_DIR}"
+RUN_DIR="${RUN_DIR}" ORDER_COUNT=200 "${SUBMIT_SCRIPT}" "${BUILD_DIR}"
 
 echo "[submit_200_no_cleanup] submitted 200 orders." >&2
 echo "[submit_200_no_cleanup] run_dir=${RUN_DIR}" >&2
