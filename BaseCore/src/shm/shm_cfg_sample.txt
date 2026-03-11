@@ -1,0 +1,11 @@
+# 共享内存配置样例
+# 格式：每行 name = xxx, size = 111
+# size 单位：字节，M/MB=兆，G/GB=吉
+
+name = /strategy_order_shm, size = 0.125M
+name = /downstream_order_shm, size = 0.125M
+name = /trades_shm, size = 0.25M
+name = /orders_shm, size = 64M
+# name = /big_shm, size = 2G
+name = /positions_shm, size = 1M
+name = /log_shm, size = 0.0625M
