@@ -1,5 +1,7 @@
 #include <cassert>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <string>
 
 #include "common/error.hpp"
@@ -22,6 +24,9 @@ TEST(async_logger_write_and_flush) {
     cfg.log_level = "debug";
     cfg.async_logging = true;
     cfg.async_queue_size = 2048;
+    const std::string output_path = cfg.log_dir + "/account_999.log";
+    std::error_code ec;
+    std::filesystem::remove(output_path, ec);
 
     assert(init_logger(cfg, 999));
 
@@ -30,6 +35,14 @@ TEST(async_logger_write_and_flush) {
     }
 
     assert(flush_logger(500));
+
+    std::ifstream in(output_path);
+    assert(in.is_open());
+    std::string content;
+    std::getline(in, content);
+    assert(content.find("[INFO][test_logger]") != std::string::npos);
+    assert(content.find("msg=hello logger") != std::string::npos);
+
     shutdown_logger();
 }
 
@@ -45,7 +58,7 @@ TEST(queue_full_drop_counter) {
         log_message(LogLevel::debug, "test_logger", __FILE__, static_cast<uint32_t>(__LINE__), "drop pressure");
     }
 
-    (void)flush_logger(500);
+    assert(flush_logger(500));
     const uint64_t dropped = logger_dropped_count();
     shutdown_logger();
 
