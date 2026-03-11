@@ -11,3 +11,5 @@ build-*/
 output/
 pkg/
 *.tar.gz
+
+.DS_Store

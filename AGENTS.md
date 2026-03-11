@@ -41,11 +41,13 @@
 - `./build/src/acct_service_main --config config/default.yaml`：使用默认配置启动主服务。
 
 ### OrbStack / 虚拟机约束
-- 适用范围：凡是涉及编译、测试、启动服务、执行二进制或生成构建产物的命令，均应在 OrbStack 虚拟机内执行。
+- 适用前提：仅当当前工作流明确使用 OrbStack，或用户要求在 OrbStack 虚拟机内执行命令时，以下虚拟机约束才适用；如果当前不在 OrbStack 环境中，则不需要遵循这些虚拟机约束，可直接在当前环境执行相关命令。
+- 适用范围：在使用 OrbStack 的前提下，凡是涉及编译、测试、启动服务、执行二进制或生成构建产物的命令，均应在 OrbStack 虚拟机内执行。
 - 文件操作：查看源码、搜索文件、阅读文档、修改仓库内文件等纯文件操作，不要求进入虚拟机，可直接在当前工作区进行。
+- 环境判断：优先使用 `uname -s` 判断当前是否已经在 Linux 环境；如需进一步确认发行版，可查看 `/etc/os-release`。不要通过 `orb` 或 `orbctl` 是否存在来反推当前是否为 Linux，因为这只能说明 OrbStack CLI 是否已安装。
 - 推荐流程：
-  1. 默认假设虚拟机已经启动，不应将启动虚拟机作为固定前置步骤。
-  2. 先使用 `orbctl list` 或其他 `orbctl` 查询命令检查 `ubuntu` 虚拟机的 `state`。
+  1. 先执行 `uname -s`；若返回 `Linux`，说明当前已经在 Linux 环境，可直接执行后续编译、测试或运行命令，无需遵循 OrbStack 虚拟机流程。
+  2. 若 `uname -s` 不是 `Linux`，且当前工作流明确要求使用 OrbStack，再使用 `orbctl list` 或其他 `orbctl` 查询命令检查 `ubuntu` 虚拟机的 `state`。
   3. 若 `state` 为 `running`，则直接执行后续编译、测试或运行命令，不需要执行 `orbctl start ubuntu`。
   4. 若 `state` 不是 `running`，再按需执行 `orbctl start ubuntu`；若相关命令执行失败需要唤醒实例，或用户明确要求启动，也可执行该命令。
   5. 进入虚拟机后，仓库目录应使用 Linux 路径 `/home/ythe/repositories/account_services`。
@@ -53,6 +55,8 @@
   7. 仓库默认使用 `clang/clang++` 完成 CMake 配置；若从 GCC 切换到 Clang，先删除旧的 `build/` 目录或使用新的构建目录后再重新执行配置命令，避免复用旧编译器缓存。
 - 补充约定：如需补充具体进入方式或执行包装命令，应优先复用仓库既有脚本或用户提供的 OrbStack 命令约定。
 - 常用命令示例：
+  - 快速判断当前是否在 Linux：`uname -s`
+  - 进一步确认当前发行版：`cat /etc/os-release`
   - 检查虚拟机状态：`orbctl list`
   - 按需启动虚拟机：`orbctl start ubuntu`
   - 进入虚拟机：`orb -m ubuntu -u ythe`
