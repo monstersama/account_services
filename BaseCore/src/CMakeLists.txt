@@ -3,7 +3,7 @@ add_library(utils STATIC utils/spinlock.cpp)
 target_include_directories(utils PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 # libshm
-add_library(shm STATIC shm/shm_interface.cpp shm/shm_config_reader.cpp)
+add_library(shm STATIC shm/shm_common.cpp shm/shm_generic.cpp shm/shm_config_reader.cpp)
 target_include_directories(shm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(shm PRIVATE rt)
 
@@ -30,10 +30,14 @@ target_link_libraries(log_reader PRIVATE ${SHM_LIBS})
 add_executable(log_benchmark logging/log_benchmark.cpp)
 target_link_libraries(log_benchmark PRIVATE ${SHM_LIBS})
 
-# shm 功能测试
-add_executable(shm_test shm/shm_test.cpp)
-target_link_libraries(shm_test PRIVATE ${SHM_LIBS})
+# shm_generic 功能测试
+add_executable(shm_generic_test shm/shm_generic_test.cpp)
+target_link_libraries(shm_generic_test PRIVATE ${SHM_LIBS})
 
-# shm 性能测试
-add_executable(shm_benchmark shm/shm_benchmark.cpp)
-target_link_libraries(shm_benchmark PRIVATE ${SHM_LIBS})
+# shm_generic 性能测试
+add_executable(shm_generic_benchmark shm/shm_generic_benchmark.cpp)
+target_link_libraries(shm_generic_benchmark PRIVATE ${SHM_LIBS})
+
+# shm_seqlock 性能测试（单槽位SeqLock方案）
+add_executable(shm_seqlock_test shm/shm_seqlock_test.cpp base_core_mgr.cpp)
+target_link_libraries(shm_seqlock_test PRIVATE ${SHM_LIBS})

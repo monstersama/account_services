@@ -82,7 +82,7 @@ int main() {
     //LOG_TEXT(*w, LogLevel::info, Module::module1, LogText::Text1);
 
     // 格式函数：LOG_FMT(writer, level, module_id, format_name, ...)
-    // 注意：这里只能传数值类型，如果LogFmt传const char* 会直接拷贝指针
+    // 注意：这里只能传数值类型，如果传const char* 会直接拷贝指针
     LOG_FMT(*w, LogLevel::info, Module::module1, LogFormatFunc::format1, 3, 2);
     LOG_FMT(*w, LogLevel::info, Module::module2, LogFormatFunc::format2, 3);
 

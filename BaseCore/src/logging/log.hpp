@@ -4,11 +4,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <fstream>
 #include <string>
 #include <string_view>
 #include <type_traits>
  
-#include "shm/shm_interface.hpp"
+#include "shm/shm_generic.hpp"
 
 namespace base_core_log {
 
@@ -227,7 +228,7 @@ public:
         sizeof(LogShmHeader) + kBufferCapacity * sizeof(LogEntry) + kBufferVarSize;
 
 private:
-    shm::ShmWriter writer_;
+    shm::ShmGenericWriter writer_;
     void* layout_ptr_ = nullptr;
     std::size_t layout_size_ = 0;
     std::size_t thread_id_ = 0;
@@ -253,14 +254,38 @@ bool init_shm_logger(const ShmLogConfig& config, ShmLogger& logger);
 class LogReader {
 public:
     LogReader(std::string shm_name, std::string output_path, ModuleNameMapper module_mapper = nullptr);
+    ~LogReader();
 
-    // 读取 shm 并写入 txt 文件，返回 0 成功，1 失败
+    // 初始化：打开共享内存和输出文件，返回 true 成功
+    bool init();
+
+    // 读取新数据（只读取上次位置之后的新日志），返回读取的条目数
+    int read_new();
+
+    // 一次性读取所有数据（兼容旧用法），返回 0 成功，1 失败
     int run();
+
+    // 关闭资源
+    void close();
+
+    // 是否已初始化
+    bool is_open() const noexcept;
 
 private:
     std::string shm_name_;
     std::string output_path_;
     ModuleNameMapper module_mapper_;
+
+    // 持续监控模式的状态
+    shm::ShmGenericWriter writer_;
+    std::ofstream out_;
+    void* ptr_ = nullptr;
+    const LogShmHeader* header_ = nullptr;
+    const LogEntry* buffer_ = nullptr;
+    const uint8_t* buffer_var_ = nullptr;
+    uint32_t last_read_index_ = 0;
+    uint32_t last_read_index_var_ = 0;
+    bool initialized_ = false;
 };
 
 template <typename Writer, typename... Args>
