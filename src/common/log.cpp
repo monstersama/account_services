@@ -1,84 +1,30 @@
 #include "common/log.hpp"
 
+#include <unistd.h>
+
+#include <array>
 #include <cerrno>
-#include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <memory>
-#include <new>
 #include <string>
-#include <thread>
-#include <vector>
+#include <string_view>
 
+#include "common/basecore_log_format.hpp"
+#include "common/basecore_log_modules.hpp"
 #include "core/config_manager.hpp"
+#include "logging/log.hpp"
+#include "shm/shm_interface.hpp"
 
 namespace acct_service {
 
 namespace {
 
-class LoggerQueue {
-public:
-    explicit LoggerQueue(std::size_t capacity)
-        : capacity_(capacity), mask_((capacity > 0) ? (capacity - 1) : 0), buffer_(capacity), ready_(capacity) {
-        for (std::size_t i = 0; i < ready_.size(); ++i) {
-            ready_[i].store(0, std::memory_order_relaxed);
-        }
-    }
+constexpr std::string_view kDefaultLoggerInstanceName = "account_service";
+constexpr std::size_t kFixedBufferCapacity = base_core_log::ShmLogger::kBufferCapacity;
+constexpr std::size_t kVariableBufferCapacity = base_core_log::ShmLogger::kBufferVarSize;
 
-    bool try_push(const LogRecord& record) {
-        uint64_t tail = tail_.load(std::memory_order_relaxed);
-        for (;;) {
-            const uint64_t head = head_.load(std::memory_order_acquire);
-            if ((tail - head) >= capacity_) {
-                return false;
-            }
-            if (tail_.compare_exchange_weak(tail, tail + 1, std::memory_order_acq_rel, std::memory_order_relaxed)) {
-                buffer_[tail & mask_] = record;
-                ready_[tail & mask_].store(1, std::memory_order_release);
-                return true;
-            }
-        }
-    }
-
-    bool try_pop(LogRecord& out) {
-        const uint64_t head = head_.load(std::memory_order_relaxed);
-        if (head >= tail_.load(std::memory_order_acquire)) {
-            return false;
-        }
-        const std::size_t index = head & mask_;
-        if (ready_[index].load(std::memory_order_acquire) == 0) {
-            return false;
-        }
-        out = buffer_[index];
-        ready_[index].store(0, std::memory_order_release);
-        head_.store(head + 1, std::memory_order_release);
-        return true;
-    }
-
-    bool empty() const {
-        return head_.load(std::memory_order_acquire) >= tail_.load(std::memory_order_acquire);
-    }
-
-private:
-    std::size_t capacity_ = 0;
-    std::size_t mask_ = 0;
-    std::vector<LogRecord> buffer_;
-    std::vector<std::atomic<uint8_t>> ready_;
-    std::atomic<uint64_t> head_{0};
-    std::atomic<uint64_t> tail_{0};
-};
-
-std::size_t normalize_capacity(std::size_t requested) {
-    if (requested < 1024) {
-        requested = 1024;
-    }
-    std::size_t cap = 1;
-    while (cap < requested) {
-        cap <<= 1;
-    }
-    return cap;
-}
-
+// Parses the configured minimum log level into the internal enum.
 LogLevel parse_level(const std::string& level) {
     if (level == "debug") {
         return LogLevel::debug;
@@ -98,73 +44,201 @@ LogLevel parse_level(const std::string& level) {
     return LogLevel::info;
 }
 
-bool should_sync_fallback(LogLevel level) {
-    return level == LogLevel::error || level == LogLevel::fatal;
+// Converts account_services log levels to the BaseCore writer enum.
+base_core_log::LogLevel to_basecore_level(LogLevel level) noexcept {
+    switch (level) {
+        case LogLevel::debug:
+            return base_core_log::LogLevel::debug;
+        case LogLevel::info:
+            return base_core_log::LogLevel::info;
+        case LogLevel::warn:
+            return base_core_log::LogLevel::warn;
+        case LogLevel::error:
+            return base_core_log::LogLevel::error;
+        case LogLevel::fatal:
+            return base_core_log::LogLevel::fatal;
+    }
+    return base_core_log::LogLevel::info;
 }
 
+// Chooses whether stderr fallback is still required when shared-memory logging fails.
+bool should_sync_fallback(LogLevel level) { return level == LogLevel::error || level == LogLevel::fatal; }
+
+// Emits a best-effort stderr line when the structured logger is unavailable.
 void write_fallback_stderr(const LogRecord& record) {
-    std::fprintf(stderr,
-        "[%llu][%s][%s][%s:%u] code=%s domain=%s errno=%d msg=%s\n",
-        static_cast<unsigned long long>(record.ts_ns), to_string(record.level), record.module.c_str(), record.file.c_str(),
-        record.line, to_string(record.code), to_string(record.domain), record.sys_errno, record.message.c_str());
+    std::fprintf(stderr, "[%llu][%s][%s][%s:%u] severity=%s code=%s domain=%s errno=%d msg=%s\n",
+                 static_cast<unsigned long long>(record.ts_ns), to_string(record.level), record.module.c_str(),
+                 record.file.c_str(), record.line, to_string(record.severity), to_string(record.code),
+                 to_string(record.domain), record.sys_errno, record.message.c_str());
+}
+
+// Normalizes the logical logger name so shm names and filenames remain predictable.
+std::string normalize_instance_name(std::string_view instance_name) {
+    if (instance_name.empty()) {
+        instance_name = kDefaultLoggerInstanceName;
+    }
+
+    std::string normalized;
+    normalized.reserve(instance_name.size());
+    for (char ch : instance_name) {
+        if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')) {
+            normalized.push_back(ch);
+            continue;
+        }
+        if (ch >= 'A' && ch <= 'Z') {
+            normalized.push_back(static_cast<char>(ch - 'A' + 'a'));
+            continue;
+        }
+        normalized.push_back('_');
+    }
+
+    if (normalized.empty()) {
+        normalized.assign(kDefaultLoggerInstanceName);
+    }
+    return normalized;
+}
+
+// Builds a process-unique shm name so independent binaries never share one writer ring.
+std::string build_shm_name(AccountId account_id, std::string_view instance_name) {
+    return "/acct_service_log_" + std::string(instance_name) + "_" + std::to_string(account_id) + "_" +
+           std::to_string(static_cast<unsigned long long>(::getpid()));
+}
+
+// Preserves the historical account log filename for the main service while isolating other binaries.
+std::string build_output_path(const LogConfig& config, AccountId account_id, std::string_view instance_name) {
+    if (instance_name == kDefaultLoggerInstanceName) {
+        return config.log_dir + "/account_" + std::to_string(account_id) + ".log";
+    }
+    return config.log_dir + "/" + std::string(instance_name) + "_" + std::to_string(account_id) + ".log";
+}
+
+// Copies text into a fixed-size payload field used by BaseCore format decoding.
+template <typename Field>
+Field make_field(std::string_view text) {
+    Field field{};
+    const std::size_t copy_size = (text.size() < (field.size() - 1)) ? text.size() : (field.size() - 1);
+    if (copy_size > 0) {
+        text.copy(field.data(), copy_size);
+    }
+    field[copy_size] = '\0';
+    return field;
+}
+
+// Tracks unread payload volume so overwrite-driven loss remains visible via dropped_count().
+void account_pending_payload(std::size_t payload_size, std::size_t& pending_fixed_entries,
+                             std::size_t& pending_variable_bytes, std::atomic<uint64_t>& dropped) {
+    if (payload_size <= base_core_log::kLogMaxPayload) {
+        ++pending_fixed_entries;
+        if (pending_fixed_entries > kFixedBufferCapacity) {
+            dropped.fetch_add(1, std::memory_order_relaxed);
+        }
+        return;
+    }
+
+    pending_variable_bytes += sizeof(base_core_log::LogVarEntryHeader) + payload_size;
+    if (pending_variable_bytes > kVariableBufferCapacity) {
+        dropped.fetch_add(1, std::memory_order_relaxed);
+    }
 }
 
 }  // namespace
 
 struct AsyncLogger::Impl {
-    std::unique_ptr<LoggerQueue> queue{};
-    std::thread worker;
-    std::atomic<bool> running{false};
-    std::atomic<bool> healthy{false};
-    std::atomic<uint64_t> dropped{0};
-    std::atomic<uint64_t> enqueued{0};
-    std::atomic<uint64_t> written{0};
-    std::unique_ptr<FILE, int (*)(FILE*)> output{nullptr, std::fclose};
+    base_core_log::ShmLogger logger{};
+    base_core_log::ShmLogConfig shm_config{};
+    std::string instance_name{};
     LogLevel min_level = LogLevel::info;
     bool async_enabled = true;
+    std::atomic<bool> healthy{false};
+    std::atomic<uint64_t> dropped{0};
+    std::size_t pending_fixed_entries_ = 0;
+    std::size_t pending_variable_bytes_ = 0;
     SpinLock io_lock;
 
-    void consume_loop() {
-        constexpr std::size_t kBatch = 256;
-        uint64_t processed = 0;
-        while (running.load(std::memory_order_acquire) || (queue && !queue->empty())) {
-            LogRecord rec;
-            bool got = false;
-            for (std::size_t i = 0; i < kBatch; ++i) {
-                if (!queue || !queue->try_pop(rec)) {
-                    break;
-                }
-                got = true;
-                if (output) {
-                    std::fprintf(output.get(),
-                        "[%llu][%s][%s][%s:%u] severity=%s code=%s domain=%s errno=%d msg=%s\n",
-                        static_cast<unsigned long long>(rec.ts_ns), to_string(rec.level), rec.module.c_str(),
-                        rec.file.c_str(), rec.line, to_string(rec.severity), to_string(rec.code), to_string(rec.domain),
-                        rec.sys_errno, rec.message.c_str());
-                }
-                ++processed;
-            }
-
-            if (got) {
-                written.store(processed, std::memory_order_release);
-                if (output) {
-                    std::fflush(output.get());
-                }
-            } else {
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            }
+    // Opens a fresh shared-memory ring for subsequent writes after init or drain.
+    bool reopen_locked() {
+        logger.close();
+        if (!base_core_log::init_shm_logger(shm_config, logger)) {
+            healthy.store(false, std::memory_order_release);
+            return false;
         }
 
-        if (output) {
-            std::fflush(output.get());
+        pending_fixed_entries_ = 0;
+        pending_variable_bytes_ = 0;
+        healthy.store(true, std::memory_order_release);
+        return true;
+    }
+
+    // Drains unread log entries to disk and optionally reopens a fresh shm ring.
+    bool drain_locked(bool reopen_after_drain) {
+        if (!logger.is_open()) {
+            healthy.store(false, std::memory_order_release);
+            return true;
         }
-        written.store(processed, std::memory_order_release);
+
+        // Read and append the current ring before tearing it down to avoid duplicate drains.
+        base_core_log::LogReader reader(shm_config.shm_name, shm_config.output_path,
+                                        &basecore_log_adapter::project_log_module_mapper);
+        if (reader.run() != 0) {
+            healthy.store(false, std::memory_order_release);
+            return false;
+        }
+
+        logger.close();
+        (void)shm::ShmWriter::unlink(shm_config.shm_name);
+        pending_fixed_entries_ = 0;
+        pending_variable_bytes_ = 0;
+
+        if (!reopen_after_drain) {
+            healthy.store(false, std::memory_order_release);
+            return true;
+        }
+        return reopen_locked();
+    }
+
+    // Writes one fully structured record into BaseCore shared memory.
+    bool write_record_locked(const LogRecord& record) {
+        auto* writer = logger.writer();
+        if (!writer || !writer->is_attached()) {
+            healthy.store(false, std::memory_order_release);
+            return false;
+        }
+
+        const std::string_view file = record.file.empty() ? std::string_view("<unknown>") : record.file.view();
+        const auto file_field = make_field<basecore_log_adapter::FileField>(file);
+        const auto severity_field = make_field<basecore_log_adapter::SeverityField>(to_string(record.severity));
+        const auto code_field = make_field<basecore_log_adapter::CodeField>(to_string(record.code));
+        const auto domain_field = make_field<basecore_log_adapter::DomainField>(to_string(record.domain));
+        const auto message_field = make_field<basecore_log_adapter::MessageField>(
+            record.message.empty() ? std::string_view("") : record.message.view());
+        const auto module = basecore_log_adapter::project_log_module_from_name(record.module.view());
+
+        // Always use the structured format entry so reader output remains stable across all call sites.
+        const bool ok = base_core_log::log_write_fmt(
+            *writer, to_basecore_level(record.level), base_core_log::rdtsc(), static_cast<uint8_t>(module),
+            basecore_log_adapter::ProjectLogFormat::kRecordLogId,
+            basecore_log_adapter::ProjectLogFormat::kRecordLogPayloadSize, file_field, record.line, severity_field,
+            code_field, domain_field, record.sys_errno, message_field);
+        if (!ok) {
+            healthy.store(false, std::memory_order_release);
+            return false;
+        }
+
+        account_pending_payload(basecore_log_adapter::ProjectLogFormat::kRecordLogPayloadSize, pending_fixed_entries_,
+                                pending_variable_bytes_, dropped);
+        return true;
     }
 };
 
 AsyncLogger::~AsyncLogger() noexcept { shutdown(); }
 
+// Preserves the historical service logger entrypoint with the default instance name.
 bool AsyncLogger::init(const LogConfig& config, AccountId account_id) {
+    return init(config, account_id, kDefaultLoggerInstanceName);
+}
+
+// Configures the shared-memory logger for one logical process instance.
+bool AsyncLogger::init(const LogConfig& config, AccountId account_id, std::string_view instance_name) {
     shutdown();
 
     auto state = std::unique_ptr<Impl>(new (std::nothrow) Impl());
@@ -172,31 +246,33 @@ bool AsyncLogger::init(const LogConfig& config, AccountId account_id) {
         return false;
     }
 
-    const std::size_t queue_size = normalize_capacity(config.async_queue_size);
-    state->queue.reset(new (std::nothrow) LoggerQueue(queue_size));
-    if (!state->queue) {
-        return false;
-    }
-
     state->min_level = parse_level(config.log_level);
     state->async_enabled = config.async_logging;
+    state->instance_name = normalize_instance_name(instance_name);
 
     std::error_code ec;
     std::filesystem::create_directories(config.log_dir, ec);
-    const std::string path = config.log_dir + "/account_" + std::to_string(account_id) + ".log";
-    state->output.reset(std::fopen(path.c_str(), "a"));
-    if (!state->output) {
+    if (ec) {
         return false;
     }
 
-    state->running.store(true, std::memory_order_release);
-    state->healthy.store(true, std::memory_order_release);
+    state->shm_config.shm_name = build_shm_name(account_id, state->instance_name);
+    state->shm_config.per_thread = false;
+    state->shm_config.output_path = build_output_path(config, account_id, state->instance_name);
 
-    try {
-        state->worker = std::thread([raw = state.get()]() { raw->consume_loop(); });
-    } catch (...) {
-        state->healthy.store(false, std::memory_order_release);
-        return false;
+    {
+        LockGuard<SpinLock> guard(state->io_lock);
+
+        // Force the format object into the final link so LogReader always has a decoder.
+        if (!basecore_log_adapter::ProjectLogFormat::register_formats()) {
+            return false;
+        }
+
+        // Remove any leftover object from an unclean previous exit before creating a new ring.
+        (void)shm::ShmWriter::unlink(state->shm_config.shm_name);
+        if (!state->reopen_locked()) {
+            return false;
+        }
     }
 
     impl_ = std::move(state);
@@ -204,43 +280,34 @@ bool AsyncLogger::init(const LogConfig& config, AccountId account_id) {
 }
 
 void AsyncLogger::shutdown() noexcept {
-    if (!impl_) {
+    std::unique_ptr<Impl> state = std::move(impl_);
+    if (!state) {
         return;
     }
 
-    impl_->running.store(false, std::memory_order_release);
-    if (impl_->worker.joinable()) {
-        impl_->worker.join();
+    {
+        LockGuard<SpinLock> guard(state->io_lock);
+        (void)state->drain_locked(false);
+        state->logger.close();
+        if (!state->shm_config.shm_name.empty()) {
+            (void)shm::ShmWriter::unlink(state->shm_config.shm_name);
+        }
+        state->healthy.store(false, std::memory_order_release);
     }
-
-    if (impl_->output) {
-        std::fflush(impl_->output.get());
-    }
-    impl_.reset();
 }
 
+// Forces the current shared-memory ring to be decoded into the configured log file.
 bool AsyncLogger::flush(uint32_t timeout_ms) {
+    (void)timeout_ms;
     if (!impl_) {
         return true;
     }
 
-    const uint64_t target = impl_->enqueued.load(std::memory_order_acquire);
-    const TimestampNs start = now_monotonic_ns();
-    const TimestampNs timeout_ns = static_cast<TimestampNs>(timeout_ms) * 1000000ULL;
-
-    while (impl_->written.load(std::memory_order_acquire) < target) {
-        if (now_monotonic_ns() - start > timeout_ns) {
-            return false;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-
-    if (impl_->output) {
-        std::fflush(impl_->output.get());
-    }
-    return true;
+    LockGuard<SpinLock> guard(impl_->io_lock);
+    return impl_->drain_locked(true);
 }
 
+// Converts one LogRecord into the shared-memory format used by BaseCore.
 bool AsyncLogger::log(const LogRecord& record) {
     if (!impl_) {
         if (should_sync_fallback(record.level)) {
@@ -253,29 +320,23 @@ bool AsyncLogger::log(const LogRecord& record) {
         return true;
     }
 
-    if (!impl_->async_enabled) {
-        LockGuard<SpinLock> guard(impl_->io_lock);
-        if (impl_->output) {
-            std::fprintf(impl_->output.get(),
-                "[%llu][%s][%s][%s:%u] severity=%s code=%s domain=%s errno=%d msg=%s\n",
-                static_cast<unsigned long long>(record.ts_ns), to_string(record.level), record.module.c_str(),
-                record.file.c_str(), record.line, to_string(record.severity), to_string(record.code),
-                to_string(record.domain), record.sys_errno, record.message.c_str());
-            std::fflush(impl_->output.get());
-            return true;
-        }
-        write_fallback_stderr(record);
-        return false;
-    }
-
-    if (!impl_->queue->try_push(record)) {
+    LockGuard<SpinLock> guard(impl_->io_lock);
+    if (!impl_->write_record_locked(record)) {
         impl_->dropped.fetch_add(1, std::memory_order_relaxed);
         if (should_sync_fallback(record.level)) {
             write_fallback_stderr(record);
         }
         return false;
     }
-    impl_->enqueued.fetch_add(1, std::memory_order_relaxed);
+
+    if (!impl_->async_enabled && !impl_->drain_locked(true)) {
+        impl_->dropped.fetch_add(1, std::memory_order_relaxed);
+        if (should_sync_fallback(record.level)) {
+            write_fallback_stderr(record);
+        }
+        return false;
+    }
+
     return true;
 }
 
@@ -302,8 +363,11 @@ AsyncLogger& global_logger() {
 
 }  // namespace
 
-bool init_logger(const LogConfig& config, AccountId account_id) {
-    return global_logger().init(config, account_id);
+bool init_logger(const LogConfig& config, AccountId account_id) { return global_logger().init(config, account_id); }
+
+// Exposes per-process logger naming to binaries such as gateway that share the common logger API.
+bool init_logger(const LogConfig& config, AccountId account_id, std::string_view instance_name) {
+    return global_logger().init(config, account_id, instance_name);
 }
 
 void shutdown_logger() { global_logger().shutdown(); }
@@ -315,7 +379,7 @@ bool logger_healthy() noexcept { return global_logger().healthy(); }
 uint64_t logger_dropped_count() noexcept { return global_logger().dropped_count(); }
 
 void log_message(LogLevel level, std::string_view module, std::string_view file, uint32_t line,
-    std::string_view message, const ErrorStatus* status, int sys_errno) {
+                 std::string_view message, const ErrorStatus* status, int sys_errno) {
     LogRecord record;
     record.ts_ns = now_ns();
     record.level = level;
@@ -338,6 +402,9 @@ void log_message(LogLevel level, std::string_view module, std::string_view file,
             record.domain = last.domain;
             record.code = last.code;
             record.severity = classify(last.domain, last.code).severity;
+            if (record.sys_errno == 0) {
+                record.sys_errno = last.sys_errno;
+            }
         }
     }
 

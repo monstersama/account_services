@@ -14,12 +14,20 @@ add_library(acct_common STATIC
     common/spinlock.cpp
     common/time_utils.cpp
     common/error.cpp
+    common/basecore_log_modules.cpp
+    common/basecore_log_format.cpp
     common/log.cpp
+    ${CMAKE_SOURCE_DIR}/BaseCore/src/logging/log.cpp
+    ${CMAKE_SOURCE_DIR}/BaseCore/src/logging/log_format_registry.cpp
+    ${CMAKE_SOURCE_DIR}/BaseCore/src/logging/default_single_log.cpp
+    ${CMAKE_SOURCE_DIR}/BaseCore/src/shm/shm_interface.cpp
 )
 target_include_directories(acct_common PUBLIC
     ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/BaseCore/src
     ${CMAKE_BINARY_DIR}/generated
 )
+target_link_libraries(acct_common PUBLIC rt)
 
 # shm 库 (shm_manager)
 add_library(acct_shm STATIC
