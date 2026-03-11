@@ -14,7 +14,7 @@
 #include "common/basecore_log_modules.hpp"
 #include "core/config_manager.hpp"
 #include "logging/log.hpp"
-#include "shm/shm_interface.hpp"
+#include "shm/shm_generic.hpp"
 
 namespace acct_service {
 
@@ -185,7 +185,7 @@ struct AsyncLogger::Impl {
         }
 
         logger.close();
-        (void)shm::ShmWriter::unlink(shm_config.shm_name);
+        (void)shm::ShmGenericWriter::unlink(shm_config.shm_name);
         pending_fixed_entries_ = 0;
         pending_variable_bytes_ = 0;
 
@@ -269,7 +269,7 @@ bool AsyncLogger::init(const LogConfig& config, AccountId account_id, std::strin
         }
 
         // Remove any leftover object from an unclean previous exit before creating a new ring.
-        (void)shm::ShmWriter::unlink(state->shm_config.shm_name);
+        (void)shm::ShmGenericWriter::unlink(state->shm_config.shm_name);
         if (!state->reopen_locked()) {
             return false;
         }
@@ -290,7 +290,7 @@ void AsyncLogger::shutdown() noexcept {
         (void)state->drain_locked(false);
         state->logger.close();
         if (!state->shm_config.shm_name.empty()) {
-            (void)shm::ShmWriter::unlink(state->shm_config.shm_name);
+            (void)shm::ShmGenericWriter::unlink(state->shm_config.shm_name);
         }
         state->healthy.store(false, std::memory_order_release);
     }

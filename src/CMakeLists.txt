@@ -20,7 +20,8 @@ add_library(acct_common STATIC
     ${CMAKE_SOURCE_DIR}/BaseCore/src/logging/log.cpp
     ${CMAKE_SOURCE_DIR}/BaseCore/src/logging/log_format_registry.cpp
     ${CMAKE_SOURCE_DIR}/BaseCore/src/logging/default_single_log.cpp
-    ${CMAKE_SOURCE_DIR}/BaseCore/src/shm/shm_interface.cpp
+    ${CMAKE_SOURCE_DIR}/BaseCore/src/shm/shm_common.cpp
+    ${CMAKE_SOURCE_DIR}/BaseCore/src/shm/shm_generic.cpp
 )
 target_include_directories(acct_common PUBLIC
     ${CMAKE_SOURCE_DIR}/src
