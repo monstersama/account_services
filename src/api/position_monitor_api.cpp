@@ -1,12 +1,6 @@
 #include "api/position_monitor_api.h"
 
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <unistd.h>
-
 #include <atomic>
-#include <cerrno>
 #include <cstring>
 #include <memory>
 #include <new>
@@ -14,6 +8,7 @@
 
 #include "common/constants.hpp"
 #include "portfolio/positions.h"
+#include "shm/basecore_shm_bridge.hpp"
 #include "shm/shm_layout.hpp"
 
 namespace {
@@ -143,21 +138,10 @@ bool try_read_stable_position_snapshot(
 struct acct_positions_monitor_context {
     acct_positions_monitor_context() = default;
 
-    int fd = -1;
+    shm::ShmGenericReader reader{};
     const acct_service::positions_shm_layout* positions_shm = nullptr;
     std::string positions_shm_name;
     bool initialized = false;
-
-    // 释放 mmap 和 fd 资源，保证异常路径/提前返回不泄漏句柄。
-    ~acct_positions_monitor_context() noexcept {
-        if (positions_shm != nullptr) {
-            (void)munmap(const_cast<acct_service::positions_shm_layout*>(positions_shm),
-                         sizeof(acct_service::positions_shm_layout));
-        }
-        if (fd >= 0) {
-            (void)::close(fd);
-        }
-    }
 
     acct_positions_monitor_context(const acct_positions_monitor_context&) = delete;
     acct_positions_monitor_context& operator=(const acct_positions_monitor_context&) = delete;
@@ -183,25 +167,16 @@ ACCT_POS_MON_API acct_pos_mon_error_t acct_positions_mon_open(
         return ACCT_POS_MON_ERR_INTERNAL;
     }
 
-    ctx->fd = shm_open(positions_shm_name.c_str(), O_RDONLY | O_CLOEXEC, 0644);
-    if (ctx->fd < 0) {
+    if (acct_service::basecore_shm_bridge::is_file_backend_requested()) {
         return ACCT_POS_MON_ERR_SHM_FAILED;
     }
 
-    struct stat st {};
-    if (fstat(ctx->fd, &st) < 0) {
-        return ACCT_POS_MON_ERR_SHM_FAILED;
-    }
-    if (static_cast<std::size_t>(st.st_size) != sizeof(acct_service::positions_shm_layout)) {
+    if (!acct_service::basecore_shm_bridge::open_reader(
+            ctx->reader, positions_shm_name, sizeof(acct_service::positions_shm_layout))) {
         return ACCT_POS_MON_ERR_SHM_FAILED;
     }
 
-    void* ptr = mmap(nullptr, sizeof(acct_service::positions_shm_layout), PROT_READ, MAP_SHARED, ctx->fd, 0);
-    if (ptr == MAP_FAILED) {
-        return ACCT_POS_MON_ERR_SHM_FAILED;
-    }
-
-    ctx->positions_shm = static_cast<const acct_service::positions_shm_layout*>(ptr);
+    ctx->positions_shm = static_cast<const acct_service::positions_shm_layout*>(ctx->reader.data());
     if (!validate_header(ctx->positions_shm)) {
         return ACCT_POS_MON_ERR_SHM_FAILED;
     }

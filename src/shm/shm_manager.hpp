@@ -4,6 +4,7 @@
 #include <string_view>
 
 #include "common/types.hpp"
+#include "shm/shm_generic.hpp"
 #include "shm/shm_layout.hpp"
 
 namespace acct_service {
@@ -66,10 +67,7 @@ private:
     // 验证共享内存头部
     bool validate_header(const SHMHeader* header);
 
-    std::string name_;
-    void* ptr_ = nullptr;
-    std::size_t size_ = 0;
-    int fd_ = -1;
+    shm::ShmGenericWriter writer_;
     bool last_open_is_new_ = false;
 };
 

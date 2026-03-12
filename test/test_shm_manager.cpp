@@ -7,6 +7,7 @@
 #include <cassert>
 #include <cerrno>
 #include <chrono>
+#include <cstdlib>
 #include <cstdio>
 #include <string>
 
@@ -31,6 +32,31 @@ public:
 
 private:
     mode_t old_umask_;
+};
+
+class ScopedEnvOverride {
+public:
+    ScopedEnvOverride(const char* key, const char* value) : key_(key) {
+        const char* existing = std::getenv(key);
+        if (existing != nullptr) {
+            had_old_value_ = true;
+            old_value_ = existing;
+        }
+        (void)::setenv(key, value, 1);
+    }
+
+    ~ScopedEnvOverride() {
+        if (had_old_value_) {
+            (void)::setenv(key_.c_str(), old_value_.c_str(), 1);
+        } else {
+            (void)::unsetenv(key_.c_str());
+        }
+    }
+
+private:
+    std::string key_;
+    std::string old_value_;
+    bool had_old_value_ = false;
 };
 
 std::string unique_shm_name(const char* tag) {
@@ -169,6 +195,23 @@ TEST(create_mode_is_0777_and_ignores_umask) {
     cleanup_shm(name);
 }
 
+TEST(rejects_file_backend_env) {
+    using namespace acct_service;
+
+    ScopedEnvOverride env_override("SHM_USE_FILE", "1");
+
+    const std::string name = unique_shm_name("shm_mgr_file_backend");
+    cleanup_shm(name);
+
+    SHMManager manager;
+    auto* layout = manager.open_upstream(name, shm_mode::Create, 1);
+    assert(layout == nullptr);
+    assert(!acct_service::last_error().ok());
+    assert(acct_service::last_error().code == acct_service::ErrorCode::ShmOpenFailed);
+
+    cleanup_shm(name);
+}
+
 int main() {
     printf("=== Shm Manager Test Suite ===\n\n");
 
@@ -177,6 +220,7 @@ int main() {
     RUN_TEST(open_orders_with_dated_name);
     RUN_TEST(size_mismatch);
     RUN_TEST(create_mode_is_0777_and_ignores_umask);
+    RUN_TEST(rejects_file_backend_env);
 
     printf("\n=== All tests passed! ===\n");
     return 0;

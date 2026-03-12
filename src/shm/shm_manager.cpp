@@ -1,26 +1,22 @@
 #include "shm/shm_manager.hpp"
 
-#include <fcntl.h>
 #include <sys/mman.h>
-#include <sys/stat.h>
 
 #include <cerrno>
 #include <cstring>
 
 #include "common/error.hpp"
 #include "common/log.hpp"
+#include "shm/basecore_shm_bridge.hpp"
 #include "shm/orders_shm.hpp"
 
 namespace acct_service {
 
 namespace {
 
-constexpr mode_t kShmCreateMode = 0777;
-
 bool report_shm_error(ErrorCode code, std::string_view name, std::string_view detail, int err = 0) {
     ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::shm, code, "shm_manager", detail, err);
     if (!name.empty()) {
-        FixedString<192> msg;
         std::string text = std::string(detail) + " [" + std::string(name) + "]";
         status.message.assign(text);
     }
@@ -29,10 +25,34 @@ bool report_shm_error(ErrorCode code, std::string_view name, std::string_view de
     return false;
 }
 
-// 新创建 SHM 后强制设置权限，避免受 umask 影响导致联调进程无法 O_RDWR 打开。
-bool apply_create_mode(int fd, std::string_view name) {
-    if (fchmod(fd, kShmCreateMode) < 0) {
-        return report_shm_error(ErrorCode::ShmOpenFailed, name, "fchmod failed", errno);
+ErrorCode classify_open_error(int err) noexcept {
+    return err == EOVERFLOW ? ErrorCode::ShmResizeFailed : ErrorCode::ShmOpenFailed;
+}
+
+bool report_unsupported_backend(std::string_view name) {
+    return report_shm_error(
+        ErrorCode::ShmOpenFailed, name, "SHM_USE_FILE=1 is unsupported for account-service data shm");
+}
+
+bool report_open_failure(std::string_view name, std::string_view detail) {
+    const int err = errno;
+    return report_shm_error(classify_open_error(err), name, detail, err);
+}
+
+bool report_create_failure(std::string_view name, std::string_view detail) {
+    const int err = errno;
+    return report_shm_error(ErrorCode::ShmOpenFailed, name, detail, err);
+}
+
+void cleanup_new_region(std::string_view name) noexcept {
+    (void)shm::ShmGenericWriter::unlink(name);
+}
+
+bool open_existing_region(
+    shm::ShmGenericWriter& writer, std::string_view name, std::size_t size, std::string_view detail) {
+    errno = 0;
+    if (!basecore_shm_bridge::open_writer(writer, name, size)) {
+        return report_open_failure(name, detail);
     }
     return true;
 }
@@ -43,137 +63,83 @@ bool apply_create_mode(int fd, std::string_view name) {
 SHMManager::SHMManager() = default;
 
 // 析构函数
-SHMManager::~SHMManager() noexcept { close(); }
+SHMManager::~SHMManager() noexcept = default;
 
 // 移动构造函数
-SHMManager::SHMManager(SHMManager &&other) noexcept
-    : name_(std::move(other.name_)), ptr_(other.ptr_), size_(other.size_), fd_(other.fd_) {
-    other.ptr_ = nullptr;
-    other.size_ = 0;
-    other.fd_ = -1;
-}
+SHMManager::SHMManager(SHMManager&& other) noexcept = default;
 
 // 移动赋值运算符
-SHMManager &SHMManager::operator=(SHMManager &&other) noexcept {
-    if (this != &other) {
-        close();
-        name_ = std::move(other.name_);
-        ptr_ = other.ptr_;
-        size_ = other.size_;
-        fd_ = other.fd_;
-        other.ptr_ = nullptr;
-        other.size_ = 0;
-        other.fd_ = -1;
-    }
-    return *this;
-}
+SHMManager& SHMManager::operator=(SHMManager&& other) noexcept = default;
 
 // 内部实现：打开或创建共享内存
-void *SHMManager::open_impl(std::string_view name, std::size_t size, shm_mode mode) {
+void* SHMManager::open_impl(std::string_view name, std::size_t size, shm_mode mode) {
     // 如果已经打开了其他共享内存，先关闭
     if (is_open()) {
         close();
     }
 
+    if (basecore_shm_bridge::is_file_backend_requested()) {
+        (void)report_unsupported_backend(name);
+        return nullptr;
+    }
+
     last_open_is_new_ = false;
     bool is_new = false;
-    const std::string name_str(name);
-
-    auto cleanup = [&](bool unlink_if_new) {
-        if (fd_ >= 0) {
-            ::close(fd_);
-        }
-        if (unlink_if_new) {
-            shm_unlink(name_str.c_str());
-        }
-        name_.clear();
-        ptr_ = nullptr;
-        size_ = 0;
-        fd_ = -1;
-        last_open_is_new_ = false;
-    };
 
     switch (mode) {
-        case shm_mode::Create:
-            fd_ = shm_open(name_str.c_str(), O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC, kShmCreateMode);
-            if (fd_ < 0) {
-                (void)report_shm_error(ErrorCode::ShmOpenFailed, name, "shm_open(create) failed", errno);
+        case shm_mode::Create: {
+            errno = 0;
+            if (!basecore_shm_bridge::create_region(name, size)) {
+                (void)report_create_failure(name, "create shm failed");
+                return nullptr;
+            }
+            if (!open_existing_region(writer_, name, size, "open created shm failed")) {
+                cleanup_new_region(name);
                 return nullptr;
             }
             is_new = true;
             break;
+        }
         case shm_mode::Open:
-            fd_ = shm_open(name_str.c_str(), O_RDWR | O_CLOEXEC, 0644);
-            if (fd_ < 0) {
-                (void)report_shm_error(ErrorCode::ShmOpenFailed, name, "shm_open(open) failed", errno);
+            if (!open_existing_region(writer_, name, size, "open existing shm failed")) {
                 return nullptr;
             }
             is_new = false;
             break;
-        case shm_mode::OpenOrCreate:
-            fd_ = shm_open(name_str.c_str(), O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC, kShmCreateMode);
-            if (fd_ < 0) {
-                if (errno == EEXIST) {
-                    fd_ = shm_open(name_str.c_str(), O_RDWR | O_CLOEXEC, 0644);
-                    if (fd_ < 0) {
-                        (void)report_shm_error(ErrorCode::ShmOpenFailed, name, "shm_open(open after exist) failed", errno);
-                        return nullptr;
-                    }
-                    is_new = false;
-                } else {
-                    (void)report_shm_error(ErrorCode::ShmOpenFailed, name, "shm_open(open_or_create) failed", errno);
+        case shm_mode::OpenOrCreate: {
+            errno = 0;
+            if (basecore_shm_bridge::create_region(name, size)) {
+                if (!open_existing_region(writer_, name, size, "open newly created shm failed")) {
+                    cleanup_new_region(name);
                     return nullptr;
                 }
-            } else {
                 is_new = true;
+                break;
             }
+
+            const int create_err = errno;
+            errno = 0;
+            if (!basecore_shm_bridge::open_writer(writer_, name, size)) {
+                if (create_err != EEXIST && create_err != 0) {
+                    (void)report_shm_error(
+                        ErrorCode::ShmOpenFailed, name, "create shm for open_or_create failed", create_err);
+                } else {
+                    (void)report_open_failure(name, "open existing shm after create_only failed");
+                }
+                return nullptr;
+            }
+            is_new = false;
             break;
-    }
-
-    if (is_new && !apply_create_mode(fd_, name)) {
-        cleanup(true);
-        return nullptr;
-    }
-
-    struct stat st;
-    if (fstat(fd_, &st) < 0) {
-        (void)report_shm_error(ErrorCode::ShmFstatFailed, name, "fstat failed", errno);
-        cleanup(is_new);
-        return nullptr;
-    }
-
-    if (!is_new && static_cast<std::size_t>(st.st_size) != size) {
-        (void)report_shm_error(ErrorCode::ShmResizeFailed, name, "shm size mismatch");
-        cleanup(false);
-        return nullptr;
-    }
-
-    // 如果是新创建的，设置大小
-    if (is_new) {
-        if (ftruncate(fd_, static_cast<off_t>(size)) < 0) {
-            (void)report_shm_error(ErrorCode::ShmResizeFailed, name, "ftruncate failed", errno);
-            cleanup(true);
-            return nullptr;
         }
     }
 
-    // 映射到进程地址空间
-    ptr_ = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd_, 0);
-    if (ptr_ == MAP_FAILED) {
-        (void)report_shm_error(ErrorCode::ShmMmapFailed, name, "mmap failed", errno);
-        cleanup(is_new);
-        return nullptr;
-    }
-
-    size_ = size;
-    name_ = name;
     last_open_is_new_ = is_new;
-
-    return ptr_;
+    return writer_.data();
 }
 
 // 初始化共享内存头部
 void SHMManager::init_header(SHMHeader *header, AccountId account_id) {
+    (void)account_id;
     header->magic = SHMHeader::kMagic;
     header->version = SHMHeader::kVersion;
     header->create_time = now_ns();
@@ -184,11 +150,11 @@ void SHMManager::init_header(SHMHeader *header, AccountId account_id) {
 // 验证共享内存头部
 bool SHMManager::validate_header(const SHMHeader *header) {
     if (header->magic != SHMHeader::kMagic) {
-        (void)report_shm_error(ErrorCode::ShmHeaderInvalid, name_, "invalid shm magic");
+        (void)report_shm_error(ErrorCode::ShmHeaderInvalid, name(), "invalid shm magic");
         return false;
     }
     if (header->version != SHMHeader::kVersion) {
-        (void)report_shm_error(ErrorCode::ShmHeaderInvalid, name_, "invalid shm version");
+        (void)report_shm_error(ErrorCode::ShmHeaderInvalid, name(), "invalid shm version");
         return false;
     }
     return true;
@@ -332,6 +298,7 @@ orders_shm_layout* SHMManager::open_orders(std::string_view name, shm_mode mode,
 
 // 创建/打开持仓共享内存
 positions_shm_layout *SHMManager::open_positions(std::string_view name, shm_mode mode, AccountId account_id) {
+    (void)account_id;
     constexpr std::size_t size = sizeof(positions_shm_layout);
     void *ptr = open_impl(name, size, mode);
     if (!ptr) {
@@ -388,39 +355,29 @@ positions_shm_layout *SHMManager::open_positions(std::string_view name, shm_mode
 
 // 关闭并解除映射
 void SHMManager::close() noexcept {
-    if (ptr_ && ptr_ != MAP_FAILED) {
-        if (munmap(ptr_, size_) < 0) {
-            // Keep close() noexcept: error reporting must not leak exceptions.
-            try {
-                (void)report_shm_error(ErrorCode::ShmMmapFailed, name_, "munmap failed", errno);
-            } catch (...) {
-            }
-        }
-    }
-    if (fd_ >= 0) {
-        ::close(fd_);
-    }
-
-    name_.clear();
-    ptr_ = nullptr;
-    size_ = 0;
-    fd_ = -1;
+    writer_.close();
     last_open_is_new_ = false;
 }
 
 // 删除共享内存对象
 bool SHMManager::unlink(std::string_view name) {
-    if (shm_unlink(std::string(name).c_str()) < 0) {
-        (void)report_shm_error(ErrorCode::ShmOpenFailed, name, "shm_unlink failed", errno);
+    if (basecore_shm_bridge::is_file_backend_requested()) {
+        (void)report_unsupported_backend(name);
         return false;
     }
-    return true;
+
+    if (::shm_unlink(std::string(name).c_str()) == 0) {
+        return true;
+    }
+
+    (void)report_shm_error(ErrorCode::ShmOpenFailed, name, "shm_unlink failed", errno);
+    return false;
 }
 
 // 检查是否已打开
-bool SHMManager::is_open() const noexcept { return ptr_ != nullptr && ptr_ != MAP_FAILED; }
+bool SHMManager::is_open() const noexcept { return writer_.is_open(); }
 
 // 获取共享内存名称
-const std::string &SHMManager::name() const noexcept { return name_; }
+const std::string& SHMManager::name() const noexcept { return writer_.name(); }
 
 }  // namespace acct_service

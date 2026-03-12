@@ -22,7 +22,7 @@ add_library(acct_order_monitor SHARED
 )
 
 target_compile_definitions(acct_order_monitor PRIVATE ACCT_API_EXPORT)
-target_link_libraries(acct_order_monitor PRIVATE rt)
+target_link_libraries(acct_order_monitor PRIVATE acct_common rt)
 
 set_target_properties(acct_order_monitor PROPERTIES
     VERSION ${ACCT_API_VERSION}
@@ -37,7 +37,7 @@ add_library(acct_position_monitor SHARED
 )
 
 target_compile_definitions(acct_position_monitor PRIVATE ACCT_API_EXPORT)
-target_link_libraries(acct_position_monitor PRIVATE rt)
+target_link_libraries(acct_position_monitor PRIVATE acct_common rt)
 
 set_target_properties(acct_position_monitor PROPERTIES
     VERSION ${ACCT_API_VERSION}

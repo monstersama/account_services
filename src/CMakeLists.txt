@@ -36,9 +36,10 @@ add_library(acct_shm STATIC
 )
 target_include_directories(acct_shm PUBLIC
     ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/BaseCore/src
     ${CMAKE_BINARY_DIR}/generated
 )
-target_link_libraries(acct_shm PRIVATE acct_common rt)
+target_link_libraries(acct_shm PUBLIC acct_common rt)
 
 # portfolio 库 (position/account/trade/entrust)
 add_library(acct_portfolio STATIC

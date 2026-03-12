@@ -1,5 +1,4 @@
 #include "shm/shm_generic.hpp"
-#include "logging/default_single_log.hpp"
 #include "shm/shm_common.hpp"
 
 #include <fcntl.h>
@@ -24,11 +23,7 @@ inline bool use_file_backend() {
 }  // namespace
 
 void log_error(const std::string& msg) noexcept {
-    auto& logger = base_core_log::DefaultSingleLog::instance();
-    if (!logger.is_initialized()) {
-        (void)logger.init();
-    }
-    (void)logger.log_str(base_core_log::LogLevel::error, /*module_id=*/0, msg);
+    internal::log_error(msg);
 }
 
 bool create_if_not_exists(const std::string& name, std::size_t size) {
@@ -95,6 +90,7 @@ void* ShmGenericWriter::open(const std::string& name, std::size_t size) {
     }
 
     if (static_cast<std::size_t>(st.st_size) != size) {
+        errno = EOVERFLOW;
         std::ostringstream oss;
         oss << "ShmGenericWriter::open size mismatch name=" << name_str << " expected=" << size
             << " actual=" << st.st_size;
@@ -245,6 +241,7 @@ const void* ShmGenericReader::open(const std::string& name, std::size_t size) {
     }
 
     if (static_cast<std::size_t>(st.st_size) != size) {
+        errno = EOVERFLOW;
         std::ostringstream oss;
         oss << "ShmGenericReader::open size mismatch name=" << name_str << " expected=" << size
             << " actual=" << st.st_size;

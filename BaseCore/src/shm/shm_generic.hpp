@@ -8,7 +8,7 @@
 
 namespace shm {
 
-// 失败时记录到默认日志（DefaultSingleLog）
+// 失败时记录到 shm 内部日志回调（默认输出到 stderr）
 void log_error(const std::string& msg) noexcept;
 
 // 创建共享内存（不存在则创建并 ftruncate，已存在则无操作）

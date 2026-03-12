@@ -1,5 +1,6 @@
 #include <cassert>
 #include <chrono>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -19,6 +20,31 @@
 namespace {
 
 using namespace acct_service;
+
+class ScopedEnvOverride {
+public:
+    ScopedEnvOverride(const char* key, const char* value) : key_(key) {
+        const char* existing = std::getenv(key);
+        if (existing != nullptr) {
+            had_old_value_ = true;
+            old_value_ = existing;
+        }
+        (void)::setenv(key, value, 1);
+    }
+
+    ~ScopedEnvOverride() {
+        if (had_old_value_) {
+            (void)::setenv(key_.c_str(), old_value_.c_str(), 1);
+        } else {
+            (void)::unsetenv(key_.c_str());
+        }
+    }
+
+private:
+    std::string key_;
+    std::string old_value_;
+    bool had_old_value_ = false;
+};
 
 // 生成唯一 SHM 名称，避免并发测试冲突。
 std::string unique_shm_name(const char* prefix) {
@@ -127,12 +153,21 @@ TEST(read_not_found) {
     (void)SHMManager::unlink(shm_name);
 }
 
+TEST(rejects_file_backend_env) {
+    ScopedEnvOverride env_override("SHM_USE_FILE", "1");
+
+    acct_positions_mon_ctx_t mon_ctx = nullptr;
+    assert(acct_positions_mon_open(nullptr, &mon_ctx) == ACCT_POS_MON_ERR_SHM_FAILED);
+    assert(mon_ctx == nullptr);
+}
+
 int main() {
     printf("=== Position Monitor API Test Suite ===\n\n");
 
     RUN_TEST(strerror);
     RUN_TEST(open_info_read_close);
     RUN_TEST(read_not_found);
+    RUN_TEST(rejects_file_backend_env);
 
     printf("\n=== All tests passed! ===\n");
     return 0;

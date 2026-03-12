@@ -1,13 +1,7 @@
 #include "api/order_monitor_api.h"
 
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <unistd.h>
-
 #include <atomic>
 #include <cctype>
-#include <cerrno>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -16,6 +10,7 @@
 #include <string_view>
 
 #include "common/constants.hpp"
+#include "shm/basecore_shm_bridge.hpp"
 #include "shm/shm_layout.hpp"
 
 namespace {
@@ -184,7 +179,7 @@ bool validate_header(const acct_service::orders_shm_layout* shm, std::string_vie
 struct acct_orders_monitor_context {
     acct_orders_monitor_context() = default;
 
-    int fd = -1;
+    shm::ShmGenericReader reader{};
     const acct_service::orders_shm_layout* orders_shm = nullptr;
 
     std::string orders_base_name;
@@ -192,16 +187,6 @@ struct acct_orders_monitor_context {
     std::string orders_dated_name;
 
     bool initialized = false;
-
-    ~acct_orders_monitor_context() noexcept {
-        if (orders_shm) {
-            (void)munmap(const_cast<acct_service::orders_shm_layout*>(orders_shm),
-                         sizeof(acct_service::orders_shm_layout));
-        }
-        if (fd >= 0) {
-            (void)::close(fd);
-        }
-    }
 
     acct_orders_monitor_context(const acct_orders_monitor_context&) = delete;
     acct_orders_monitor_context& operator=(const acct_orders_monitor_context&) = delete;
@@ -227,27 +212,17 @@ ACCT_MON_API acct_mon_error_t acct_orders_mon_open(const acct_orders_mon_options
         return ACCT_MON_ERR_INTERNAL;
     }
 
+    if (acct_service::basecore_shm_bridge::is_file_backend_requested()) {
+        return ACCT_MON_ERR_SHM_FAILED;
+    }
+
     ctx->orders_dated_name = make_orders_shm_name(base_name, trading_day);
-    ctx->fd = shm_open(ctx->orders_dated_name.c_str(), O_RDONLY | O_CLOEXEC, 0644);
-    if (ctx->fd < 0) {
+    if (!acct_service::basecore_shm_bridge::open_reader(
+            ctx->reader, ctx->orders_dated_name, sizeof(acct_service::orders_shm_layout))) {
         return ACCT_MON_ERR_SHM_FAILED;
     }
 
-    struct stat st{};
-    if (fstat(ctx->fd, &st) < 0) {
-        return ACCT_MON_ERR_SHM_FAILED;
-    }
-
-    if (static_cast<std::size_t>(st.st_size) != sizeof(acct_service::orders_shm_layout)) {
-        return ACCT_MON_ERR_SHM_FAILED;
-    }
-
-    void* ptr = mmap(nullptr, sizeof(acct_service::orders_shm_layout), PROT_READ, MAP_SHARED, ctx->fd, 0);
-    if (ptr == MAP_FAILED) {
-        return ACCT_MON_ERR_SHM_FAILED;
-    }
-
-    ctx->orders_shm = static_cast<const acct_service::orders_shm_layout*>(ptr);
+    ctx->orders_shm = static_cast<const acct_service::orders_shm_layout*>(ctx->reader.data());
     if (!validate_header(ctx->orders_shm, trading_day)) {
         return ACCT_MON_ERR_SHM_FAILED;
     }
