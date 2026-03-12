@@ -16,6 +16,7 @@ MONITOR_CONSOLE="${MONITOR_CONSOLE:-1}"
 TRADING_DAY="${TRADING_DAY:-19700101}"
 ORDERS_SHM_BASE="${ORDERS_SHM_BASE:-/orders_shm}"
 POSITIONS_SHM="${POSITIONS_SHM:-/positions_shm}"
+OBSERVER_TIMEOUT_MS="${OBSERVER_TIMEOUT_MS:-0}"
 ORDERS_DATED_SHM="${ORDERS_SHM_BASE}_${TRADING_DAY}"
 ORDERS_SHM_PATH="/dev/shm/${ORDERS_DATED_SHM#/}"
 POSITIONS_SHM_PATH="/dev/shm/${POSITIONS_SHM#/}"
@@ -27,6 +28,7 @@ OBSERVER_BIN="${BUILD_DIR}/tools/full_chain_e2e/full_chain_observer"
 SERVICE_CFG="${SERVICE_CFG:-${SOURCE_DIR}/config/default.yaml}"
 GATEWAY_CFG="${GATEWAY_CFG:-${SOURCE_DIR}/config/gateway.yaml}"
 OBSERVER_CFG="${OBSERVER_CFG:-${SOURCE_DIR}/config/observer.yaml}"
+OBSERVER_RUNTIME_CFG="${RUN_DIR}/observer.runtime.yaml"
 
 SERVICE_LOG="${RUN_DIR}/account_service.stdout.log"
 GATEWAY_LOG="${RUN_DIR}/gateway.stdout.log"
@@ -61,6 +63,31 @@ start_console_log_follow() {
   touch "${file}"
   tail -n 0 -F "${file}" | sed -u "s/^/[${prefix}] /" &
   printf -v "${out_pid_var}" '%s' "$!"
+}
+
+# 使用运行时配置覆盖 observer 超时，避免 start_only 场景被默认 30 秒自动终止。
+write_observer_runtime_config() {
+  local source_cfg="$1"
+  local target_cfg="$2"
+  local timeout_ms="$3"
+  awk -v timeout_ms="${timeout_ms}" '
+    BEGIN {
+      replaced = 0
+    }
+    /^[[:space:]]*timeout_ms[[:space:]]*:/ {
+      print "timeout_ms: " timeout_ms
+      replaced = 1
+      next
+    }
+    {
+      print
+    }
+    END {
+      if (!replaced) {
+        print "timeout_ms: " timeout_ms
+      }
+    }
+  ' "${source_cfg}" > "${target_cfg}"
 }
 
 # 统一回收后台进程与日志 tail 进程。
@@ -127,13 +154,20 @@ if [[ "${MONITOR_CONSOLE}" -eq 1 ]]; then
   start_console_log_follow "gateway" "${GATEWAY_LOG}" GATEWAY_TAIL_PID
 fi
 
+if ! [[ "${OBSERVER_TIMEOUT_MS}" =~ ^[0-9]+$ ]]; then
+  echo "[start_only] invalid OBSERVER_TIMEOUT_MS: ${OBSERVER_TIMEOUT_MS}" >&2
+  exit 1
+fi
+
 wait_for_path "${ORDERS_SHM_PATH}" 10 || { echo "[start_only] orders shm not ready: ${ORDERS_SHM_PATH}" >&2; exit 1; }
 wait_for_path "${POSITIONS_SHM_PATH}" 10 || { echo "[start_only] positions shm not ready: ${POSITIONS_SHM_PATH}" >&2; exit 1; }
 sleep 0.3
 
+write_observer_runtime_config "${OBSERVER_CFG}" "${OBSERVER_RUNTIME_CFG}" "${OBSERVER_TIMEOUT_MS}"
+
 (
   cd "${RUN_DIR}"
-  exec "${OBSERVER_BIN}" --config "${OBSERVER_CFG}" >"${OBSERVER_LOG}" 2>&1
+  exec "${OBSERVER_BIN}" --config "${OBSERVER_RUNTIME_CFG}" >"${OBSERVER_LOG}" 2>&1
 ) &
 OBSERVER_PID="$!"
 
@@ -143,6 +177,7 @@ fi
 
 echo "[start_only] started." >&2
 echo "[start_only] run_dir=${RUN_DIR}" >&2
+echo "[start_only] observer_timeout_ms=${OBSERVER_TIMEOUT_MS} observer_cfg=${OBSERVER_RUNTIME_CFG}" >&2
 echo "[start_only] service_pid=${SERVICE_PID} gateway_pid=${GATEWAY_PID} observer_pid=${OBSERVER_PID}" >&2
 echo "[start_only] press Ctrl+C to stop all processes." >&2
 

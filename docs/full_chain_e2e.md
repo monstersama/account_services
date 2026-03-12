@@ -93,12 +93,13 @@ ctest -R test_full_chain_e2e --output-on-failure --test-dir build
 头部：
 
 ```text
-observed_time_ns,index,seq,internal_order_id,security_id,internal_security_id,stage,status,volume_entrust,volume_traded,volume_remain
+last_update_time,last_update_ns,index,seq,internal_order_id,security_id,internal_security_id,stage,status,volume_entrust,volume_traded,volume_remain,...
 ```
 
 关键字段：
 
 - `internal_order_id`：用于关联 `order_id.txt`
+- `last_update_time`：本地时区的人类可读时间，便于肉眼排查
 - `stage`：订单槽位阶段
 - `status`：订单状态码
 - `volume_traded` / `volume_remain`：判断是否完成成交
@@ -108,7 +109,7 @@ observed_time_ns,index,seq,internal_order_id,security_id,internal_security_id,st
 头部：
 
 ```text
-observed_time_ns,event_kind,row_key,header_position_count,header_last_update_ns,fund_total_asset,fund_available,fund_frozen,fund_market_value,position_index,position_id,position_name,position_available,position_volume_available_t0,position_volume_available_t1,position_volume_buy_traded,position_volume_sell_traded,position_removed
+last_update_time,last_update_ns,event_kind,row_key,header_position_count,header_last_update_time,header_last_update_ns,fund_total_asset,fund_available,fund_frozen,fund_market_value,position_index,position_id,position_name,position_available,...
 ```
 
 `event_kind` 取值：
@@ -123,6 +124,7 @@ observed_time_ns,event_kind,row_key,header_position_count,header_last_update_ns,
 - `event_kind="position"` 重点关注 `position_id`、`position_volume_buy_traded`、`position_volume_sell_traded`
 - `event_kind="fund"` 重点关注 `fund_available`、`fund_frozen`、`fund_market_value`
 - `event_kind="header"` 重点关注 `header_position_count`
+- `*_time` 列为本地时区可读时间；对应的 `*_ns` 列保留原始纳秒值
 
 ## 6. 常见排查
 

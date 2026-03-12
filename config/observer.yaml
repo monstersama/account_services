@@ -3,4 +3,4 @@ trading_day: "19700101"
 positions_shm_name: "/positions_shm"
 output_dir: "./output"
 poll_interval_ms: 200
-timeout_ms: 30000
+timeout_ms: 0

@@ -5,6 +5,8 @@
 #include <fstream>
 #include <system_error>
 
+#include "full_chain_observer_time.hpp"
+
 namespace acct_service {
 namespace {
 
@@ -34,6 +36,13 @@ std::string csv_escape(const std::string& value) {
     }
     output.push_back('"');
     return output;
+}
+
+// 向当前行追加固定数量的空 CSV 字段，保证不同事件类型列宽一致。
+void write_empty_csv_fields(std::ostream& stream, std::size_t count) {
+    for (std::size_t index = 0; index < count; ++index) {
+        stream << ",\"\"";
+    }
 }
 
 // 将 trade_side 数值映射为可读字符串，便于最终 CSV 直接定位买卖方向。
@@ -159,12 +168,13 @@ void full_chain_observer_csv_sink::flush() {
     {
         std::ofstream orders_stream(orders_csv_path_, std::ios::out | std::ios::trunc);
         if (orders_stream.is_open()) {
-            orders_stream << "observed_time_ns,index,seq,internal_order_id,security_id,internal_security_id,stage,status,"
-                             "volume_entrust,volume_traded,volume_remain,side,dprice_entrust,dprice_traded,"
+            orders_stream << "last_update_time,last_update_ns,index,seq,internal_order_id,security_id,internal_security_id,"
+                             "stage,status,volume_entrust,volume_traded,volume_remain,side,dprice_entrust,dprice_traded,"
                              "price_entrust,price_traded\n";
             for (const auto& [order_id, snapshot] : orders_snapshot_) {
                 (void)order_id;
-                orders_stream << snapshot.last_update_ns << ',' << snapshot.index << ',' << snapshot.seq << ','
+                orders_stream << csv_escape(observer_time::format_unix_time_ns(snapshot.last_update_ns)) << ','
+                              << snapshot.last_update_ns << ',' << snapshot.index << ',' << snapshot.seq << ','
                               << snapshot.internal_order_id << ','
                               << csv_escape(make_fixed_string(snapshot.security_id, sizeof(snapshot.security_id))) << ','
                               << csv_escape(make_fixed_string(snapshot.internal_security_id, sizeof(snapshot.internal_security_id)))
@@ -183,8 +193,8 @@ void full_chain_observer_csv_sink::flush() {
         if (!positions_stream.is_open()) {
             return;
         }
-        positions_stream << "observed_time_ns,event_kind,row_key,"
-                            "header_position_count,header_last_update_ns,"
+        positions_stream << "last_update_time,last_update_ns,event_kind,row_key,"
+                            "header_position_count,header_last_update_time,header_last_update_ns,"
                             "fund_total_asset,fund_available,fund_frozen,fund_market_value,"
                             "position_index,position_id,position_name,position_available,"
                             "position_volume_available_t0,position_volume_available_t1,"
@@ -192,33 +202,42 @@ void full_chain_observer_csv_sink::flush() {
                             "position_removed\n";
 
         if (has_info_snapshot_) {
-            positions_stream << info_snapshot_.last_update_ns << ','
+            positions_stream << csv_escape(observer_time::format_unix_time_ns(info_snapshot_.last_update_ns)) << ','
+                             << info_snapshot_.last_update_ns << ','
                              << csv_escape("header") << ','
                              << csv_escape("positions_shm") << ','
-                             << info_snapshot_.position_count << ',' << info_snapshot_.last_update_ns << ','
-                             << ",,,,"
-                             << ",,,,,,,,"
+                             << info_snapshot_.position_count << ','
+                             << csv_escape(observer_time::format_unix_time_ns(info_snapshot_.last_update_ns)) << ','
+                             << info_snapshot_.last_update_ns;
+            write_empty_csv_fields(positions_stream, 4);
+            write_empty_csv_fields(positions_stream, 8);
+            positions_stream << ','
                              << '0' << '\n';
         }
 
         if (has_fund_snapshot_) {
-            positions_stream << fund_snapshot_.last_update_ns << ','
+            positions_stream << csv_escape(observer_time::format_unix_time_ns(fund_snapshot_.last_update_ns)) << ','
+                             << fund_snapshot_.last_update_ns << ','
                              << csv_escape("fund") << ','
-                             << csv_escape(make_fixed_string(fund_snapshot_.id, sizeof(fund_snapshot_.id))) << ','
-                             << ",,"
+                             << csv_escape(make_fixed_string(fund_snapshot_.id, sizeof(fund_snapshot_.id)));
+            write_empty_csv_fields(positions_stream, 3);
+            positions_stream << ','
                              << fund_snapshot_.total_asset << ','
                              << fund_snapshot_.available << ','
                              << fund_snapshot_.frozen << ','
-                             << fund_snapshot_.market_value << ','
-                             << ",,,,,,,,"
+                             << fund_snapshot_.market_value;
+            write_empty_csv_fields(positions_stream, 8);
+            positions_stream << ','
                              << '0' << '\n';
         }
 
         for (const auto& [row_key, snapshot] : positions_snapshot_) {
-            positions_stream << snapshot.last_update_ns << ','
+            positions_stream << csv_escape(observer_time::format_unix_time_ns(snapshot.last_update_ns)) << ','
+                             << snapshot.last_update_ns << ','
                              << csv_escape("position") << ','
-                             << csv_escape(row_key) << ','
-                             << ",,,,,,"
+                             << csv_escape(row_key);
+            write_empty_csv_fields(positions_stream, 7);
+            positions_stream << ','
                              << snapshot.index << ','
                              << csv_escape(make_fixed_string(snapshot.id, sizeof(snapshot.id))) << ','
                              << csv_escape(make_fixed_string(snapshot.name, sizeof(snapshot.name))) << ','

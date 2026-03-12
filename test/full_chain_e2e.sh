@@ -317,9 +317,20 @@ while (( SECONDS < DEADLINE )); do
         }
         next
       }
-      NR>1 {
-        if (($4 in want) && ($7+0)>=4) {
-          seen[$4]=1
+      FNR==1 {
+        for (i=1; i<=NF; ++i) {
+          orders_col[$i]=i
+        }
+        if (!("internal_order_id" in orders_col) || !("stage" in orders_col)) {
+          exit 2
+        }
+        next
+      }
+      {
+        order_id=$(orders_col["internal_order_id"])
+        order_stage=$(orders_col["stage"])
+        if ((order_id in want) && (order_stage+0)>=4) {
+          seen[order_id]=1
         }
       }
       END {
@@ -339,23 +350,47 @@ while (( SECONDS < DEADLINE )); do
         }
         next
       }
+      FILENAME==ARGV[2] && FNR==1 {
+        for (i=1; i<=NF; ++i) {
+          orders_col[$i]=i
+        }
+        if (!("internal_order_id" in orders_col) ||
+            !("volume_traded" in orders_col) ||
+            !("internal_security_id" in orders_col)) {
+          exit 2
+        }
+        next
+      }
       FILENAME==ARGV[2] {
-        if (FNR>1 && ($4 in want_order) && (($10+0)>0)) {
-          key=$6
+        order_id=$(orders_col["internal_order_id"])
+        volume_traded=$(orders_col["volume_traded"])
+        if ((order_id in want_order) && ((volume_traded+0)>0)) {
+          key=$(orders_col["internal_security_id"])
           gsub(/"/, "", key)
           want_position[key]=1
         }
         next
       }
-      FILENAME==ARGV[3] {
-        if (FNR<=1) {
-          next
+      FILENAME==ARGV[3] && FNR==1 {
+        for (i=1; i<=NF; ++i) {
+          positions_col[$i]=i
         }
-        kind=$2
-        key=$3
+        if (!("event_kind" in positions_col) ||
+            !("row_key" in positions_col) ||
+            !("position_volume_buy_traded" in positions_col) ||
+            !("position_volume_sell_traded" in positions_col)) {
+          exit 2
+        }
+        next
+      }
+      FILENAME==ARGV[3] {
+        kind=$(positions_col["event_kind"])
+        key=$(positions_col["row_key"])
         gsub(/"/, "", kind)
         gsub(/"/, "", key)
-        if (kind=="position" && (key in want_position) && (($16+0)>0 || ($17+0)>0)) {
+        buy_traded=$(positions_col["position_volume_buy_traded"])
+        sell_traded=$(positions_col["position_volume_sell_traded"])
+        if (kind=="position" && (key in want_position) && ((buy_traded+0)>0 || (sell_traded+0)>0)) {
           seen[key]=1
         }
         next

@@ -8,6 +8,7 @@
 #include "full_chain_observer_csv_sink.hpp"
 #include "full_chain_observer_order_watch.hpp"
 #include "full_chain_observer_position_watch.hpp"
+#include "full_chain_observer_time.hpp"
 
 namespace acct_service {
 namespace {
@@ -15,9 +16,10 @@ namespace {
 // 输出订单事件到终端，便于运行中实时观察。
 void print_order_event(const full_chain_observer_order_event& event) {
     const acct_orders_mon_snapshot_t& snapshot = event.snapshot;
+    const std::string observed_time = observer_time::format_unix_time_ns(event.observed_time_ns);
     std::printf(
-        "[order] t=%llu idx=%u seq=%llu order_id=%u stage=%u status=%u entrust=%llu traded=%llu remain=%llu\n",
-        static_cast<unsigned long long>(event.observed_time_ns),
+        "[order] t=%s idx=%u seq=%llu order_id=%u stage=%u status=%u entrust=%llu traded=%llu remain=%llu\n",
+        observed_time.c_str(),
         snapshot.index,
         static_cast<unsigned long long>(snapshot.seq),
         snapshot.internal_order_id,
@@ -30,19 +32,20 @@ void print_order_event(const full_chain_observer_order_event& event) {
 
 // 输出持仓事件到终端，保持 orders/positions 输出格式一致。
 void print_position_event(const full_chain_observer_position_event& event) {
+    const std::string observed_time = observer_time::format_unix_time_ns(event.observed_time_ns);
     switch (event.kind) {
         case full_chain_observer_position_event_kind::Header:
             std::printf(
-                "[position] t=%llu type=header key=%s position_count=%u last_update_ns=%llu\n",
-                static_cast<unsigned long long>(event.observed_time_ns),
+                "[position] t=%s type=header key=%s position_count=%u last_update_ns=%llu\n",
+                observed_time.c_str(),
                 event.row_key.c_str(),
                 event.info.position_count,
                 static_cast<unsigned long long>(event.info.last_update_ns));
             return;
         case full_chain_observer_position_event_kind::Fund:
             std::printf(
-                "[position] t=%llu type=fund key=%s available=%llu frozen=%llu market_value=%llu\n",
-                static_cast<unsigned long long>(event.observed_time_ns),
+                "[position] t=%s type=fund key=%s available=%llu frozen=%llu market_value=%llu\n",
+                observed_time.c_str(),
                 event.row_key.c_str(),
                 static_cast<unsigned long long>(event.fund.available),
                 static_cast<unsigned long long>(event.fund.frozen),
@@ -50,8 +53,8 @@ void print_position_event(const full_chain_observer_position_event& event) {
             return;
         case full_chain_observer_position_event_kind::Position:
             std::printf(
-                "[position] t=%llu type=position key=%s idx=%u buy_traded=%llu sell_traded=%llu\n",
-                static_cast<unsigned long long>(event.observed_time_ns),
+                "[position] t=%s type=position key=%s idx=%u buy_traded=%llu sell_traded=%llu\n",
+                observed_time.c_str(),
                 event.row_key.c_str(),
                 event.position.index,
                 static_cast<unsigned long long>(event.position.volume_buy_traded),
@@ -59,15 +62,15 @@ void print_position_event(const full_chain_observer_position_event& event) {
             return;
         case full_chain_observer_position_event_kind::PositionRemoved:
             std::printf(
-                "[position] t=%llu type=position_removed key=%s idx=%u\n",
-                static_cast<unsigned long long>(event.observed_time_ns),
+                "[position] t=%s type=position_removed key=%s idx=%u\n",
+                observed_time.c_str(),
                 event.row_key.c_str(),
                 event.position.index);
             return;
         default:
             std::printf(
-                "[position] t=%llu type=unknown key=%s\n",
-                static_cast<unsigned long long>(event.observed_time_ns),
+                "[position] t=%s type=unknown key=%s\n",
+                observed_time.c_str(),
                 event.row_key.c_str());
             return;
     }
