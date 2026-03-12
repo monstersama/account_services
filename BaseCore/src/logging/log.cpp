@@ -217,7 +217,7 @@ static void format_timestamp_ns(uint64_t ns, char* buf, std::size_t buf_size) {
     const time_t sec = static_cast<time_t>(ns / 1'000'000'000ULL);
     const uint32_t nsec = static_cast<uint32_t>(ns % 1'000'000'000ULL);
     struct tm tm;
-    gmtime_r(&sec, &tm);
+    localtime_r(&sec, &tm);
     std::snprintf(buf, buf_size, "%04d-%02d-%02d %02d:%02d:%02d.%09u",
         tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
         tm.tm_hour, tm.tm_min, tm.tm_sec, nsec);
