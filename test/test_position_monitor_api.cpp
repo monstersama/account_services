@@ -1,7 +1,7 @@
 #include <cassert>
 #include <chrono>
-#include <cstdlib>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -10,11 +10,11 @@
 #include "shm/shm_manager.hpp"
 
 #define TEST(name) static void test_##name()
-#define RUN_TEST(name)                   \
-    do {                                 \
-        printf("Running %s... ", #name); \
-        test_##name();                   \
-        printf("PASSED\n");              \
+#define RUN_TEST(name)                                                                                                 \
+    do {                                                                                                               \
+        printf("Running %s... ", #name);                                                                               \
+        test_##name();                                                                                                 \
+        printf("PASSED\n");                                                                                            \
     } while (0)
 
 namespace {
@@ -22,7 +22,7 @@ namespace {
 using namespace acct_service;
 
 class ScopedEnvOverride {
-public:
+  public:
     ScopedEnvOverride(const char* key, const char* value) : key_(key) {
         const char* existing = std::getenv(key);
         if (existing != nullptr) {
@@ -40,7 +40,7 @@ public:
         }
     }
 
-private:
+  private:
     std::string key_;
     std::string old_value_;
     bool had_old_value_ = false;
@@ -48,9 +48,9 @@ private:
 
 // 生成唯一 SHM 名称，避免并发测试冲突。
 std::string unique_shm_name(const char* prefix) {
-    const auto now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                            std::chrono::steady_clock::now().time_since_epoch())
-                            .count();
+    const auto now_ns =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch())
+            .count();
     return std::string("/") + prefix + "_" + std::to_string(static_cast<unsigned long long>(now_ns));
 }
 
@@ -74,7 +74,7 @@ acct_pos_mon_error_t read_position_with_retry(
     return rc;
 }
 
-}  // namespace
+} // namespace
 
 TEST(strerror) {
     // 校验关键错误码字符串，保证对外诊断可读。
@@ -92,7 +92,7 @@ TEST(open_info_read_close) {
     PositionManager positions(positions_shm);
     assert(positions.initialize(1001));
     const InternalSecurityId sec_id = positions.add_security("000001", "PingAn", Market::SZ);
-    assert(sec_id == std::string_view("SZ.000001"));
+    assert(sec_id == std::string_view("XSHE_000001"));
     assert(positions.add_position(sec_id, 300, 1000, 5001));
 
     // 打开监控并读取头部信息。
@@ -119,7 +119,7 @@ TEST(open_info_read_close) {
     assert(read_position_with_retry(mon_ctx, 0, &snapshot) == ACCT_POS_MON_OK);
     assert(snapshot.index == 0);
     assert(snapshot.row_index == 1);
-    assert(std::strncmp(snapshot.id, "SZ.000001", 9) == 0);
+    assert(std::strncmp(snapshot.id, "XSHE_000001", 11) == 0);
     assert(snapshot.volume_buy_traded >= 300);
     assert(snapshot.volume_available_t1 >= 300);
 

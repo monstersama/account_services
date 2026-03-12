@@ -77,7 +77,7 @@
 - 新增公共头文件：`include/api/position_monitor_api.h`。
 - 新增共享库：`libacct_position_monitor.so`。
 - `order_monitor_api` 保持兼容，不改现有 ABI。
-- 内部行为变化：`event_loop` 在新单入口通过 `build_internal_security_id` 构造 `<MARKET>.<security_id>` 并补齐 `internal_security_id`（不改外部 API 签名，不引入新 ABI）。
+- 内部行为变化：`event_loop` 在新单入口通过 `build_internal_security_id` 构造 `<MIC>_<security_id>` 并补齐 `internal_security_id`（不改外部 API 签名，不引入新 ABI）。
 
 ## 自动化测试与验收
 

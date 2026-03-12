@@ -62,6 +62,14 @@ uint32_t next_security_id(std::size_t security_count) {
     return static_cast<uint32_t>(security_count + kFirstSecurityPositionIndex);
 }
 
+// 将任意支持的内部证券键归一化为 canonical MIC 格式，供 map 查找统一使用。
+bool normalize_security_key(std::string_view security_key, InternalSecurityId& out_key) {
+    if (security_key.empty()) {
+        return false;
+    }
+    return normalize_internal_security_id(security_key, out_key);
+}
+
 position* fund_position(positions_shm_layout* shm) {
     if (!shm) {
         return nullptr;
@@ -104,15 +112,17 @@ void set_default_fund(position& fund_pos) {
 
 }  // namespace
 
-PositionManager::PositionManager(
-    positions_shm_layout* shm, std::string config_file_path, std::string db_path, bool db_enabled)
-    : shm_(shm), config_file_path_(std::move(config_file_path)), db_path_(std::move(db_path)), db_enabled_(db_enabled) {}
+PositionManager::PositionManager(positions_shm_layout* shm, std::string config_file_path, std::string db_path,
+                                 bool db_enabled)
+    : shm_(shm),
+      config_file_path_(std::move(config_file_path)),
+      db_path_(std::move(db_path)),
+      db_enabled_(db_enabled) {}
 
 bool PositionManager::initialize(AccountId account_id) {
-
     if (!shm_) {
-        ErrorStatus status = ACCT_MAKE_ERROR(
-            ErrorDomain::portfolio, ErrorCode::ComponentUnavailable, "PositionManager", "positions shm is null", 0);
+        ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::ComponentUnavailable, "PositionManager",
+                                             "positions shm is null", 0);
         record_error(status);
         ACCT_LOG_ERROR_STATUS(status);
         return false;
@@ -121,8 +131,8 @@ bool PositionManager::initialize(AccountId account_id) {
     security_to_row_.clear();
 
     if (!header_compatible(shm_->header)) {
-        ErrorStatus status = ACCT_MAKE_ERROR(
-            ErrorDomain::portfolio, ErrorCode::ShmHeaderInvalid, "PositionManager", "positions shm header incompatible", 0);
+        ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::ShmHeaderInvalid, "PositionManager",
+                                             "positions shm header incompatible", 0);
         record_error(status);
         ACCT_LOG_ERROR_STATUS(status);
         return false;
@@ -131,8 +141,9 @@ bool PositionManager::initialize(AccountId account_id) {
     if (shm_->header.init_state != 1) {
         const std::size_t existing = shm_->position_count.load(std::memory_order_relaxed);
         if (existing != 0) {
-            ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::ShmHeaderCorrupted,
-                "PositionManager", "positions init_state is 0 while count is non-zero", 0);
+            ErrorStatus status =
+                ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::ShmHeaderCorrupted, "PositionManager",
+                                "positions init_state is 0 while count is non-zero", 0);
             record_error(status);
             ACCT_LOG_ERROR_STATUS(status);
             return false;
@@ -155,7 +166,7 @@ bool PositionManager::initialize(AccountId account_id) {
         position* fund_pos = fund_position(shm_);
         if (!fund_pos) {
             ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::ShmHeaderCorrupted,
-                "PositionManager", "fund position row is unavailable", 0);
+                                                 "PositionManager", "fund position row is unavailable", 0);
             record_error(status);
             ACCT_LOG_ERROR_STATUS(status);
             return false;
@@ -174,7 +185,7 @@ bool PositionManager::initialize(AccountId account_id) {
         }();
         if (!load_ok) {
             ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::PositionUpdateFailed,
-                "PositionManager", "position init loader failed on fresh shm", 0);
+                                                 "PositionManager", "position init loader failed on fresh shm", 0);
             record_error(status);
             ACCT_LOG_ERROR_STATUS(status);
             return false;
@@ -189,8 +200,8 @@ bool PositionManager::initialize(AccountId account_id) {
 
     position* fund_pos = fund_position(shm_);
     if (!fund_pos) {
-        ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::ShmHeaderCorrupted,
-            "PositionManager", "fund position row is unavailable in initialized shm", 0);
+        ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::ShmHeaderCorrupted, "PositionManager",
+                                             "fund position row is unavailable in initialized shm", 0);
         record_error(status);
         ACCT_LOG_ERROR_STATUS(status);
         return false;
@@ -206,12 +217,23 @@ bool PositionManager::initialize(AccountId account_id) {
 
     for (std::size_t row_index = kFirstSecurityPositionIndex; row_index <= count && row_index < kMaxPositions;
          ++row_index) {
-        const position& pos = shm_->positions[row_index];
+        position& pos = shm_->positions[row_index];
         if (pos.id.empty()) {
             continue;
         }
+
+        // 重启时把历史 SHM 中的旧格式证券键收敛成 canonical
+        // MIC，避免继续向外传播旧值。
         InternalSecurityId security_id;
-        security_id.assign(pos.id.view());
+        if (!normalize_security_key(pos.id.view(), security_id)) {
+            ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::InvalidParam, "PositionManager",
+                                                 "invalid internal_security_id found in initialized shm", 0);
+            record_error(status);
+            ACCT_LOG_ERROR_STATUS(status);
+            return false;
+        }
+
+        pos.id.assign(security_id.view());
         security_to_row_[security_id] = row_index;
     }
 
@@ -416,7 +438,12 @@ bool PositionManager::apply_sell_trade_fund(DValue amount, DValue fee, InternalO
 }
 
 const position* PositionManager::get_position(InternalSecurityId security_id) const {
-    const auto it = security_to_row_.find(security_id);
+    InternalSecurityId normalized_security_id;
+    if (!normalize_security_key(security_id.view(), normalized_security_id)) {
+        return nullptr;
+    }
+
+    const auto it = security_to_row_.find(normalized_security_id);
     if (it == security_to_row_.end()) {
         return nullptr;
     }
@@ -424,7 +451,12 @@ const position* PositionManager::get_position(InternalSecurityId security_id) co
 }
 
 position* PositionManager::get_position_mut(InternalSecurityId security_id) {
-    const auto it = security_to_row_.find(security_id);
+    InternalSecurityId normalized_security_id;
+    if (!normalize_security_key(security_id.view(), normalized_security_id)) {
+        return nullptr;
+    }
+
+    const auto it = security_to_row_.find(normalized_security_id);
     if (it == security_to_row_.end()) {
         return nullptr;
     }
@@ -442,8 +474,7 @@ Volume PositionManager::get_sellable_volume(InternalSecurityId security_id) cons
     return mutable_pos.volume_available_t0;
 }
 
-bool PositionManager::freeze_position(InternalSecurityId security_id, Volume volume,
-    InternalOrderId order_id) {
+bool PositionManager::freeze_position(InternalSecurityId security_id, Volume volume, InternalOrderId order_id) {
     (void)order_id;
     position* pos = get_position_mut(security_id);
     if (!pos) {
@@ -462,8 +493,7 @@ bool PositionManager::freeze_position(InternalSecurityId security_id, Volume vol
     return true;
 }
 
-bool PositionManager::unfreeze_position(InternalSecurityId security_id, Volume volume,
-    InternalOrderId order_id) {
+bool PositionManager::unfreeze_position(InternalSecurityId security_id, Volume volume, InternalOrderId order_id) {
     (void)order_id;
     position* pos = get_position_mut(security_id);
     if (!pos) {
@@ -481,7 +511,7 @@ bool PositionManager::unfreeze_position(InternalSecurityId security_id, Volume v
 }
 
 bool PositionManager::deduct_position(InternalSecurityId security_id, Volume volume, DValue value,
-    InternalOrderId order_id) {
+                                      InternalOrderId order_id) {
     (void)order_id;
     position* pos = get_position_mut(security_id);
     if (!pos) {
@@ -513,7 +543,7 @@ bool PositionManager::deduct_position(InternalSecurityId security_id, Volume vol
 }
 
 bool PositionManager::add_position(InternalSecurityId security_id, Volume volume, DPrice price,
-    InternalOrderId order_id) {
+                                   InternalOrderId order_id) {
     (void)order_id;
     position* pos = get_position_mut(security_id);
     if (!pos) {
@@ -590,8 +620,12 @@ std::optional<InternalSecurityId> PositionManager::find_security_id(std::string_
     if (code.empty()) {
         return std::nullopt;
     }
+
     InternalSecurityId security_id;
-    security_id.assign(code);
+    if (!normalize_security_key(code, security_id)) {
+        return std::nullopt;
+    }
+
     auto it = security_to_row_.find(security_id);
     if (it == security_to_row_.end()) {
         return std::nullopt;

@@ -24,13 +24,13 @@ extern "C" {
 
 // ============ 错误码 ============
 typedef enum {
-    ACCT_POS_MON_OK = 0,                   // 成功
-    ACCT_POS_MON_ERR_NOT_INITIALIZED = -1, // 上下文未初始化或已关闭
-    ACCT_POS_MON_ERR_INVALID_PARAM = -2,   // 参数非法（空指针/格式错误）
-    ACCT_POS_MON_ERR_SHM_FAILED = -3,      // 共享内存打开/映射/校验失败
-    ACCT_POS_MON_ERR_NOT_FOUND = -4,       // 目标索引不可见
-    ACCT_POS_MON_ERR_RETRY = -5,           // 与写进程并发冲突，建议短暂退避后重试
-    ACCT_POS_MON_ERR_INTERNAL = -99,       // 内部错误
+    ACCT_POS_MON_OK = 0,                    // 成功
+    ACCT_POS_MON_ERR_NOT_INITIALIZED = -1,  // 上下文未初始化或已关闭
+    ACCT_POS_MON_ERR_INVALID_PARAM = -2,    // 参数非法（空指针/格式错误）
+    ACCT_POS_MON_ERR_SHM_FAILED = -3,       // 共享内存打开/映射/校验失败
+    ACCT_POS_MON_ERR_NOT_FOUND = -4,        // 目标索引不可见
+    ACCT_POS_MON_ERR_RETRY = -5,            // 与写进程并发冲突，建议短暂退避后重试
+    ACCT_POS_MON_ERR_INTERNAL = -99,        // 内部错误
 } acct_pos_mon_error_t;
 
 // 监控上下文句柄（不透明指针）
@@ -58,7 +58,7 @@ typedef struct acct_positions_mon_info {
 
 // ============ 资金行快照 ============
 typedef struct acct_positions_mon_fund_snapshot {
-    uint64_t last_update_ns; // 对应持仓池头部最近更新时间
+    uint64_t last_update_ns;  // 对应持仓池头部最近更新时间
 
     char id[ACCT_POS_MON_POSITION_ID_LEN];      // 资金行标识（默认 "FUND"）
     char name[ACCT_POS_MON_POSITION_NAME_LEN];  // 资金行名称
@@ -76,7 +76,7 @@ typedef struct acct_positions_mon_position_snapshot {
     uint32_t row_index;  // 共享内存物理行索引（index + 1）
     uint64_t last_update_ns;
 
-    char id[ACCT_POS_MON_POSITION_ID_LEN];      // 内部证券 ID（market.security_id）
+    char id[ACCT_POS_MON_POSITION_ID_LEN];      // 内部证券 ID（MIC_security_id）
     char name[ACCT_POS_MON_POSITION_NAME_LEN];  // 证券名称
 
     uint64_t available;
@@ -99,8 +99,8 @@ typedef struct acct_positions_mon_position_snapshot {
  * @param out_ctx 输出上下文，成功后非空
  * @return 错误码
  */
-ACCT_POS_MON_API acct_pos_mon_error_t acct_positions_mon_open(
-    const acct_positions_mon_options_t* options, acct_positions_mon_ctx_t* out_ctx);
+ACCT_POS_MON_API acct_pos_mon_error_t acct_positions_mon_open(const acct_positions_mon_options_t* options,
+                                                              acct_positions_mon_ctx_t* out_ctx);
 
 /**
  * @brief 关闭监控上下文并释放资源
@@ -115,8 +115,8 @@ ACCT_POS_MON_API acct_pos_mon_error_t acct_positions_mon_close(acct_positions_mo
  * @param out_info 输出池头信息
  * @return 错误码
  */
-ACCT_POS_MON_API acct_pos_mon_error_t acct_positions_mon_info(
-    acct_positions_mon_ctx_t ctx, acct_positions_mon_info_t* out_info);
+ACCT_POS_MON_API acct_pos_mon_error_t acct_positions_mon_info(acct_positions_mon_ctx_t ctx,
+                                                              acct_positions_mon_info_t* out_info);
 
 /**
  * @brief 读取资金行快照
@@ -125,8 +125,8 @@ ACCT_POS_MON_API acct_pos_mon_error_t acct_positions_mon_info(
  * @return 错误码
  * @note 返回 ACCT_POS_MON_ERR_RETRY 表示并发读冲突，调用方应短暂退避后重试
  */
-ACCT_POS_MON_API acct_pos_mon_error_t acct_positions_mon_read_fund(
-    acct_positions_mon_ctx_t ctx, acct_positions_mon_fund_snapshot_t* out_snapshot);
+ACCT_POS_MON_API acct_pos_mon_error_t acct_positions_mon_read_fund(acct_positions_mon_ctx_t ctx,
+                                                                   acct_positions_mon_fund_snapshot_t* out_snapshot);
 
 /**
  * @brief 按证券逻辑索引读取证券行快照

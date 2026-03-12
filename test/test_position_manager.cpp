@@ -1,9 +1,9 @@
+#include "third_party/sqlite3/sqlite3_shim.hpp"
 #include <cassert>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <memory>
-#include "third_party/sqlite3/sqlite3_shim.hpp"
 #include <string>
 #include <string_view>
 
@@ -13,11 +13,11 @@
 #include "portfolio/position_manager.hpp"
 
 #define TEST(name) static void test_##name()
-#define RUN_TEST(name)                   \
-    do {                                 \
-        printf("Running %s... ", #name); \
-        test_##name();                   \
-        printf("PASSED\n");              \
+#define RUN_TEST(name)                                                                                                 \
+    do {                                                                                                               \
+        printf("Running %s... ", #name);                                                                               \
+        test_##name();                                                                                                 \
+        printf("PASSED\n");                                                                                            \
     } while (0)
 
 namespace {
@@ -93,8 +93,10 @@ bool write_seed_csv(const std::string& path, std::string_view row) {
     if (!out.is_open()) {
         return false;
     }
-    out << "record_type,internal_security_id,name,volume_available_t0,volume_available_t1,volume_buy,dvalue_buy,"
-           "volume_buy_traded,dvalue_buy_traded,volume_sell,dvalue_sell,volume_sell_traded,dvalue_sell_traded,count_order\n";
+    out << "record_type,internal_security_id,name,volume_available_t0,volume_"
+           "available_t1,volume_buy,dvalue_buy,"
+           "volume_buy_traded,dvalue_buy_traded,volume_sell,dvalue_sell,volume_"
+           "sell_traded,dvalue_sell_traded,count_order\n";
     out << row << '\n';
     return true;
 }
@@ -167,7 +169,7 @@ bool init_position_loader_schema(sqlite3* db) {
                ");");
 }
 
-}  // namespace
+} // namespace
 
 TEST(initialize_sets_fund_row) {
     using namespace acct_service;
@@ -200,19 +202,21 @@ TEST(add_security_uses_internal_key_and_excludes_fund_row) {
 
     const InternalSecurityId first = manager.add_security("000001", "PingAn", Market::SZ);
     const InternalSecurityId second = manager.add_security("600000", "PuFa", Market::SH);
-    assert(first == std::string_view("SZ.000001"));
-    assert(second == std::string_view("SH.600000"));
+    assert(first == std::string_view("XSHE_000001"));
+    assert(second == std::string_view("XSHG_600000"));
     assert(manager.position_count() == 2);
 
-    assert(shm->positions[1].id == std::string_view("SZ.000001"));
-    assert(shm->positions[2].id == std::string_view("SH.600000"));
-    assert(manager.find_security_id("SZ.000001").value_or(InternalSecurityId()) == std::string_view("SZ.000001"));
-    assert(manager.find_security_id("SH.600000").value_or(InternalSecurityId()) == std::string_view("SH.600000"));
+    assert(shm->positions[1].id == std::string_view("XSHE_000001"));
+    assert(shm->positions[2].id == std::string_view("XSHG_600000"));
+    assert(manager.find_security_id("XSHE_000001").value_or(InternalSecurityId()) == std::string_view("XSHE_000001"));
+    assert(manager.find_security_id("XSHG_600000").value_or(InternalSecurityId()) == std::string_view("XSHG_600000"));
+    assert(manager.find_security_id("SZ.000001").value_or(InternalSecurityId()) == std::string_view("XSHE_000001"));
+    assert(manager.find_security_id("SH.600000").value_or(InternalSecurityId()) == std::string_view("XSHG_600000"));
 
     const auto all_positions = manager.get_all_positions();
     assert(all_positions.size() == 2);
-    assert(all_positions[0]->id == std::string_view("SZ.000001"));
-    assert(all_positions[1]->id == std::string_view("SH.600000"));
+    assert(all_positions[0]->id == std::string_view("XSHE_000001"));
+    assert(all_positions[1]->id == std::string_view("XSHG_600000"));
 }
 
 TEST(fund_ops_write_into_fund_row) {
@@ -245,10 +249,10 @@ TEST(add_position_requires_registered_security) {
     PositionManager manager(shm.get());
     assert(manager.initialize(1));
 
-    assert(!manager.add_position(InternalSecurityId("SZ.000001"), 100, 123, 1));
+    assert(!manager.add_position(InternalSecurityId("XSHE_000001"), 100, 123, 1));
 
     const InternalSecurityId sec_id = manager.add_security("000001", "PingAn", Market::SZ);
-    assert(sec_id == std::string_view("SZ.000001"));
+    assert(sec_id == std::string_view("XSHE_000001"));
     assert(manager.add_position(sec_id, 100, 123, 2));
 
     const position* pos = manager.get_position(sec_id);
@@ -267,7 +271,7 @@ TEST(sellable_volume_uses_t0_only) {
     assert(manager.initialize(1));
 
     const InternalSecurityId sec_id = manager.add_security("000001", "PingAn", Market::SZ);
-    assert(sec_id == std::string_view("SZ.000001"));
+    assert(sec_id == std::string_view("XSHE_000001"));
 
     position* pos = manager.get_position_mut(sec_id);
     assert(pos != nullptr);
@@ -332,8 +336,12 @@ TEST(initialize_rebuilds_code_map_from_existing_rows) {
 
     assert(shm->positions[kFundPositionIndex].id == std::string_view(kFundPositionId));
     assert(manager.position_count() == 2);
-    assert(manager.find_security_id("SZ.000001").value_or(InternalSecurityId()) == std::string_view("SZ.000001"));
-    assert(manager.find_security_id("SH.600000").value_or(InternalSecurityId()) == std::string_view("SH.600000"));
+    assert(shm->positions[1].id == std::string_view("XSHE_000001"));
+    assert(shm->positions[2].id == std::string_view("XSHG_600000"));
+    assert(manager.find_security_id("SZ.000001").value_or(InternalSecurityId()) == std::string_view("XSHE_000001"));
+    assert(manager.find_security_id("SH.600000").value_or(InternalSecurityId()) == std::string_view("XSHG_600000"));
+    assert(manager.find_security_id("XSHE_000001").value_or(InternalSecurityId()) == std::string_view("XSHE_000001"));
+    assert(manager.find_security_id("XSHG_600000").value_or(InternalSecurityId()) == std::string_view("XSHG_600000"));
 }
 
 TEST(initialize_uses_loader_only_for_uninitialized_shm) {
@@ -347,6 +355,7 @@ TEST(initialize_uses_loader_only_for_uninitialized_shm) {
     PositionManager fresh_manager(fresh_shm.get(), seed_base_path, "", false);
     assert(fresh_manager.initialize(1));
     assert(fresh_manager.position_count() == 1);
+    assert(fresh_manager.get_sellable_volume(InternalSecurityId("XSHE_000001")) == 321);
     assert(fresh_manager.get_sellable_volume(InternalSecurityId("SZ.000001")) == 321);
 
     auto existing_shm = make_shm(1);
@@ -358,8 +367,10 @@ TEST(initialize_uses_loader_only_for_uninitialized_shm) {
     PositionManager existing_manager(existing_shm.get(), seed_base_path, "", false);
     assert(existing_manager.initialize(1));
     assert(existing_manager.position_count() == 1);
+    assert(existing_shm->positions[1].id == std::string_view("XSHE_000002"));
+    assert(existing_manager.get_sellable_volume(InternalSecurityId("XSHE_000002")) == 222);
     assert(existing_manager.get_sellable_volume(InternalSecurityId("SZ.000002")) == 222);
-    assert(existing_manager.get_position(InternalSecurityId("SZ.000001")) == nullptr);
+    assert(existing_manager.get_position(InternalSecurityId("XSHE_000001")) == nullptr);
 
     std::remove(seed_csv_path.c_str());
 }
@@ -387,22 +398,30 @@ TEST(initialize_loads_from_sqlite_when_db_enabled) {
     assert(open_sqlite_rw(db_path, db));
     assert(init_position_loader_schema(db.get()));
     assert(exec_sql(db.get(),
-        "INSERT INTO account_info(account_id,total_assets,available_cash,frozen_cash,position_value) "
+        "INSERT INTO "
+        "account_info(account_id,total_assets,available_cash,frozen_"
+        "cash,position_value) "
         "VALUES (1,200000000,150000000,10000000,40000000);"));
     assert(exec_sql(db.get(),
         "INSERT INTO positions("
-        "security_id,internal_security_id,volume_available_t0,volume_available_t1,volume_buy,dvalue_buy,"
-        "volume_buy_traded,dvalue_buy_traded,volume_sell,dvalue_sell,volume_sell_traded,dvalue_sell_traded,count_order"
+        "security_id,internal_security_id,volume_available_t0,volume_available_"
+        "t1,volume_buy,dvalue_buy,"
+        "volume_buy_traded,dvalue_buy_traded,volume_sell,dvalue_sell,volume_sell_"
+        "traded,dvalue_sell_traded,count_order"
         ") VALUES ('000001','SZ.000001',321,7,11,1100,9,900,2,200,1,100,3);"));
     assert(exec_sql(db.get(),
         "INSERT INTO positions("
-        "security_id,internal_security_id,volume_available_t0,volume_available_t1,volume_buy,dvalue_buy,"
-        "volume_buy_traded,dvalue_buy_traded,volume_sell,dvalue_sell,volume_sell_traded,dvalue_sell_traded,count_order"
+        "security_id,internal_security_id,volume_available_t0,volume_available_"
+        "t1,volume_buy,dvalue_buy,"
+        "volume_buy_traded,dvalue_buy_traded,volume_sell,dvalue_sell,volume_sell_"
+        "traded,dvalue_sell_traded,count_order"
         ") VALUES ('000001','SZ.000001',999,8,12,1200,10,1000,3,300,2,200,4);"));
     assert(exec_sql(db.get(),
         "INSERT INTO positions("
-        "security_id,internal_security_id,volume_available_t0,volume_available_t1,volume_buy,dvalue_buy,"
-        "volume_buy_traded,dvalue_buy_traded,volume_sell,dvalue_sell,volume_sell_traded,dvalue_sell_traded,count_order"
+        "security_id,internal_security_id,volume_available_t0,volume_available_"
+        "t1,volume_buy,dvalue_buy,"
+        "volume_buy_traded,dvalue_buy_traded,volume_sell,dvalue_sell,volume_sell_"
+        "traded,dvalue_sell_traded,count_order"
         ") VALUES ('600000','SH.600000',55,6,13,1300,11,1100,4,400,3,300,5);"));
     db.reset();
 
@@ -417,7 +436,7 @@ TEST(initialize_loads_from_sqlite_when_db_enabled) {
     assert(fund.frozen == 10000000);
     assert(fund.market_value == 40000000);
 
-    const position* sz_pos = manager.get_position(InternalSecurityId("SZ.000001"));
+    const position* sz_pos = manager.get_position(InternalSecurityId("XSHE_000001"));
     assert(sz_pos != nullptr);
     assert(sz_pos->volume_available_t0 == 999);
     assert(sz_pos->volume_available_t1 == 8);
@@ -425,7 +444,7 @@ TEST(initialize_loads_from_sqlite_when_db_enabled) {
     assert(sz_pos->dvalue_buy == 1200);
     assert(sz_pos->count_order == 4);
 
-    const position* sh_pos = manager.get_position(InternalSecurityId("SH.600000"));
+    const position* sh_pos = manager.get_position(InternalSecurityId("XSHG_600000"));
     assert(sh_pos != nullptr);
     assert(sh_pos->volume_available_t0 == 55);
     assert(sh_pos->volume_available_t1 == 6);
@@ -444,7 +463,9 @@ TEST(initialize_fails_when_account_row_missing_in_db) {
     assert(open_sqlite_rw(db_path, db));
     assert(init_position_loader_schema(db.get()));
     assert(exec_sql(db.get(),
-        "INSERT INTO account_info(account_id,total_assets,available_cash,frozen_cash,position_value) "
+        "INSERT INTO "
+        "account_info(account_id,total_assets,available_"
+        "cash,frozen_cash,position_value) "
         "VALUES (2,100,90,10,0);"));
     db.reset();
 
@@ -464,12 +485,16 @@ TEST(initialize_fails_when_internal_security_id_invalid_in_db) {
     assert(open_sqlite_rw(db_path, db));
     assert(init_position_loader_schema(db.get()));
     assert(exec_sql(db.get(),
-        "INSERT INTO account_info(account_id,total_assets,available_cash,frozen_cash,position_value) "
+        "INSERT INTO "
+        "account_info(account_id,total_assets,available_"
+        "cash,frozen_cash,position_value) "
         "VALUES (1,100,90,10,0);"));
     assert(exec_sql(db.get(),
         "INSERT INTO positions("
-        "security_id,internal_security_id,volume_available_t0,volume_available_t1,volume_buy,dvalue_buy,"
-        "volume_buy_traded,dvalue_buy_traded,volume_sell,dvalue_sell,volume_sell_traded,dvalue_sell_traded,count_order"
+        "security_id,internal_security_id,volume_available_t0,volume_"
+        "available_t1,volume_buy,dvalue_buy,"
+        "volume_buy_traded,dvalue_buy_traded,volume_sell,dvalue_sell,"
+        "volume_sell_traded,dvalue_sell_traded,count_order"
         ") VALUES ('000001','INVALID_ID',1,0,0,0,0,0,0,0,0,0,0);"));
     db.reset();
 

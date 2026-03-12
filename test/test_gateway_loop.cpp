@@ -1,7 +1,7 @@
 #include <cassert>
 #include <chrono>
-#include <cstring>
 #include <cstdio>
+#include <cstring>
 #include <functional>
 #include <memory>
 #include <thread>
@@ -9,17 +9,17 @@
 
 #include "gateway_config.hpp"
 #include "gateway_loop.hpp"
-#include "sim_broker_adapter.hpp"
 #include "order/order_request.hpp"
 #include "shm/orders_shm.hpp"
 #include "shm/shm_layout.hpp"
+#include "sim_broker_adapter.hpp"
 
 #define TEST(name) static void test_##name()
-#define RUN_TEST(name)                   \
-    do {                                 \
-        printf("Running %s... ", #name); \
-        test_##name();                   \
-        printf("PASSED\n");              \
+#define RUN_TEST(name)                                                                                                 \
+    do {                                                                                                               \
+        printf("Running %s... ", #name);                                                                               \
+        test_##name();                                                                                                 \
+        printf("PASSED\n");                                                                                            \
     } while (0)
 
 namespace {
@@ -119,7 +119,7 @@ gateway::gateway_config make_config() {
     return config;
 }
 
-}  // namespace
+} // namespace
 
 // 验证新单在 gateway 中可完成“受理->成交->完成”闭环。
 TEST(process_new_order_end_to_end) {
@@ -137,13 +137,23 @@ TEST(process_new_order_end_to_end) {
     std::thread worker([&loop]() { (void)loop.run(); });
 
     OrderRequest request;
-    request.init_new("000001", InternalSecurityId("SZ.000001"), static_cast<InternalOrderId>(9001),
-        TradeSide::Buy, Market::SZ, static_cast<Volume>(100), static_cast<DPrice>(1000), 93000000);
+    request.init_new("000001",
+        InternalSecurityId("XSHE_000001"),
+        static_cast<InternalOrderId>(9001),
+        TradeSide::Buy,
+        Market::SZ,
+        static_cast<Volume>(100),
+        static_cast<DPrice>(1000),
+        93000000);
     request.order_state.store(OrderState::TraderSubmitted, std::memory_order_relaxed);
 
     OrderIndex request_index = kInvalidOrderIndex;
-    assert(orders_shm_append(
-        orders.get(), request, OrderSlotState::DownstreamQueued, order_slot_source_t::AccountInternal, now_ns(), request_index));
+    assert(orders_shm_append(orders.get(),
+        request,
+        OrderSlotState::DownstreamQueued,
+        order_slot_source_t::AccountInternal,
+        now_ns(),
+        request_index));
     assert(downstream->order_queue.try_push(request_index));
 
     const std::vector<OrderState> statuses = collect_statuses_for_order(trades.get(), 9001, 3);
@@ -175,14 +185,16 @@ TEST(process_cancel_order_end_to_end) {
     std::thread worker([&loop]() { (void)loop.run(); });
 
     OrderRequest cancel_request;
-    cancel_request.init_cancel(
-        static_cast<InternalOrderId>(9101), 93100000, static_cast<InternalOrderId>(9001));
+    cancel_request.init_cancel(static_cast<InternalOrderId>(9101), 93100000, static_cast<InternalOrderId>(9001));
     cancel_request.order_state.store(OrderState::TraderSubmitted, std::memory_order_relaxed);
 
     OrderIndex cancel_index = kInvalidOrderIndex;
-    assert(orders_shm_append(
-        orders.get(), cancel_request, OrderSlotState::DownstreamQueued, order_slot_source_t::AccountInternal,
-        now_ns(), cancel_index));
+    assert(orders_shm_append(orders.get(),
+        cancel_request,
+        OrderSlotState::DownstreamQueued,
+        order_slot_source_t::AccountInternal,
+        now_ns(),
+        cancel_index));
     assert(downstream->order_queue.try_push(cancel_index));
 
     const std::vector<OrderState> statuses = collect_statuses_for_order(trades.get(), 9101, 2);

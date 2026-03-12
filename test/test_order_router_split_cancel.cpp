@@ -9,11 +9,11 @@
 #include "shm/orders_shm.hpp"
 
 #define TEST(name) static void test_##name()
-#define RUN_TEST(name)                   \
-    do {                                 \
-        printf("Running %s... ", #name); \
-        test_##name();                   \
-        printf("PASSED\n");            \
+#define RUN_TEST(name)                                                                                                 \
+    do {                                                                                                               \
+        printf("Running %s... ", #name);                                                                               \
+        test_##name();                                                                                                 \
+        printf("PASSED\n");                                                                                            \
     } while (0)
 
 namespace {
@@ -23,8 +23,7 @@ using namespace acct_service;
 OrderEntry make_parent_entry(InternalOrderId order_id, Volume volume) {
     OrderEntry entry{};
     entry.request.init_new(
-        "000001", InternalSecurityId("SZ.000001"), order_id, TradeSide::Buy, Market::SZ, volume, 1000,
-        93000000);
+        "000001", InternalSecurityId("XSHE_000001"), order_id, TradeSide::Buy, Market::SZ, volume, 1000, 93000000);
     entry.request.order_state.store(OrderState::RiskControllerAccepted, std::memory_order_relaxed);
     entry.submit_time_ns = now_ns();
     entry.last_update_ns = entry.submit_time_ns;
@@ -72,7 +71,7 @@ split_config make_split_config() {
     return cfg;
 }
 
-}  // namespace
+} // namespace
 
 TEST(split_cancel_fanout_tracks_parent) {
     auto book = std::make_unique<OrderBook>();
@@ -83,8 +82,12 @@ TEST(split_cancel_fanout_tracks_parent) {
     const InternalOrderId parent_id = book->next_order_id();
     OrderEntry parent = make_parent_entry(parent_id, 250);
     OrderIndex parent_index = kInvalidOrderIndex;
-    assert(orders_shm_append(orders.get(), parent.request, OrderSlotState::UpstreamDequeued,
-        order_slot_source_t::AccountInternal, now_ns(), parent_index));
+    assert(orders_shm_append(orders.get(),
+        parent.request,
+        OrderSlotState::UpstreamDequeued,
+        order_slot_source_t::AccountInternal,
+        now_ns(),
+        parent_index));
     parent.shm_order_index = parent_index;
     assert(book->add_order(parent));
 
@@ -141,23 +144,30 @@ TEST(partial_send_failure_latches_parent_error) {
 
     const std::size_t capacity = decltype(downstream->order_queue)::capacity();
     OrderRequest dummy;
-    dummy.init_new(
-        "000001", InternalSecurityId("SZ.000001"), 999999, TradeSide::Buy, Market::SZ, 1, 1000, 93000000);
+    dummy.init_new("000001", InternalSecurityId("XSHE_000001"), 999999, TradeSide::Buy, Market::SZ, 1, 1000, 93000000);
     dummy.order_state.store(OrderState::TraderSubmitted, std::memory_order_relaxed);
 
     for (std::size_t i = 0; i < capacity - 1; ++i) {
         dummy.internal_order_id = static_cast<InternalOrderId>(1000 + i);
         OrderIndex dummy_index = kInvalidOrderIndex;
-        assert(orders_shm_append(orders.get(), dummy, OrderSlotState::DownstreamQueued,
-            order_slot_source_t::AccountInternal, now_ns(), dummy_index));
+        assert(orders_shm_append(orders.get(),
+            dummy,
+            OrderSlotState::DownstreamQueued,
+            order_slot_source_t::AccountInternal,
+            now_ns(),
+            dummy_index));
         assert(downstream->order_queue.try_push(dummy_index));
     }
 
     const InternalOrderId parent_id = book->next_order_id();
     OrderEntry parent = make_parent_entry(parent_id, 300);
     OrderIndex parent_index = kInvalidOrderIndex;
-    assert(orders_shm_append(orders.get(), parent.request, OrderSlotState::UpstreamDequeued,
-        order_slot_source_t::AccountInternal, now_ns(), parent_index));
+    assert(orders_shm_append(orders.get(),
+        parent.request,
+        OrderSlotState::UpstreamDequeued,
+        order_slot_source_t::AccountInternal,
+        now_ns(),
+        parent_index));
     parent.shm_order_index = parent_index;
     assert(book->add_order(parent));
 

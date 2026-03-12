@@ -7,11 +7,11 @@
 #include "risk/risk_manager.hpp"
 
 #define TEST(name) static void test_##name()
-#define RUN_TEST(name)                   \
-    do {                                 \
-        printf("Running %s... ", #name); \
-        test_##name();                   \
-        printf("PASSED\n");              \
+#define RUN_TEST(name)                                                                                                 \
+    do {                                                                                                               \
+        printf("Running %s... ", #name);                                                                               \
+        test_##name();                                                                                                 \
+        printf("PASSED\n");                                                                                            \
     } while (0)
 
 namespace {
@@ -35,19 +35,19 @@ std::unique_ptr<positions_shm_layout> make_positions_shm() {
 
 OrderRequest make_buy_order(InternalOrderId order_id, Volume volume) {
     OrderRequest req;
-    req.init_new("000001", InternalSecurityId("SZ.000001"), order_id, TradeSide::Buy, Market::SZ, volume,
-        1000, 93000000);
+    req.init_new(
+        "000001", InternalSecurityId("XSHE_000001"), order_id, TradeSide::Buy, Market::SZ, volume, 1000, 93000000);
     req.order_state.store(OrderState::StrategySubmitted, std::memory_order_relaxed);
     return req;
 }
 
-}  // namespace
+} // namespace
 
 TEST(fund_and_duplicate_rules) {
     auto shm = make_positions_shm();
     PositionManager positions(shm.get());
     assert(positions.initialize(1));
-    assert(positions.add_security("000001", "PingAn", Market::SZ) == std::string_view("SZ.000001"));
+    assert(positions.add_security("000001", "PingAn", Market::SZ) == std::string_view("XSHE_000001"));
 
     RiskConfig cfg;
     cfg.max_order_value = 0;

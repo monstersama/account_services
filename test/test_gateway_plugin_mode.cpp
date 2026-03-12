@@ -1,7 +1,7 @@
 #include <cassert>
 #include <chrono>
-#include <cstring>
 #include <cstdio>
+#include <cstring>
 #include <functional>
 #include <memory>
 #include <thread>
@@ -15,11 +15,11 @@
 #include "shm/shm_layout.hpp"
 
 #define TEST(name) static void test_##name()
-#define RUN_TEST(name)                   \
-    do {                                 \
-        printf("Running %s... ", #name); \
-        test_##name();                   \
-        printf("PASSED\n");              \
+#define RUN_TEST(name)                                                                                                 \
+    do {                                                                                                               \
+        printf("Running %s... ", #name);                                                                               \
+        test_##name();                                                                                                 \
+        printf("PASSED\n");                                                                                            \
     } while (0)
 
 namespace {
@@ -100,7 +100,7 @@ gateway::gateway_config make_config() {
     return config;
 }
 
-}  // namespace
+} // namespace
 
 TEST(process_new_order_with_plugin_adapter) {
     auto downstream = make_downstream_shm();
@@ -124,13 +124,23 @@ TEST(process_new_order_with_plugin_adapter) {
     std::thread worker([&loop]() { (void)loop.run(); });
 
     OrderRequest request;
-    request.init_new("000001", InternalSecurityId("SZ.000001"), static_cast<InternalOrderId>(9301),
-        TradeSide::Buy, Market::SZ, static_cast<Volume>(120), static_cast<DPrice>(1000), 93000000);
+    request.init_new("000001",
+        InternalSecurityId("XSHE_000001"),
+        static_cast<InternalOrderId>(9301),
+        TradeSide::Buy,
+        Market::SZ,
+        static_cast<Volume>(120),
+        static_cast<DPrice>(1000),
+        93000000);
     request.order_state.store(OrderState::TraderSubmitted, std::memory_order_relaxed);
 
     OrderIndex request_index = kInvalidOrderIndex;
-    assert(orders_shm_append(
-        orders.get(), request, OrderSlotState::DownstreamQueued, order_slot_source_t::AccountInternal, now_ns(), request_index));
+    assert(orders_shm_append(orders.get(),
+        request,
+        OrderSlotState::DownstreamQueued,
+        order_slot_source_t::AccountInternal,
+        now_ns(),
+        request_index));
     assert(downstream->order_queue.try_push(request_index));
 
     std::vector<OrderState> statuses;

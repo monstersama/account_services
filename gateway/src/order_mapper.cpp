@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cstring>
 
+#include "common/security_identity.hpp"
+
 namespace acct_service::gateway {
 
 namespace {
@@ -49,14 +51,16 @@ void copy_security_id(const SecurityId& source, char* destination, std::size_t c
     }
 }
 
-// 拷贝内部证券键到定长 C 字符串，保持 market.security_id 语义。
+// 拷贝内部证券键到定长 C 字符串，保持 MIC_security_id 语义。
 void copy_internal_security_id(const InternalSecurityId& source, char* destination, std::size_t capacity) {
     if (capacity == 0) {
         return;
     }
 
     std::memset(destination, 0, capacity);
-    const std::string_view id = source.view();
+    InternalSecurityId normalized_id;
+    const std::string_view id =
+        normalize_internal_security_id(source.view(), normalized_id) ? normalized_id.view() : source.view();
     const std::size_t copy_size = std::min(id.size(), capacity - 1);
     if (copy_size > 0) {
         std::memcpy(destination, id.data(), copy_size);

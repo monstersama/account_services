@@ -1,25 +1,25 @@
 #include <cassert>
 #include <chrono>
-#include <cstring>
 #include <cstdio>
+#include <cstring>
 #include <functional>
 #include <memory>
 #include <thread>
 
 #include "common/constants.hpp"
 #include "core/event_loop.hpp"
-#include "portfolio/account_info.hpp"
 #include "order/order_router.hpp"
+#include "portfolio/account_info.hpp"
 #include "portfolio/position_manager.hpp"
 #include "risk/risk_manager.hpp"
 #include "shm/orders_shm.hpp"
 
 #define TEST(name) static void test_##name()
-#define RUN_TEST(name)                   \
-    do {                                 \
-        printf("Running %s... ", #name); \
-        test_##name();                   \
-        printf("PASSED\n");              \
+#define RUN_TEST(name)                                                                                                 \
+    do {                                                                                                               \
+        printf("Running %s... ", #name);                                                                               \
+        test_##name();                                                                                                 \
+        printf("PASSED\n");                                                                                            \
     } while (0)
 
 namespace {
@@ -100,13 +100,12 @@ bool wait_until(const std::function<bool()>& predicate, int timeout_ms = 1000) {
 OrderRequest make_order(InternalOrderId order_id, Volume volume) {
     OrderRequest req;
     req.init_new(
-        "000001", InternalSecurityId("SZ.000001"), order_id, TradeSide::Buy, Market::SZ, volume, 1000,
-        93000000);
+        "000001", InternalSecurityId("XSHE_000001"), order_id, TradeSide::Buy, Market::SZ, volume, 1000, 93000000);
     req.order_state.store(OrderState::StrategySubmitted, std::memory_order_relaxed);
     return req;
 }
 
-}  // namespace
+} // namespace
 
 TEST(process_order_and_trade_response) {
     auto upstream = make_upstream_shm();
@@ -117,7 +116,7 @@ TEST(process_order_and_trade_response) {
 
     PositionManager positions(positions_shm.get());
     assert(positions.initialize(1));
-    assert(positions.add_security("000001", "PingAn", Market::SZ) == std::string_view("SZ.000001"));
+    assert(positions.add_security("000001", "PingAn", Market::SZ) == std::string_view("XSHE_000001"));
 
     RiskConfig risk_cfg;
     risk_cfg.enable_position_check = false;
@@ -138,7 +137,8 @@ TEST(process_order_and_trade_response) {
     loop_cfg.idle_sleep_us = 50;
     loop_cfg.poll_batch_size = 32;
     loop_cfg.stats_interval_ms = 0;
-    EventLoop loop(loop_cfg, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router, positions, risk);
+    EventLoop loop(
+        loop_cfg, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router, positions, risk);
 
     std::thread worker([&loop]() { loop.run(); });
 
@@ -160,7 +160,7 @@ TEST(process_order_and_trade_response) {
 
     TradeResponse rsp{};
     rsp.internal_order_id = order_id;
-    rsp.internal_security_id = InternalSecurityId("SZ.000001");
+    rsp.internal_security_id = InternalSecurityId("XSHE_000001");
     rsp.trade_side = TradeSide::Buy;
     rsp.new_state = OrderState::MarketAccepted;
     rsp.volume_traded = 50;
@@ -182,7 +182,7 @@ TEST(process_order_and_trade_response) {
     assert(order->request.volume_traded == 50);
     assert(order->request.order_state.load(std::memory_order_acquire) == OrderState::MarketAccepted);
 
-    const position* pos = positions.get_position(InternalSecurityId("SZ.000001"));
+    const position* pos = positions.get_position(InternalSecurityId("XSHE_000001"));
     assert(pos != nullptr);
     assert(pos->volume_buy_traded >= 50);
 
@@ -212,7 +212,7 @@ TEST(delay_archive_allows_late_terminal_trade) {
 
     PositionManager positions(positions_shm.get());
     assert(positions.initialize(1));
-    assert(positions.add_security("000001", "PingAn", Market::SZ) == std::string_view("SZ.000001"));
+    assert(positions.add_security("000001", "PingAn", Market::SZ) == std::string_view("XSHE_000001"));
 
     RiskConfig risk_cfg;
     risk_cfg.enable_position_check = false;
@@ -235,7 +235,8 @@ TEST(delay_archive_allows_late_terminal_trade) {
     loop_cfg.stats_interval_ms = 0;
     loop_cfg.archive_terminal_orders = true;
     loop_cfg.terminal_archive_delay_ms = 80;
-    EventLoop loop(loop_cfg, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router, positions, risk);
+    EventLoop loop(
+        loop_cfg, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router, positions, risk);
 
     std::thread worker([&loop]() { loop.run(); });
 
@@ -252,7 +253,7 @@ TEST(delay_archive_allows_late_terminal_trade) {
 
     TradeResponse first_terminal{};
     first_terminal.internal_order_id = order_id;
-    first_terminal.internal_security_id = InternalSecurityId("SZ.000001");
+    first_terminal.internal_security_id = InternalSecurityId("XSHE_000001");
     first_terminal.trade_side = TradeSide::Buy;
     first_terminal.new_state = OrderState::Finished;
     first_terminal.recv_time_ns = now_ns();
@@ -267,7 +268,7 @@ TEST(delay_archive_allows_late_terminal_trade) {
 
     TradeResponse late_trade{};
     late_trade.internal_order_id = order_id;
-    late_trade.internal_security_id = InternalSecurityId("SZ.000001");
+    late_trade.internal_security_id = InternalSecurityId("XSHE_000001");
     late_trade.trade_side = TradeSide::Buy;
     late_trade.new_state = OrderState::Finished;
     late_trade.volume_traded = 40;
@@ -327,7 +328,8 @@ TEST(reject_second_buy_after_fund_reservation) {
     loop_cfg.idle_sleep_us = 50;
     loop_cfg.poll_batch_size = 32;
     loop_cfg.stats_interval_ms = 0;
-    EventLoop loop(loop_cfg, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router, positions, risk);
+    EventLoop loop(
+        loop_cfg, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router, positions, risk);
 
     std::thread worker([&loop]() { loop.run(); });
 
@@ -337,8 +339,12 @@ TEST(reject_second_buy_after_fund_reservation) {
     OrderIndex second_index = kInvalidOrderIndex;
     assert(orders_shm_append(
         orders_shm.get(), first, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy, now_ns(), first_index));
-    assert(orders_shm_append(
-        orders_shm.get(), second, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy, now_ns(), second_index));
+    assert(orders_shm_append(orders_shm.get(),
+        second,
+        OrderSlotState::UpstreamQueued,
+        order_slot_source_t::Strategy,
+        now_ns(),
+        second_index));
     assert(upstream->strategy_order_queue.try_push(first_index));
     assert(upstream->strategy_order_queue.try_push(second_index));
 

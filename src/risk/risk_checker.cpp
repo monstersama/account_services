@@ -3,17 +3,15 @@
 #include <string>
 #include <utility>
 
+#include "common/security_identity.hpp"
+
 namespace acct_service {
 
 namespace {
 
-uint64_t make_order_fingerprint(const OrderRequest& order) {
-    return static_cast<uint64_t>(order.internal_order_id);
-}
+uint64_t make_order_fingerprint(const OrderRequest& order) { return static_cast<uint64_t>(order.internal_order_id); }
 
-bool is_new_order(const OrderRequest& order) {
-    return order.order_type == OrderType::New;
-}
+bool is_new_order(const OrderRequest& order) { return order.order_type == OrderType::New; }
 
 }  // namespace
 
@@ -114,15 +112,19 @@ risk_check_result price_limit_rule::check(const OrderRequest& order, const Posit
         return risk_check_result::pass();
     }
 
-    const auto it = limits_.find(order.internal_security_id);
+    InternalSecurityId security_id;
+    if (!normalize_internal_security_id(order.internal_security_id.view(), security_id)) {
+        return risk_check_result::pass();
+    }
+
+    const auto it = limits_.find(security_id);
     if (it == limits_.end()) {
         return risk_check_result::pass();
     }
 
     const DPrice limit_up = it->second.first;
     const DPrice limit_down = it->second.second;
-    if ((limit_up != 0 && order.dprice_entrust > limit_up) ||
-        (limit_down != 0 && order.dprice_entrust < limit_down)) {
+    if ((limit_up != 0 && order.dprice_entrust > limit_up) || (limit_down != 0 && order.dprice_entrust < limit_down)) {
         return risk_check_result::reject(RiskResult::RejectPriceOutOfRange, "price is out of limit range");
     }
 
@@ -130,7 +132,11 @@ risk_check_result price_limit_rule::check(const OrderRequest& order, const Posit
 }
 
 void price_limit_rule::set_price_limits(InternalSecurityId security_id, DPrice limit_up, DPrice limit_down) {
-    limits_[security_id] = std::make_pair(limit_up, limit_down);
+    InternalSecurityId normalized_security_id;
+    if (!normalize_internal_security_id(security_id.view(), normalized_security_id)) {
+        return;
+    }
+    limits_[normalized_security_id] = std::make_pair(limit_up, limit_down);
 }
 
 void price_limit_rule::clear_price_limits() { limits_.clear(); }

@@ -6,6 +6,7 @@
 
 #include "common/error.hpp"
 #include "common/log.hpp"
+#include "common/security_identity.hpp"
 
 namespace acct_service {
 
@@ -55,6 +56,14 @@ uint64_t saturating_add(uint64_t lhs, uint64_t rhs) {
     return lhs + rhs;
 }
 
+// 把订单上的内部证券键收敛成 canonical MIC，避免旧键和新键在索引中分裂。
+bool normalize_order_security_key(std::string_view security_key, InternalSecurityId& out_key) {
+    if (security_key.empty()) {
+        return false;
+    }
+    return normalize_internal_security_id(security_key, out_key);
+}
+
 }  // namespace
 
 bool OrderEntry::is_active() const noexcept { return !is_terminal(); }
@@ -73,8 +82,8 @@ OrderBook::OrderBook() {
 bool OrderBook::add_order(const OrderEntry& entry) {
     const InternalOrderId order_id = entry.request.internal_order_id;
     if (order_id == 0) {
-        ErrorStatus status = ACCT_MAKE_ERROR(
-            ErrorDomain::order, ErrorCode::InvalidOrderId, "OrderBook", "order id is zero", 0);
+        ErrorStatus status =
+            ACCT_MAKE_ERROR(ErrorDomain::order, ErrorCode::InvalidOrderId, "OrderBook", "order id is zero", 0);
         record_error(status);
         ACCT_LOG_ERROR_STATUS(status);
         return false;
@@ -86,16 +95,16 @@ bool OrderBook::add_order(const OrderEntry& entry) {
         LockGuard<SpinLock> guard(lock_);
 
         if (id_to_index_.find(order_id) != id_to_index_.end()) {
-            ErrorStatus status = ACCT_MAKE_ERROR(
-                ErrorDomain::order, ErrorCode::DuplicateOrder, "OrderBook", "duplicate order id", 0);
+            ErrorStatus status =
+                ACCT_MAKE_ERROR(ErrorDomain::order, ErrorCode::DuplicateOrder, "OrderBook", "duplicate order id", 0);
             record_error(status);
             ACCT_LOG_ERROR_STATUS(status);
             return false;
         }
 
         if (free_slots_.empty()) {
-            ErrorStatus status = ACCT_MAKE_ERROR(
-                ErrorDomain::order, ErrorCode::OrderBookFull, "OrderBook", "order book free slots exhausted", 0);
+            ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::order, ErrorCode::OrderBookFull, "OrderBook",
+                                                 "order book free slots exhausted", 0);
             record_error(status);
             ACCT_LOG_ERROR_STATUS(status);
             return false;
@@ -125,7 +134,11 @@ bool OrderBook::add_order(const OrderEntry& entry) {
         }
 
         if (!stored.request.internal_security_id.empty()) {
-            security_orders_[stored.request.internal_security_id].push_back(order_id);
+            InternalSecurityId security_id;
+            if (normalize_order_security_key(stored.request.internal_security_id.view(), security_id)) {
+                stored.request.internal_security_id = security_id;
+                security_orders_[security_id].push_back(order_id);
+            }
         }
 
         if (stored.is_split_child && stored.parent_order_id != 0) {
@@ -173,8 +186,8 @@ bool OrderBook::update_state(InternalOrderId order_id, OrderState new_state) {
 
         OrderEntry* entry = find_order_nolock(order_id);
         if (!entry) {
-            ErrorStatus status = ACCT_MAKE_ERROR(
-                ErrorDomain::order, ErrorCode::OrderNotFound, "OrderBook", "update_state order not found", 0);
+            ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::order, ErrorCode::OrderNotFound, "OrderBook",
+                                                 "update_state order not found", 0);
             record_error(status);
             ACCT_LOG_ERROR_STATUS(status);
             return false;
@@ -210,8 +223,8 @@ bool OrderBook::update_trade(InternalOrderId order_id, Volume vol, DPrice px, DV
 
         OrderEntry* entry = find_order_nolock(order_id);
         if (!entry) {
-            ErrorStatus status = ACCT_MAKE_ERROR(
-                ErrorDomain::order, ErrorCode::OrderNotFound, "OrderBook", "update_trade order not found", 0);
+            ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::order, ErrorCode::OrderNotFound, "OrderBook",
+                                                 "update_trade order not found", 0);
             record_error(status);
             ACCT_LOG_ERROR_STATUS(status);
             return false;
@@ -272,8 +285,8 @@ bool OrderBook::archive_order(InternalOrderId order_id) {
 
         const auto it = id_to_index_.find(order_id);
         if (it == id_to_index_.end()) {
-            ErrorStatus status = ACCT_MAKE_ERROR(
-                ErrorDomain::order, ErrorCode::OrderNotFound, "OrderBook", "archive_order order not found", 0);
+            ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::order, ErrorCode::OrderNotFound, "OrderBook",
+                                                 "archive_order order not found", 0);
             record_error(status);
             ACCT_LOG_ERROR_STATUS(status);
             return false;
@@ -291,7 +304,10 @@ bool OrderBook::archive_order(InternalOrderId order_id) {
         }
 
         if (!entry.request.internal_security_id.empty()) {
-            auto sec_it = security_orders_.find(entry.request.internal_security_id);
+            InternalSecurityId security_id;
+            const bool has_security_id =
+                normalize_order_security_key(entry.request.internal_security_id.view(), security_id);
+            auto sec_it = has_security_id ? security_orders_.find(security_id) : security_orders_.end();
             if (sec_it != security_orders_.end()) {
                 auto& orders = sec_it->second;
                 orders.erase(std::remove(orders.begin(), orders.end(), order_id), orders.end());
@@ -332,7 +348,12 @@ std::vector<InternalOrderId> OrderBook::get_active_order_ids() const {
 std::vector<InternalOrderId> OrderBook::get_orders_by_security(InternalSecurityId security_id) const {
     LockGuard<SpinLock> guard(lock_);
 
-    const auto it = security_orders_.find(security_id);
+    InternalSecurityId normalized_security_id;
+    if (!normalize_order_security_key(security_id.view(), normalized_security_id)) {
+        return {};
+    }
+
+    const auto it = security_orders_.find(normalized_security_id);
     if (it == security_orders_.end()) {
         return {};
     }
@@ -365,14 +386,13 @@ std::size_t OrderBook::active_count() const noexcept {
     return active_count_;
 }
 
-InternalOrderId OrderBook::next_order_id() noexcept {
-    return next_order_id_.fetch_add(1, std::memory_order_relaxed);
-}
+InternalOrderId OrderBook::next_order_id() noexcept { return next_order_id_.fetch_add(1, std::memory_order_relaxed); }
 
 void OrderBook::ensure_next_order_id_at_least(InternalOrderId next_id) noexcept {
     InternalOrderId current = next_order_id_.load(std::memory_order_acquire);
     while (current < next_id) {
-        if (next_order_id_.compare_exchange_weak(current, next_id, std::memory_order_acq_rel, std::memory_order_acquire)) {
+        if (next_order_id_.compare_exchange_weak(current, next_id, std::memory_order_acq_rel,
+                                                 std::memory_order_acquire)) {
             break;
         }
     }
@@ -423,8 +443,8 @@ const OrderEntry* OrderBook::find_order_nolock(InternalOrderId order_id) const {
 void OrderBook::refresh_parent_from_children_nolock(InternalOrderId parent_id) {
     OrderEntry* parent = find_order_nolock(parent_id);
     if (!parent) {
-        ErrorStatus status = ACCT_MAKE_ERROR(
-            ErrorDomain::order, ErrorCode::OrderInvariantBroken, "OrderBook", "parent missing while refreshing split state", 0);
+        ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::order, ErrorCode::OrderInvariantBroken, "OrderBook",
+                                             "parent missing while refreshing split state", 0);
         record_error(status);
         ACCT_LOG_ERROR_STATUS(status);
         return;

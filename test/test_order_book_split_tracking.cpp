@@ -7,23 +7,22 @@
 #include "order/order_book.hpp"
 
 #define TEST(name) static void test_##name()
-#define RUN_TEST(name)                   \
-    do {                                 \
-        printf("Running %s... ", #name); \
-        test_##name();                   \
-        printf("PASSED\n");            \
+#define RUN_TEST(name)                                                                                                 \
+    do {                                                                                                               \
+        printf("Running %s... ", #name);                                                                               \
+        test_##name();                                                                                                 \
+        printf("PASSED\n");                                                                                            \
     } while (0)
 
 namespace {
 
 using namespace acct_service;
 
-OrderEntry make_new_entry(InternalOrderId order_id, Volume volume, bool is_split_child = false,
-    InternalOrderId parent_order_id = 0) {
+OrderEntry make_new_entry(
+    InternalOrderId order_id, Volume volume, bool is_split_child = false, InternalOrderId parent_order_id = 0) {
     OrderEntry entry{};
     entry.request.init_new(
-        "000001", InternalSecurityId("SZ.000001"), order_id, TradeSide::Buy, Market::SZ, volume, 1000,
-        93000000);
+        "000001", InternalSecurityId("XSHE_000001"), order_id, TradeSide::Buy, Market::SZ, volume, 1000, 93000000);
     entry.request.order_state.store(OrderState::StrategySubmitted, std::memory_order_relaxed);
     entry.submit_time_ns = now_ns();
     entry.last_update_ns = entry.submit_time_ns;
@@ -39,7 +38,7 @@ bool contains(const std::vector<InternalOrderId>& ids, InternalOrderId id) {
     return std::find(ids.begin(), ids.end(), id) != ids.end();
 }
 
-}  // namespace
+} // namespace
 
 TEST(split_mapping_and_aggregation) {
     auto book = std::make_unique<OrderBook>();

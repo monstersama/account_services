@@ -53,20 +53,20 @@ struct alignas(64) OrderRequest {
     // cache line 0
     InternalOrderId internal_order_id{0};  // 系统内部订单ID，唯一标识
     uint8_t padding0_0{0};
-    OrderType order_type{OrderType::NotSet};  // 订单类型：报单、撤单
-    TradeSide trade_side{TradeSide::NotSet};  // 买卖方向：买入、卖出
+    OrderType order_type{OrderType::NotSet};    // 订单类型：报单、撤单
+    TradeSide trade_side{TradeSide::NotSet};    // 买卖方向：买入、卖出
     Market market{Market::NotSet};              // 市场：深、沪、北、港
-    Volume volume_entrust{0};                     // 委托数量
-    DPrice dprice_entrust{0};                     // 委托价格
+    Volume volume_entrust{0};                   // 委托数量
+    DPrice dprice_entrust{0};                   // 委托价格
     InternalOrderId orig_internal_order_id{0};  // 原始订单ID（仅撤单请求使用）
-    InternalSecurityId internal_security_id{};  // 内部证券ID（格式: "SZ.000001"）
-    SecurityId security_id{};                    // 证券代码字符串（如 "000001"）
+    InternalSecurityId internal_security_id{};  // 内部证券ID（格式: "XSHE_000001"）
+    SecurityId security_id{};                   // 证券代码字符串（如 "000001"）
     uint8_t padding0_1[4]{};
 
     // cache line 1
     union {
         BrokerOrderId as_str{};  // 柜台返回的订单ID（字符串）
-        uint64_t as_uint;            // 柜台返回的订单ID（数字）
+        uint64_t as_uint;        // 柜台返回的订单ID（数字）
     } broker_order_id;
     Volume volume_traded{0};  // 已成交数量
     Volume volume_remain{0};  // 剩余未成交数量
@@ -74,18 +74,18 @@ struct alignas(64) OrderRequest {
     DPrice dprice_traded{0};  // 成交均价
 
     // cache line 2
-    DValue dfee_estimate{0};                                         // 预估手续费
-    DValue dfee_executed{0};                                         // 已实际产生的手续费
-    MdTime md_time_driven{0};                                       // 触发时间
-    MdTime md_time_entrust{0};                                      // 委托结束时间
-    MdTime md_time_cancel_sent{0};                                  // 撤单发送时间（本地时间）
-    MdTime md_time_cancel_done{0};                                  // 撤单完成时间（来自柜台/市场）
-    MdTime md_time_broker_response{0};                              // 柜台响应时间
-    MdTime md_time_market_response{0};                              // 交易所响应时间
-    MdTime md_time_traded_first{0};                                 // 首次成交时间
-    MdTime md_time_traded_latest{0};                                // 最近成交时间
+    DValue dfee_estimate{0};                                  // 预估手续费
+    DValue dfee_executed{0};                                  // 已实际产生的手续费
+    MdTime md_time_driven{0};                                 // 触发时间
+    MdTime md_time_entrust{0};                                // 委托结束时间
+    MdTime md_time_cancel_sent{0};                            // 撤单发送时间（本地时间）
+    MdTime md_time_cancel_done{0};                            // 撤单完成时间（来自柜台/市场）
+    MdTime md_time_broker_response{0};                        // 柜台响应时间
+    MdTime md_time_market_response{0};                        // 交易所响应时间
+    MdTime md_time_traded_first{0};                           // 首次成交时间
+    MdTime md_time_traded_latest{0};                          // 最近成交时间
     std::atomic<OrderState> order_state{OrderState::NotSet};  // 订单当前状态
-    uint8_t padding2[15]{};                                            // 填充以对齐缓存行
+    uint8_t padding2[15]{};                                   // 填充以对齐缓存行
 
     OrderRequest() = default;
     OrderRequest(const OrderRequest& other) {

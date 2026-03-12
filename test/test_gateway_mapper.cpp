@@ -1,18 +1,18 @@
 #include <cassert>
-#include <cstring>
 #include <cstdio>
+#include <cstring>
 #include <string>
 
+#include "order/order_request.hpp"
 #include "order_mapper.hpp"
 #include "response_mapper.hpp"
-#include "order/order_request.hpp"
 
 #define TEST(name) static void test_##name()
-#define RUN_TEST(name)                   \
-    do {                                 \
-        printf("Running %s... ", #name); \
-        test_##name();                   \
-        printf("PASSED\n");              \
+#define RUN_TEST(name)                                                                                                 \
+    do {                                                                                                               \
+        printf("Running %s... ", #name);                                                                               \
+        test_##name();                                                                                                 \
+        printf("PASSED\n");                                                                                            \
     } while (0)
 
 namespace {
@@ -22,15 +22,21 @@ using namespace acct_service;
 // 验证新单字段映射是否完整正确。
 TEST(map_new_order_request) {
     OrderRequest request;
-    request.init_new("600000", InternalSecurityId("SH.600000"), static_cast<InternalOrderId>(1001),
-        TradeSide::Buy, Market::SH, static_cast<Volume>(300), static_cast<DPrice>(1234), 93000000);
+    request.init_new("600000",
+        InternalSecurityId("XSHG_600000"),
+        static_cast<InternalOrderId>(1001),
+        TradeSide::Buy,
+        Market::SH,
+        static_cast<Volume>(300),
+        static_cast<DPrice>(1234),
+        93000000);
     request.md_time_entrust = 93010000;
 
     broker_api::broker_order_request mapped;
     assert(gateway::map_order_request_to_broker(request, mapped));
 
     assert(mapped.internal_order_id == static_cast<uint32_t>(1001));
-    assert(std::string(mapped.internal_security_id) == "SH.600000");
+    assert(std::string(mapped.internal_security_id) == "XSHG_600000");
     assert(mapped.type == broker_api::request_type::New);
     assert(mapped.trade_side == broker_api::side::Buy);
     assert(mapped.order_market == broker_api::market::SH);
@@ -72,7 +78,7 @@ TEST(map_trade_event_response) {
 
     assert(response.internal_order_id == 3001);
     assert(response.broker_order_id == 7001);
-    assert(response.internal_security_id == std::string_view("SZ.000009"));
+    assert(response.internal_security_id == std::string_view("XSHE_000009"));
     assert(response.trade_side == TradeSide::Sell);
     assert(response.new_state == OrderState::MarketAccepted);
     assert(response.volume_traded == 88);
@@ -82,7 +88,7 @@ TEST(map_trade_event_response) {
     assert(response.md_time_traded == 100001000);
 }
 
-}  // namespace
+} // namespace
 
 int main() {
     printf("=== Gateway Mapper Test Suite ===\n\n");
