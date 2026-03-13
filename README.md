@@ -94,7 +94,9 @@ tools/package_api.sh --native-arch
 tools/package_api.sh --help
 ```
 
-## 准备第三方仓库
+## 准备依赖库
+
+### 从公司仓库里拉取
 
 项目开发前的第一步是执行 `tools/bootstrap_third_party.sh`。部分第三方代码按需拉取到 `third_party/`，不直接提交到主仓，因此在开始开发、首次构建或更新依赖前，都需要先执行：
 
@@ -104,6 +106,15 @@ tools/bootstrap_third_party.sh
 
 依赖清单位于 `third_party/repos.lock`，每个仓库都固定到明确 commit，以保证构建结果可复现。若需要升级某个第三方仓库，请修改对应 commit 后重新执行脚本。
 
+
+### 从包管理器里下载
+
+```sh
+sudo apt update
+sudo apt install libyaml-cpp-dev
+sudo apt install libsqlite3-dev
+```
+
 ## 本地构建
 
 准备完第三方仓库后，可按以下顺序构建：
@@ -111,14 +122,6 @@ tools/bootstrap_third_party.sh
 ```bash
 CC=clang CXX=clang++ cmake -S . -B build
 cmake --build build -j4
-```
-
-
-## 安装第三方库
-```sh
-sudo apt update
-sudo apt install libyaml-cpp-dev
-sudo apt install libsqlite3-dev
 ```
 
 ## OrbStack 虚拟机下 VSCode 调试（GDB）
