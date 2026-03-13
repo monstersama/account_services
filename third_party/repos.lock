@@ -1,2 +1,2 @@
 # name|path|repo_url|default_branch|commit
-snapshot_reader|third_party/snapshot_reader|git@gitlab.guiqin520.cn:falcon/snapshot_reader.git|master|87e3c225a4224b42f91cc30a767731d90328744f
+snapshot_reader|third_party/snapshot_reader|git@gitlab.guiqin520.cn:falcon/snapshot_reader.git|master|0887d95032f60c8b354ab12ea144430db4d4872a
