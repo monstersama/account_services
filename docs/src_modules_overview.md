@@ -64,7 +64,7 @@
 ### 3.2 新单 / 撤单链路
 
 1. 外部策略或 SDK 通过 `src/api/order_api.cpp` 写入 `orders_shm`。
-2. `order_api` 把订单槽位索引推入 `upstream_shm->strategy_order_queue`。
+2. `order_api` 把订单槽位索引推入 `upstream_shm->upstream_order_queue`。
 3. `EventLoop` 从上游队列取出索引，并从 `orders_shm` 读取订单快照。
 4. 订单进入 `OrderBook`，状态推进到 `RiskControllerPending`。
 5. `RiskManager` 对新单执行规则链校验。

@@ -262,7 +262,7 @@ std::size_t EventLoop::process_upstream_orders() {
     std::size_t processed = 0;
 
     OrderIndex order_index = kInvalidOrderIndex;
-    while (processed < batch_limit && upstream_shm_->strategy_order_queue.try_pop(order_index)) {
+    while (processed < batch_limit && upstream_shm_->upstream_order_queue.try_pop(order_index)) {
         order_slot_snapshot snapshot;
         if (!orders_shm_read_snapshot(orders_shm_, order_index, snapshot)) {
             ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::order, ErrorCode::OrderNotFound, "EventLoop",

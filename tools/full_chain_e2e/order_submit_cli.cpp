@@ -13,7 +13,7 @@ namespace {
 
 // 下单命令行参数集合。
 struct order_submit_cli_options {
-    std::string upstream_shm_name{"/strategy_order_shm"};
+    std::string upstream_shm_name{"/upstream_order_shm"};
     std::string orders_shm_name{"/orders_shm"};
     std::string trading_day{"19700101"};
     std::string security_id{};

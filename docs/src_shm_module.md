@@ -31,7 +31,7 @@
 
 载荷：
 
-- `spsc_queue<OrderIndex, kStrategyOrderQueueCapacity>`
+- `spsc_queue<OrderIndex, kUpstreamOrderQueueCapacity>`
 
 #### `downstream_shm_layout`
 

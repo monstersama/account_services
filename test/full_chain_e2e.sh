@@ -25,7 +25,7 @@ SAMPLE_DB_PATH="${SAMPLE_DB_PATH:-${SOURCE_DIR}/data/account_service.db}"
 EXTRA_SECURITY_IDS="${EXTRA_SECURITY_IDS:-990001,990002}"
 
 # 与配置文件保持一致的 SHM/交易日默认值，可通过环境变量覆盖。
-UPSTREAM_SHM="${UPSTREAM_SHM:-/strategy_order_shm}"
+UPSTREAM_SHM="${UPSTREAM_SHM:-/upstream_order_shm}"
 DOWNSTREAM_SHM="${DOWNSTREAM_SHM:-/downstream_order_shm}"
 TRADES_SHM="${TRADES_SHM:-/trades_shm}"
 ORDERS_SHM_BASE="${ORDERS_SHM_BASE:-/orders_shm}"

@@ -24,8 +24,8 @@
 namespace {
 
 void cleanup_order_api_shm(std::string_view trading_day) {
-    if (::shm_unlink(acct_service::kStrategyOrderShmName) < 0 && errno != ENOENT) {
-        std::perror("shm_unlink strategy_order_shm");
+    if (::shm_unlink(acct_service::kUpstreamOrderShmName) < 0 && errno != ENOENT) {
+        std::perror("shm_unlink upstream_order_shm");
     }
 
     const std::string orders_name = acct_service::make_orders_shm_name(acct_service::kOrdersShmName, trading_day);
@@ -106,7 +106,7 @@ TEST(init_ex_with_custom_options) {
 
     acct_ctx_t ctx = nullptr;
     acct_init_options_t opts{};
-    opts.upstream_shm_name = "/strategy_order_shm";
+    opts.upstream_shm_name = "/upstream_order_shm";
     opts.orders_shm_name = "/orders_shm";
     opts.trading_day = "20260225";
     opts.create_if_not_exist = 1;

@@ -37,7 +37,7 @@ void init_header(SHMHeader& header) {
 std::unique_ptr<upstream_shm_layout> make_upstream_shm() {
     auto shm = std::make_unique<upstream_shm_layout>();
     init_header(shm->header);
-    shm->strategy_order_queue.init();
+    shm->upstream_order_queue.init();
     return shm;
 }
 
@@ -147,7 +147,7 @@ TEST(process_order_and_trade_response) {
     OrderIndex order_index = kInvalidOrderIndex;
     assert(orders_shm_append(
         orders_shm.get(), req, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy, now_ns(), order_index));
-    assert(upstream->strategy_order_queue.try_push(order_index));
+    assert(upstream->upstream_order_queue.try_push(order_index));
 
     assert(wait_until([&downstream]() { return downstream->order_queue.size() > 0; }));
 
@@ -245,7 +245,7 @@ TEST(delay_archive_allows_late_terminal_trade) {
     OrderIndex order_index = kInvalidOrderIndex;
     assert(orders_shm_append(
         orders_shm.get(), req, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy, now_ns(), order_index));
-    assert(upstream->strategy_order_queue.try_push(order_index));
+    assert(upstream->upstream_order_queue.try_push(order_index));
 
     assert(wait_until([&downstream]() { return downstream->order_queue.size() > 0; }));
     OrderIndex downstream_index = kInvalidOrderIndex;
@@ -345,8 +345,8 @@ TEST(reject_second_buy_after_fund_reservation) {
         order_slot_source_t::Strategy,
         now_ns(),
         second_index));
-    assert(upstream->strategy_order_queue.try_push(first_index));
-    assert(upstream->strategy_order_queue.try_push(second_index));
+    assert(upstream->upstream_order_queue.try_push(first_index));
+    assert(upstream->upstream_order_queue.try_push(second_index));
 
     assert(wait_until([&book]() {
         const OrderEntry* first_order = book->find_order(800);

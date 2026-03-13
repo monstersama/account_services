@@ -284,7 +284,7 @@ TEST(initialize_and_run_processes_orders) {
     OrderIndex upstream_index = kInvalidOrderIndex;
     assert(orders_shm_append(
         orders, req, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy, now_ns(), upstream_index));
-    assert(upstream->strategy_order_queue.try_push(upstream_index));
+    assert(upstream->upstream_order_queue.try_push(upstream_index));
 
     assert(wait_until([downstream]() { return downstream->order_queue.size() > 0; }));
 

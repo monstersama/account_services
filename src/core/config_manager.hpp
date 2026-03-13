@@ -10,7 +10,7 @@ namespace acct_service {
 
 // 共享内存配置
 struct SHMConfig {
-    std::string upstream_shm_name = "/strategy_order_shm";
+    std::string upstream_shm_name = "/upstream_order_shm";
     std::string downstream_shm_name = "/downstream_order_shm";
     std::string trades_shm_name = "/trades_shm";
     std::string orders_shm_name = "/orders_shm";

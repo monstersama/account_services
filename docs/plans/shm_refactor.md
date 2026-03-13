@@ -13,7 +13,7 @@
    - `order_slot`
    - `orders_shm_layout`
 2. 修改队列载荷类型（`src/shm/shm_layout.hpp`）：
-   - `upstream_shm_layout.strategy_order_queue` 从 `spsc_queue<order_request,...>` 改为 `spsc_queue<order_index_t,...>`
+   - `upstream_shm_layout.upstream_order_queue` 从 `spsc_queue<order_request,...>` 改为 `spsc_queue<order_index_t,...>`
    - `downstream_shm_layout.order_queue` 同步改为 `order_index_t`
 3. 新增 SHM 管理接口（`src/shm/shm_manager.hpp/.cpp`）：
    - `orders_shm_layout* open_orders(std::string_view name, shm_mode mode, account_id_t account_id);`

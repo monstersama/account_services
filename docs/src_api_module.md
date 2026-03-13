@@ -28,7 +28,7 @@
 - 接收外部下单 / 撤单请求
 - 构造内部 `OrderRequest`
 - 把订单写入 `orders_shm`
-- 把对应槽位索引推入 `upstream_shm->strategy_order_queue`
+- 把对应槽位索引推入 `upstream_shm->upstream_order_queue`
 
 这组接口是“策略 / 调用方 -> 账户服务”的入口适配层。
 
@@ -90,7 +90,7 @@
 
 1. 解析 `acct_init_options_t`
 2. 补齐默认值
-   - `upstream_shm_name` 默认 `/strategy_order_shm`
+   - `upstream_shm_name` 默认 `/upstream_order_shm`
    - `orders_shm_name` 默认 `/orders_shm`
    - `trading_day` 默认环境变量 `ACCT_TRADING_DAY`，否则 `19700101`
 3. 创建 `acct_context`
@@ -131,7 +131,7 @@
 `order_api` 不直接调用 `AccountService` 或 `EventLoop`，它与主服务之间通过共享内存解耦：
 
 - 写入 `orders_shm`
-- 推送 `upstream_shm->strategy_order_queue`
+- 推送 `upstream_shm->upstream_order_queue`
 
 之后才由 `src/core/EventLoop` 消费并进入真正的订单处理链。
 

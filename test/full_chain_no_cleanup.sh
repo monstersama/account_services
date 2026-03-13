@@ -13,7 +13,7 @@ mkdir -p "${RUN_DIR}"
 RUN_DIR="$(cd "${RUN_DIR}" && pwd)"
 
 TRADING_DAY="${TRADING_DAY:-19700101}"
-UPSTREAM_SHM="${UPSTREAM_SHM:-/strategy_order_shm}"
+UPSTREAM_SHM="${UPSTREAM_SHM:-/upstream_order_shm}"
 ORDERS_SHM_BASE="${ORDERS_SHM_BASE:-/orders_shm}"
 POSITIONS_SHM="${POSITIONS_SHM:-/positions_shm}"
 ORDERS_DATED_SHM="${ORDERS_SHM_BASE}_${TRADING_DAY}"

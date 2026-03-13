@@ -57,7 +57,7 @@ acct_error_t api_error(acct_error_t rc, acct_service::ErrorCode code, std::strin
 
 bool resolve_init_options(const acct_init_options_t* options, std::string& upstream_name, std::string& orders_base_name,
     std::string& trading_day, bool& create_if_not_exist) {
-    upstream_name = acct_service::kStrategyOrderShmName;
+    upstream_name = acct_service::kUpstreamOrderShmName;
     orders_base_name = acct_service::kOrdersShmName;
     trading_day = default_trading_day();
     create_if_not_exist = true;
@@ -127,10 +127,10 @@ acct_error_t enqueue_order(
         return api_error(ACCT_ERR_ORDER_POOL_FULL, ErrorCode::OrderPoolFull, "orders shm pool full");
     }
 
-    if (!context->upstream_shm->strategy_order_queue.try_push(index)) {
+    if (!context->upstream_shm->upstream_order_queue.try_push(index)) {
         (void)orders_shm_update_stage(context->orders_shm, index, OrderSlotState::QueuePushFailed, now_ns());
-        const std::size_t queue_size = context->upstream_shm->strategy_order_queue.size();
-        const std::size_t queue_capacity = kStrategyOrderQueueCapacity - 1;
+        const std::size_t queue_size = context->upstream_shm->upstream_order_queue.size();
+        const std::size_t queue_capacity = kUpstreamOrderQueueCapacity - 1;
         const std::string message = "enqueue upstream queue push failed: queue_size=" + std::to_string(queue_size) +
                                     "/" + std::to_string(queue_capacity);
         return api_error(ACCT_ERR_QUEUE_FULL, ErrorCode::QueuePushFailed, message);
@@ -387,7 +387,7 @@ ACCT_API acct_error_t acct_queue_size(acct_ctx_t ctx, size_t* out_size) {
         return api_error(ACCT_ERR_NOT_INITIALIZED, ErrorCode::InvalidState, "acct_queue_size called before init");
     }
 
-    *out_size = context->upstream_shm->strategy_order_queue.size();
+    *out_size = context->upstream_shm->upstream_order_queue.size();
     return ACCT_OK;
 }
 
@@ -419,7 +419,7 @@ ACCT_API const char* acct_strerror(acct_error_t err) {
 ACCT_API const char* acct_version(void) { return ACCT_API_VERSION; }
 
 ACCT_API acct_error_t acct_cleanup_shm(void) {
-    if (shm_unlink(acct_service::kStrategyOrderShmName) < 0 && errno != ENOENT) {
+    if (shm_unlink(acct_service::kUpstreamOrderShmName) < 0 && errno != ENOENT) {
         return api_error(ACCT_ERR_SHM_FAILED, ErrorCode::ShmOpenFailed, "acct_cleanup_shm upstream failed", errno);
     }
 

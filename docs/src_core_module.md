@@ -129,7 +129,7 @@
 
 `EventLoop::process_upstream_orders()` 的主逻辑如下：
 
-1. 从 `upstream_shm->strategy_order_queue` 弹出 `OrderIndex`。
+1. 从 `upstream_shm->upstream_order_queue` 弹出 `OrderIndex`。
 2. 用 `orders_shm_read_snapshot()` 读取稳定快照。
 3. 把订单槽位阶段更新为 `UpstreamDequeued`。
 4. 调 `handle_order_request()`：

@@ -133,7 +133,7 @@ struct trades_shm_layout {
 // 上游共享内存（策略→账户服务）
 struct upstream_shm_layout {
     SHMHeader header;
-    spsc_queue<OrderIndex, kStrategyOrderQueueCapacity> strategy_order_queue;
+    spsc_queue<OrderIndex, kUpstreamOrderQueueCapacity> upstream_order_queue;
 
     static constexpr std::size_t total_size() { return sizeof(upstream_shm_layout); }
 };

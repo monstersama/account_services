@@ -57,7 +57,7 @@ typedef struct acct_context* acct_ctx_t;
 
 // ============ 初始化选项 ============
 typedef struct acct_init_options {
-    const char* upstream_shm_name;  // 默认 "/strategy_order_shm"
+    const char* upstream_shm_name;  // 默认 "/upstream_order_shm"
     const char* orders_shm_name;    // 默认 "/orders_shm"
     const char* trading_day;        // 必须为 YYYYMMDD
     uint8_t create_if_not_exist;    // 0=仅打开，非0=可创建
