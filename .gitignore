@@ -12,4 +12,7 @@ output/
 pkg/
 *.tar.gz
 
+# Bootstrap-managed third-party repositories.
+third_party/snapshot_reader/
+
 .DS_Store
