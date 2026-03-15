@@ -18,6 +18,15 @@ event_loop:
   pin_cpu: false
   cpu_core: -1
 
+market_data:
+  enabled: false
+  snapshot_shm_name: "/signal_xshg_v2"
+
+active_strategy:
+  enabled: false
+  name: "none"
+  signal_threshold: 0.0
+
 risk:
   max_order_value: 0
   max_order_volume: 0

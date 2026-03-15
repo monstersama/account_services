@@ -1,15 +1,16 @@
 # 订单处理流程图
 
-本文档展示量化交易账户服务中订单的完整生命周期流程图。系统是一个高性能低延时的订单处理服务，负责接收策略订单、进行风控检查、拆单、路由到交易进程，并处理成交回报。
+本文档展示量化交易账户服务中订单的完整生命周期流程图。系统是一个高性能低延时的订单处理服务，负责接收策略订单、进行风控检查、把普通订单或执行引擎生成的内部子单路由到交易进程，并处理成交回报。
 
 ## 系统概述
 
-账户服务接收上游策略用户发出到共享内存中的订单，读取后将其按需经过风控模块的验证，然后拆单或直接发送订单到下游的交易进程的共享内存中。需要负责维护上游订单状态，更新该订单在共享内存中的状态。
+账户服务接收上游策略用户发出到共享内存中的订单，读取后先经过风控模块验证。普通订单直接发送到下游；执行算法订单则交给 `ExecutionEngine` 逐步生成内部子单，再统一发送到下游。服务同时维护订单池镜像、父单执行态和成交回报回流。
 
 ### 主要模块
 - **订单簿 (order_book)**：管理活跃订单，生成内部订单ID
 - **风控管理器 (risk_manager)**：多维度风险控制检查
-- **拆单器 (order_splitter)**：根据配置执行拆单策略
+- **执行引擎 (execution_engine)**：托管 `FixedSize / Iceberg / TWAP` 执行会话并生成内部子单
+- **行情模块 (market_data)**：提供盘口与 prediction，供执行引擎定价和主动策略决策
 - **订单路由器 (order_router)**：将订单发送到下游交易进程
 - **持仓管理器 (position_manager)**：管理账户资金和持仓
 - **事件循环 (event_loop)**：主处理循环，协调各模块工作
@@ -35,12 +36,14 @@ graph TD
 
     RiskRejected --> EndReject[订单终止<br/>通知策略]
 
-    RiskAccepted --> SplitCheck{需要拆单?}
+    RiskAccepted --> ExecCheck{受管执行算法?}
 
-    SplitCheck -->|是| Splitter[拆单器处理<br/>生成子订单]
-    SplitCheck -->|否| Router[订单路由器]
+    ExecCheck -->|是| ExecEngine[执行引擎<br/>生成内部子订单]
+    ExecCheck -->|否| Router[订单路由器]
 
-    Splitter --> Router
+    ExecEngine --> MarketData[读取行情/盘口]
+    MarketData --> ExecEngine
+    ExecEngine --> Router
 
     Router --> SHM2[写入下游共享内存<br/>index_queue]
 
@@ -84,12 +87,13 @@ graph TD
 1. **订单接收**：策略先写订单池共享内存，再通过上游SPSC索引队列发送订单索引
 2. **风控检查**：多层次风控规则检查，包括资金、持仓、价格限制等
 3. **资金/持仓冻结**：风控通过后冻结相应资金或持仓
-4. **拆单处理**：根据配置决定是否拆单（固定大小、冰山、TWAP、VWAP等策略）
-5. **路由发送**：通过下游共享内存索引队列发送到交易进程
-6. **交易处理**：交易进程与券商柜台交互，提交订单到交易所
-7. **成交回报**：处理市场成交回报，更新订单状态和成交信息
-8. **持仓更新**：根据成交结果更新账户持仓和资金
-9. **订单完成**：订单全部成交后归档，生命周期结束
+4. **执行会话**：受管执行算法由 `ExecutionEngine` 按预算持续生成内部子单
+5. **行情定价**：managed child 发单前必须读取盘口并生成市场派生价格
+6. **路由发送**：通过下游共享内存索引队列发送到交易进程
+7. **交易处理**：交易进程与券商柜台交互，提交订单到交易所
+8. **成交回报**：处理市场成交回报，更新订单状态和成交信息
+9. **持仓更新**：根据成交结果更新账户持仓和资金
+10. **订单完成**：订单全部成交后归档，生命周期结束
 
 ## 2. 状态转换图：订单状态机
 
@@ -169,14 +173,16 @@ graph TB
         EventLoop[事件循环<br/>event_loop]
         OrderBook[订单簿<br/>order_book]
         RiskManager[风控管理器<br/>risk_manager]
-        OrderSplitter[拆单器<br/>order_splitter]
+        ExecutionEngine[执行引擎<br/>execution_engine]
+        MarketData[行情模块<br/>market_data]
         OrderRouter[订单路由器<br/>order_router]
         PositionManager[持仓管理器<br/>position_manager]
 
         EventLoop --> OrderBook
         OrderBook --> RiskManager
-        RiskManager --> OrderSplitter
-        OrderSplitter --> OrderRouter
+        RiskManager --> ExecutionEngine
+        ExecutionEngine --> MarketData
+        ExecutionEngine --> OrderRouter
         OrderRouter --> DownstreamSHM
         PositionManager --> RiskManager
         PositionManager --> OrderBook
@@ -210,7 +216,7 @@ graph TB
 
 ### 架构说明
 - **上游通信**：策略进程通过“订单池 + SPSC索引队列”发送订单，实现低延迟与可监控
-- **内部处理**：事件循环协调各模块，订单依次经过订单簿、风控、拆单器、路由器
+- **内部处理**：事件循环协调各模块，订单依次经过订单簿、风控、执行引擎/路由器
 - **下游通信**：通过共享内存索引队列将订单发送到交易进程，并通过回报队列接收成交
 - **外部集成**：与券商柜台、交易所交互，支持数据库持久化和监控系统
 

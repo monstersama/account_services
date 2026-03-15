@@ -22,7 +22,7 @@ struct alignas(64) SHMHeader {
     uint64_t reserved[4];                    // 预留字段
 
     static constexpr uint32_t kMagic = 0x41435354;
-    static constexpr uint32_t kVersion = 3;
+    static constexpr uint32_t kVersion = 4;
 };
 
 static_assert(sizeof(SHMHeader) == 64, "SHMHeader must be 64 bytes");
@@ -41,7 +41,7 @@ struct alignas(64) PositionsHeader {
     uint32_t reserved[3];        // 预留/对齐
 
     static constexpr uint32_t kMagic = 0x41435354;
-    static constexpr uint32_t kVersion = 3;
+    static constexpr uint32_t kVersion = 4;
 };
 
 static_assert(sizeof(PositionsHeader) == 64, "PositionsHeader must be 64 bytes");
@@ -54,6 +54,7 @@ struct alignas(64) TradeResponse {
     TradeSide trade_side;
     OrderState new_state;
     Volume volume_traded;
+    Volume cancelled_volume;
     DPrice dprice_traded;
     DValue dvalue_traded;
     DValue dfee;

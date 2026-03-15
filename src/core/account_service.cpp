@@ -6,6 +6,7 @@
 
 #include "common/log.hpp"
 #include "shm/orders_shm.hpp"
+#include "strategy/active_strategy.hpp"
 
 namespace acct_service {
 
@@ -54,7 +55,7 @@ bool AccountService::initialize(const std::string& config_path) {
     }
 
     if (!init_shared_memory() || !init_portfolio() || !init_risk_manager() || !init_order_components() ||
-        !init_event_loop()) {
+        !init_market_data() || !init_execution_engine() || !init_event_loop()) {
         state_.store(ServiceState::Error, std::memory_order_release);
         flush_logger(200);
         cleanup();
@@ -135,10 +136,10 @@ void AccountService::print_stats() const {
     if (event_loop_) {
         const event_loop_stats& loop_stats = event_loop_->stats();
         std::fprintf(stderr, "[AccountService] loop_iter=%llu orders=%llu responses=%llu idle=%llu avg_ns=%.0f\n",
-            static_cast<unsigned long long>(loop_stats.total_iterations),
-            static_cast<unsigned long long>(loop_stats.orders_processed),
-            static_cast<unsigned long long>(loop_stats.responses_processed),
-            static_cast<unsigned long long>(loop_stats.idle_iterations), loop_stats.avg_latency_ns());
+                     static_cast<unsigned long long>(loop_stats.total_iterations),
+                     static_cast<unsigned long long>(loop_stats.orders_processed),
+                     static_cast<unsigned long long>(loop_stats.responses_processed),
+                     static_cast<unsigned long long>(loop_stats.idle_iterations), loop_stats.avg_latency_ns());
     }
 
     if (order_book_) {
@@ -148,8 +149,8 @@ void AccountService::print_stats() const {
     if (risk_manager_) {
         const RiskState& stats = risk_manager_->stats();
         std::fprintf(stderr, "[AccountService] risk_checks=%llu passed=%llu rejected=%llu\n",
-            static_cast<unsigned long long>(stats.total_checks), static_cast<unsigned long long>(stats.passed),
-            static_cast<unsigned long long>(stats.rejected));
+                     static_cast<unsigned long long>(stats.total_checks), static_cast<unsigned long long>(stats.passed),
+                     static_cast<unsigned long long>(stats.rejected));
     }
 }
 
@@ -244,14 +245,53 @@ bool AccountService::init_order_components() {
     }
 
     order_book_ = std::make_unique<OrderBook>();
-    order_router_ = std::make_unique<order_router>(*order_book_, downstream_shm_, orders_shm_, config_manager_.split());
+    order_router_ = std::make_unique<order_router>(*order_book_, downstream_shm_, orders_shm_);
     if (!order_book_ || !order_router_) {
         raise_service_error(
             make_service_error(ErrorCode::ComponentUnavailable, "failed to initialize order components"));
         return false;
     }
     if (!order_router_->recover_downstream_active_orders(upstream_shm_)) {
-        raise_service_error(make_service_error(ErrorCode::ComponentUnavailable, "failed to recover downstream active orders"));
+        raise_service_error(
+            make_service_error(ErrorCode::ComponentUnavailable, "failed to recover downstream active orders"));
+        return false;
+    }
+    return true;
+}
+
+bool AccountService::init_market_data() {
+    market_data_service_ = std::make_unique<MarketDataService>(config_manager_.market_data());
+    if (!market_data_service_) {
+        raise_service_error(
+            make_service_error(ErrorCode::ComponentUnavailable, "failed to create market data service"));
+        return false;
+    }
+    if (!market_data_service_->initialize()) {
+        raise_service_error(
+            make_service_error(ErrorCode::ComponentUnavailable, "failed to initialize market data service"));
+        return false;
+    }
+    return true;
+}
+
+bool AccountService::init_execution_engine() {
+    if (!order_book_ || !order_router_) {
+        raise_service_error(
+            make_service_error(ErrorCode::ComponentUnavailable, "execution engine dependencies unavailable"));
+        return false;
+    }
+
+    std::unique_ptr<ActiveStrategy> active_strategy = StrategyRegistry::create(config_manager_.active_strategy());
+    if (config_manager_.active_strategy().enabled && config_manager_.active_strategy().name != "none" &&
+        !active_strategy) {
+        raise_service_error(make_service_error(ErrorCode::InvalidConfig, "unknown active strategy name"));
+        return false;
+    }
+
+    execution_engine_ = std::make_unique<ExecutionEngine>(config_manager_.split(), *order_book_, *order_router_,
+                                                          market_data_service_.get(), std::move(active_strategy));
+    if (!execution_engine_) {
+        raise_service_error(make_service_error(ErrorCode::ComponentUnavailable, "failed to create execution engine"));
         return false;
     }
     return true;
@@ -259,15 +299,15 @@ bool AccountService::init_order_components() {
 
 bool AccountService::init_event_loop() {
     if (!upstream_shm_ || !downstream_shm_ || !trades_shm_ || !orders_shm_ || !order_book_ || !order_router_ ||
-        !position_manager_ || !risk_manager_) {
-        raise_service_error(
-            make_service_error(ErrorCode::ComponentUnavailable, "event loop dependencies unavailable"));
+        !position_manager_ || !risk_manager_ || !execution_engine_) {
+        raise_service_error(make_service_error(ErrorCode::ComponentUnavailable, "event loop dependencies unavailable"));
         return false;
     }
 
-    event_loop_ = std::make_unique<EventLoop>(config_manager_.EventLoop(), upstream_shm_, downstream_shm_, trades_shm_,
-        orders_shm_, *order_book_, *order_router_, *position_manager_, *risk_manager_,
-        account_info_ ? &account_info_->info() : nullptr);
+    event_loop_ =
+        std::make_unique<EventLoop>(config_manager_.EventLoop(), upstream_shm_, downstream_shm_, trades_shm_,
+                                    orders_shm_, *order_book_, *order_router_, *position_manager_, *risk_manager_,
+                                    account_info_ ? &account_info_->info() : nullptr, execution_engine_.get());
     if (!event_loop_) {
         raise_service_error(make_service_error(ErrorCode::ComponentUnavailable, "failed to initialize event loop"));
         return false;
@@ -303,8 +343,8 @@ bool AccountService::load_account_info() {
 
 bool AccountService::load_positions() {
     if (!position_manager_) {
-        raise_service_error(make_service_error(
-            ErrorCode::ComponentUnavailable, "position manager unavailable while loading positions"));
+        raise_service_error(make_service_error(ErrorCode::ComponentUnavailable,
+                                               "position manager unavailable while loading positions"));
         return false;
     }
     return true;
@@ -348,6 +388,8 @@ bool AccountService::load_today_entrusts() {
 
 void AccountService::cleanup() {
     event_loop_.reset();
+    execution_engine_.reset();
+    market_data_service_.reset();
     order_router_.reset();
     order_book_.reset();
     risk_manager_.reset();
@@ -379,8 +421,8 @@ void AccountService::raise_service_error(const ErrorStatus& status) {
     const ErrorPolicy& policy = classify(status.domain, status.code);
     ErrorSeverity expected = shutdown_reason_.load(std::memory_order_acquire);
     while (expected < policy.severity) {
-        if (shutdown_reason_.compare_exchange_weak(
-                expected, policy.severity, std::memory_order_acq_rel, std::memory_order_acquire)) {
+        if (shutdown_reason_.compare_exchange_weak(expected, policy.severity, std::memory_order_acq_rel,
+                                                   std::memory_order_acquire)) {
             break;
         }
     }

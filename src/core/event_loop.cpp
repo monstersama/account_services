@@ -10,6 +10,7 @@
 #include "common/error.hpp"
 #include "common/log.hpp"
 #include "common/security_identity.hpp"
+#include "execution/execution_engine.hpp"
 #include "portfolio/account_info.hpp"
 #include "shm/orders_shm.hpp"
 
@@ -75,9 +76,10 @@ double event_loop_stats::avg_latency_ns() const {
 }
 
 EventLoop::EventLoop(const EventLoopConfig& config, upstream_shm_layout* upstream_shm,
-    downstream_shm_layout* downstream_shm, trades_shm_layout* trades_shm, orders_shm_layout* orders_shm,
-    OrderBook& OrderBook, order_router& router, PositionManager& positions, RiskManager& risk,
-    const account_info* account_info)
+                     downstream_shm_layout* downstream_shm, trades_shm_layout* trades_shm,
+                     orders_shm_layout* orders_shm, OrderBook& OrderBook, order_router& router,
+                     PositionManager& positions, RiskManager& risk, const account_info* account_info,
+                     ExecutionEngine* execution_engine)
     : config_(config),
       upstream_shm_(upstream_shm),
       downstream_shm_(downstream_shm),
@@ -87,10 +89,10 @@ EventLoop::EventLoop(const EventLoopConfig& config, upstream_shm_layout* upstrea
       router_(router),
       positions_(positions),
       risk_(risk),
-      account_info_(account_info) {
-    order_book_.set_change_callback([this](const OrderEntry& entry, order_book_event_t event) {
-        on_order_book_changed(entry, event);
-    });
+      account_info_(account_info),
+      execution_engine_(execution_engine) {
+    order_book_.set_change_callback(
+        [this](const OrderEntry& entry, order_book_event_t event) { on_order_book_changed(entry, event); });
 }
 
 // 为新单补齐手续费估算，避免风控通过但成交结算时手续费不足。
@@ -115,9 +117,6 @@ bool EventLoop::reserve_order_resources(OrderEntry& entry) {
     if (entry.request.order_type != OrderType::New || entry.request.trade_side != TradeSide::Buy) {
         return true;
     }
-    if (router_.should_split(entry.request)) {
-        return true;
-    }
 
     DValue order_value = 0;
     DValue total = 0;
@@ -136,7 +135,8 @@ bool EventLoop::reserve_order_resources(OrderEntry& entry) {
 
 // 释放订单剩余冻结资金，供发送失败、拒单和撤单完成后的尾款回收使用。
 void EventLoop::release_order_resources(OrderEntry& entry) {
-    if (entry.request.order_type != OrderType::New || entry.request.trade_side != TradeSide::Buy || entry.fund_frozen == 0) {
+    if (entry.request.order_type != OrderType::New || entry.request.trade_side != TradeSide::Buy ||
+        entry.fund_frozen == 0) {
         return;
     }
     if (!positions_.unfreeze_fund(entry.fund_frozen, entry.request.internal_order_id)) {
@@ -230,6 +230,9 @@ void EventLoop::loop_iteration() {
 
     const std::size_t orders = process_upstream_orders();
     const std::size_t responses = process_downstream_responses();
+    if (execution_engine_) {
+        execution_engine_->tick(now_ns());
+    }
     if (config_.archive_terminal_orders) {
         process_pending_archives(now_ns());
     }
@@ -266,7 +269,7 @@ std::size_t EventLoop::process_upstream_orders() {
         order_slot_snapshot snapshot;
         if (!orders_shm_read_snapshot(orders_shm_, order_index, snapshot)) {
             ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::order, ErrorCode::OrderNotFound, "EventLoop",
-                "failed to read order slot from upstream index", 0);
+                                                 "failed to read order slot from upstream index", 0);
             record_error(status);
             ACCT_LOG_ERROR_STATUS(status);
             continue;
@@ -313,8 +316,8 @@ void EventLoop::handle_order_request(OrderIndex index, OrderRequest& request) {
             request.order_state.store(OrderState::TraderError, std::memory_order_release);
             (void)orders_shm_sync_order(orders_shm_, index, request, now_ns());
             (void)orders_shm_update_stage(orders_shm_, index, OrderSlotState::QueuePushFailed, now_ns());
-            ErrorStatus status = ACCT_MAKE_ERROR(
-                ErrorDomain::order, ErrorCode::InvalidParam, "EventLoop", "invalid market/security_id for internal key", 0);
+            ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::order, ErrorCode::InvalidParam, "EventLoop",
+                                                 "invalid market/security_id for internal key", 0);
             record_error(status);
             ACCT_LOG_ERROR_STATUS(status);
             return;
@@ -341,8 +344,8 @@ void EventLoop::handle_order_request(OrderIndex index, OrderRequest& request) {
 
     if (!order_book_.add_order(entry)) {
         (void)orders_shm_update_stage(orders_shm_, index, OrderSlotState::QueuePushFailed, now_ns());
-        ErrorStatus status = ACCT_MAKE_ERROR(
-            ErrorDomain::order, ErrorCode::OrderBookFull, "EventLoop", "OrderBook add_order failed", 0);
+        ErrorStatus status =
+            ACCT_MAKE_ERROR(ErrorDomain::order, ErrorCode::OrderBookFull, "EventLoop", "OrderBook add_order failed", 0);
         record_error(status);
         ACCT_LOG_ERROR_STATUS(status);
         return;
@@ -373,6 +376,33 @@ void EventLoop::handle_order_request(OrderIndex index, OrderRequest& request) {
     if (!active) {
         return;
     }
+
+    // 时间片执行算法交给长期执行引擎管理，避免沿用一次性拆单/冻结路径。
+    if (execution_engine_ && execution_engine_->should_manage(active->request)) {
+        active->request.active_strategy_claimed = execution_engine_->has_active_strategy() ? 1U : 0U;
+        order_book_.update_state(request.internal_order_id, OrderState::TraderPending);
+        const ExecutionEngine::SessionStartResult start_result =
+            execution_engine_->start_session(index, active->request, active->strategy_id, active->submit_time_ns);
+        if (start_result != ExecutionEngine::SessionStartResult::Started) {
+            const bool rejected = start_result == ExecutionEngine::SessionStartResult::Unsupported ||
+                                  start_result == ExecutionEngine::SessionStartResult::MarketDataUnavailable;
+            order_book_.update_state(request.internal_order_id,
+                                     rejected ? OrderState::TraderRejected : OrderState::TraderError);
+            (void)orders_shm_update_stage(orders_shm_, index, OrderSlotState::QueuePushFailed, now_ns());
+            ErrorStatus status = ACCT_MAKE_ERROR(
+                ErrorDomain::order, rejected ? ErrorCode::InvalidParam : ErrorCode::SplitFailed, "EventLoop",
+                (start_result == ExecutionEngine::SessionStartResult::Unsupported)
+                    ? "unsupported passive execution algo"
+                    : (start_result == ExecutionEngine::SessionStartResult::MarketDataUnavailable)
+                          ? "managed execution requires ready market data"
+                          : "failed to start execution session",
+                0);
+            record_error(status);
+            ACCT_LOG_ERROR_STATUS(status);
+        }
+        return;
+    }
+
     if (!reserve_order_resources(*active)) {
         order_book_.update_state(request.internal_order_id, OrderState::RiskControllerRejected);
         (void)orders_shm_update_stage(orders_shm_, index, OrderSlotState::RiskRejected, now_ns());
@@ -385,8 +415,8 @@ void EventLoop::handle_order_request(OrderIndex index, OrderRequest& request) {
         release_order_resources(*active);
         order_book_.update_state(request.internal_order_id, OrderState::TraderError);
         (void)orders_shm_update_stage(orders_shm_, index, OrderSlotState::QueuePushFailed, now_ns());
-        ErrorStatus status = ACCT_MAKE_ERROR(
-            ErrorDomain::order, ErrorCode::RouteFailed, "EventLoop", "route_order failed", 0);
+        ErrorStatus status =
+            ACCT_MAKE_ERROR(ErrorDomain::order, ErrorCode::RouteFailed, "EventLoop", "route_order failed", 0);
         record_error(status);
         ACCT_LOG_ERROR_STATUS(status);
     }
@@ -403,23 +433,27 @@ void EventLoop::on_order_book_changed(const OrderEntry& entry, order_book_event_
     bool synced = false;
     if (event == order_book_event_t::Archived || is_terminal_state(status)) {
         synced = orders_shm_write_order(orders_shm_, entry.shm_order_index, entry.request, OrderSlotState::Terminal,
-            order_slot_source_t::AccountInternal, update_ns);
+                                        order_slot_source_t::AccountInternal, update_ns);
     } else if (status == OrderState::RiskControllerRejected) {
         synced = orders_shm_write_order(orders_shm_, entry.shm_order_index, entry.request, OrderSlotState::RiskRejected,
-            order_slot_source_t::AccountInternal, update_ns);
+                                        order_slot_source_t::AccountInternal, update_ns);
     } else {
         synced = orders_shm_sync_order(orders_shm_, entry.shm_order_index, entry.request, update_ns);
     }
 
     if (!synced) {
-        ErrorStatus status_err = ACCT_MAKE_ERROR(
-            ErrorDomain::order, ErrorCode::OrderNotFound, "EventLoop", "failed to sync order book snapshot to orders shm", 0);
+        ErrorStatus status_err = ACCT_MAKE_ERROR(ErrorDomain::order, ErrorCode::OrderNotFound, "EventLoop",
+                                                 "failed to sync order book snapshot to orders shm", 0);
         record_error(status_err);
         ACCT_LOG_ERROR_STATUS(status_err);
     }
 }
 
 void EventLoop::handle_trade_response(const TradeResponse& response) {
+    if (execution_engine_) {
+        execution_engine_->on_trade_response(response);
+    }
+
     if (response.internal_order_id == 0) {
         return;
     }
@@ -430,62 +464,69 @@ void EventLoop::handle_trade_response(const TradeResponse& response) {
 
     if (response.volume_traded > 0) {
         order_book_.update_trade(response.internal_order_id, response.volume_traded, response.dprice_traded,
-            response.dvalue_traded, response.dfee);
+                                 response.dvalue_traded, response.dfee);
 
         order = order_book_.find_order(response.internal_order_id);
         if (order && order->request.order_type == OrderType::New) {
             if (response.trade_side == TradeSide::Buy) {
                 if (!settle_buy_trade_fund(*order, response.dvalue_traded, response.dfee)) {
-                    ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::PositionUpdateFailed,
-                        "EventLoop", "failed to settle buy fund from trade response", 0);
+                    ErrorStatus status =
+                        ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::PositionUpdateFailed, "EventLoop",
+                                        "failed to settle buy fund from trade response", 0);
                     record_error(status);
                     ACCT_LOG_ERROR_STATUS(status);
                 }
             } else if (response.trade_side == TradeSide::Sell) {
-                if (!positions_.apply_sell_trade_fund(response.dvalue_traded, response.dfee, response.internal_order_id)) {
-                    ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::PositionUpdateFailed,
-                        "EventLoop", "failed to settle sell fund from trade response", 0);
+                if (!positions_.apply_sell_trade_fund(response.dvalue_traded, response.dfee,
+                                                      response.internal_order_id)) {
+                    ErrorStatus status =
+                        ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::PositionUpdateFailed, "EventLoop",
+                                        "failed to settle sell fund from trade response", 0);
                     record_error(status);
                     ACCT_LOG_ERROR_STATUS(status);
                 }
             }
 
-            const InternalSecurityId security_id =
-                response.internal_security_id.empty() ? order->request.internal_security_id : response.internal_security_id;
+            const InternalSecurityId security_id = response.internal_security_id.empty()
+                                                       ? order->request.internal_security_id
+                                                       : response.internal_security_id;
 
             if (!security_id.empty()) {
                 if (!positions_.get_position(security_id) && !order->request.security_id.empty()) {
                     const std::string_view position_name = !order->request.internal_security_id.empty()
                                                                ? order->request.internal_security_id.view()
                                                                : security_id.view();
-                    const InternalSecurityId added =
-                        positions_.add_security(order->request.security_id.view(), position_name, order->request.market);
+                    const InternalSecurityId added = positions_.add_security(order->request.security_id.view(),
+                                                                             position_name, order->request.market);
                     if (added.empty()) {
                         ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::PositionUpdateFailed,
-                            "EventLoop", "failed to create missing position row", 0);
+                                                             "EventLoop", "failed to create missing position row", 0);
                         record_error(status);
                         ACCT_LOG_ERROR_STATUS(status);
                     } else if (added != security_id) {
-                        ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::OrderInvariantBroken,
-                            "EventLoop", "security id mismatch while creating position row", 0);
+                        ErrorStatus status =
+                            ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::OrderInvariantBroken, "EventLoop",
+                                            "security id mismatch while creating position row", 0);
                         record_error(status);
                         ACCT_LOG_ERROR_STATUS(status);
                     }
                 }
 
                 if (response.trade_side == TradeSide::Buy) {
-                    if (!positions_.add_position(
-                            security_id, response.volume_traded, response.dprice_traded, response.internal_order_id)) {
-                        ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::PositionUpdateFailed,
-                            "EventLoop", "failed to add position from trade response", 0);
+                    if (!positions_.add_position(security_id, response.volume_traded, response.dprice_traded,
+                                                 response.internal_order_id)) {
+                        ErrorStatus status =
+                            ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::PositionUpdateFailed, "EventLoop",
+                                            "failed to add position from trade response", 0);
                         record_error(status);
                         ACCT_LOG_ERROR_STATUS(status);
                     }
                 } else if (response.trade_side == TradeSide::Sell) {
-                    if (!positions_.deduct_position(
-                            security_id, response.volume_traded, response.dvalue_traded, response.internal_order_id)) {
-                        ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::PositionUpdateFailed,
-                            "EventLoop", "failed to deduct position from trade response", 0);
+                    if (!positions_.deduct_position(security_id, response.volume_traded, response.dvalue_traded,
+                                                    response.internal_order_id)) {
+                        ErrorStatus status =
+                            ACCT_MAKE_ERROR(ErrorDomain::portfolio, ErrorCode::PositionUpdateFailed, "EventLoop",
+                                            "failed to deduct position from trade response", 0);
                         record_error(status);
                         ACCT_LOG_ERROR_STATUS(status);
                     }
@@ -521,8 +562,7 @@ void EventLoop::handle_trade_response(const TradeResponse& response) {
         return;
     }
 
-    const TimestampNs deadline_ns =
-        now_ns() + static_cast<TimestampNs>(config_.terminal_archive_delay_ms) * 1000000ULL;
+    const TimestampNs deadline_ns = now_ns() + static_cast<TimestampNs>(config_.terminal_archive_delay_ms) * 1000000ULL;
     pending_archive_deadlines_ns_[response.internal_order_id] = deadline_ns;
 }
 
@@ -571,12 +611,13 @@ void EventLoop::update_latency_stats(TimestampNs start, TimestampNs end) {
 
 void EventLoop::print_periodic_stats() {
     std::fprintf(stderr,
-        "[EventLoop] iter=%llu orders=%llu responses=%llu idle=%llu avg_ns=%.0f min_ns=%llu max_ns=%llu\n",
-        static_cast<unsigned long long>(stats_.total_iterations), static_cast<unsigned long long>(stats_.orders_processed),
-        static_cast<unsigned long long>(stats_.responses_processed),
-        static_cast<unsigned long long>(stats_.idle_iterations), stats_.avg_latency_ns(),
-        static_cast<unsigned long long>(stats_.min_latency_ns == UINT64_MAX ? 0 : stats_.min_latency_ns),
-        static_cast<unsigned long long>(stats_.max_latency_ns));
+                 "[EventLoop] iter=%llu orders=%llu responses=%llu idle=%llu avg_ns=%.0f min_ns=%llu max_ns=%llu\n",
+                 static_cast<unsigned long long>(stats_.total_iterations),
+                 static_cast<unsigned long long>(stats_.orders_processed),
+                 static_cast<unsigned long long>(stats_.responses_processed),
+                 static_cast<unsigned long long>(stats_.idle_iterations), stats_.avg_latency_ns(),
+                 static_cast<unsigned long long>(stats_.min_latency_ns == UINT64_MAX ? 0 : stats_.min_latency_ns),
+                 static_cast<unsigned long long>(stats_.max_latency_ns));
 }
 
 void EventLoop::set_cpu_affinity(int core) {

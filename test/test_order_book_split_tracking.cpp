@@ -107,6 +107,40 @@ TEST(parent_error_latch) {
     assert(parent->request.order_state.load(std::memory_order_acquire) == OrderState::TraderError);
 }
 
+TEST(managed_parent_view_skips_legacy_child_aggregation) {
+    auto book = std::make_unique<OrderBook>();
+
+    const InternalOrderId parent_id = book->next_order_id();
+    const InternalOrderId child_id = book->next_order_id();
+
+    assert(book->add_order(make_new_entry(parent_id, 100)));
+    assert(book->mark_managed_parent(parent_id));
+    assert(book->add_order(make_new_entry(child_id, 40, true, parent_id)));
+
+    ManagedParentView view{};
+    view.execution_algo = PassiveExecutionAlgo::FixedSize;
+    view.execution_state = ExecutionState::Running;
+    view.target_volume = 100;
+    view.working_volume = 40;
+    view.schedulable_volume = 60;
+    view.confirmed_traded_volume = 0;
+    view.confirmed_traded_value = 0;
+    view.confirmed_fee = 0;
+    assert(book->sync_managed_parent_view(parent_id, view, OrderState::TraderPending));
+
+    assert(book->update_trade(child_id, 40, 1000, 40000, 5));
+
+    const OrderEntry* parent = book->find_order(parent_id);
+    assert(parent != nullptr);
+    assert(parent->request.execution_algo == PassiveExecutionAlgo::FixedSize);
+    assert(parent->request.execution_state == ExecutionState::Running);
+    assert(parent->request.target_volume == 100);
+    assert(parent->request.working_volume == 40);
+    assert(parent->request.schedulable_volume == 60);
+    assert(parent->request.volume_traded == 0);
+    assert(parent->request.volume_remain == 100);
+}
+
 TEST(ensure_next_order_id_at_least) {
     auto book = std::make_unique<OrderBook>();
 
@@ -127,6 +161,7 @@ int main() {
 
     RUN_TEST(split_mapping_and_aggregation);
     RUN_TEST(parent_error_latch);
+    RUN_TEST(managed_parent_view_skips_legacy_child_aggregation);
     RUN_TEST(ensure_next_order_id_at_least);
 
     printf("\n=== All tests passed! ===\n");

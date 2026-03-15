@@ -15,7 +15,7 @@ using BrokerOrderId = FixedString<kBrokerOrderIdSize>;
 using Volume = uint64_t;
 using DPrice = uint64_t;   // 价格，单位：分 (2位小数精度)
 using DValue = uint64_t;   // 金额，单位：分
-using MdTime = uint32_t;  // 具体时间（毫秒）
+using MdTime = uint32_t;   // 具体时间（毫秒）
 using Seconds = uint32_t;  // 时间（秒），非具体时间点
 
 using AccountId = uint32_t;
@@ -63,6 +63,16 @@ enum class SplitStrategy : uint8_t {
     TWAP = 2,
     VWAP = 3,
     Iceberg = 4,
+};
+
+// 单笔订单声明的被动执行算法；Default 表示回落到服务默认拆单配置。
+enum class PassiveExecutionAlgo : uint8_t {
+    Default = 0,
+    None = 1,
+    FixedSize = 2,
+    TWAP = 3,
+    VWAP = 4,
+    Iceberg = 5,
 };
 
 // 持仓变动类型

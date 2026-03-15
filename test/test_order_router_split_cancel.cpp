@@ -62,22 +62,29 @@ std::unique_ptr<orders_shm_layout> make_orders() {
     return orders;
 }
 
-split_config make_split_config() {
-    split_config cfg;
-    cfg.strategy = SplitStrategy::FixedSize;
-    cfg.max_child_volume = 100;
-    cfg.min_child_volume = 1;
-    cfg.max_child_count = 16;
-    return cfg;
+// 构造一个已登记父单的内部子单，供路由器验证撤单扇出语义。
+OrderEntry make_child_entry(InternalOrderId order_id, InternalOrderId parent_id, Volume volume) {
+    OrderEntry entry{};
+    entry.request.init_new(
+        "000001", InternalSecurityId("XSHE_000001"), order_id, TradeSide::Buy, Market::SZ, volume, 1000, 93000000);
+    entry.request.order_state.store(OrderState::RiskControllerAccepted, std::memory_order_relaxed);
+    entry.submit_time_ns = now_ns();
+    entry.last_update_ns = entry.submit_time_ns;
+    entry.strategy_id = static_cast<StrategyId>(1);
+    entry.risk_result = RiskResult::Pass;
+    entry.retry_count = 0;
+    entry.is_split_child = true;
+    entry.parent_order_id = parent_id;
+    return entry;
 }
 
 } // namespace
 
-TEST(split_cancel_fanout_tracks_parent) {
+TEST(internal_child_cancel_fanout_tracks_parent) {
     auto book = std::make_unique<OrderBook>();
     auto downstream = make_downstream();
     auto orders = make_orders();
-    order_router router(*book, downstream.get(), orders.get(), make_split_config());
+    order_router router(*book, downstream.get(), orders.get());
 
     const InternalOrderId parent_id = book->next_order_id();
     OrderEntry parent = make_parent_entry(parent_id, 250);
@@ -91,37 +98,33 @@ TEST(split_cancel_fanout_tracks_parent) {
     parent.shm_order_index = parent_index;
     assert(book->add_order(parent));
 
-    assert(router.route_order(parent));
+    const InternalOrderId child1_id = book->next_order_id();
+    const InternalOrderId child2_id = book->next_order_id();
+    const InternalOrderId child3_id = book->next_order_id();
+    OrderEntry child1 = make_child_entry(child1_id, parent_id, 100);
+    OrderEntry child2 = make_child_entry(child2_id, parent_id, 80);
+    OrderEntry child3 = make_child_entry(child3_id, parent_id, 70);
+
+    assert(router.submit_internal_order(child1));
+    assert(router.submit_internal_order(child2));
+    assert(router.submit_internal_order(child3));
 
     const std::vector<InternalOrderId> children = book->get_children(parent_id);
     assert(children.size() == 3);
-
-    std::set<InternalOrderId> child_ids_from_new_orders;
-    OrderIndex index = kInvalidOrderIndex;
-    while (downstream->order_queue.try_pop(index)) {
-        order_slot_snapshot snapshot;
-        assert(orders_shm_read_snapshot(orders.get(), index, snapshot));
-        const OrderRequest& request = snapshot.request;
-        if (request.order_type == OrderType::New) {
-            child_ids_from_new_orders.insert(request.internal_order_id);
-        }
-    }
-    assert(child_ids_from_new_orders.size() == 3);
-
-    for (InternalOrderId child_id : children) {
-        assert(child_ids_from_new_orders.find(child_id) != child_ids_from_new_orders.end());
-    }
 
     const InternalOrderId parent_cancel_id = book->next_order_id();
     assert(router.route_cancel(parent_id, parent_cancel_id, 93100000));
 
     std::set<InternalOrderId> cancelled_child_ids;
     std::size_t cancel_count = 0;
+    OrderIndex index = kInvalidOrderIndex;
     while (downstream->order_queue.try_pop(index)) {
         order_slot_snapshot snapshot;
         assert(orders_shm_read_snapshot(orders.get(), index, snapshot));
         const OrderRequest& request = snapshot.request;
-        assert(request.order_type == OrderType::Cancel);
+        if (request.order_type != OrderType::Cancel) {
+            continue;
+        }
         cancelled_child_ids.insert(request.orig_internal_order_id);
 
         InternalOrderId reverse_parent = 0;
@@ -136,19 +139,18 @@ TEST(split_cancel_fanout_tracks_parent) {
     }
 }
 
-TEST(partial_send_failure_latches_parent_error) {
+TEST(cancel_send_failure_latches_parent_error) {
     auto book = std::make_unique<OrderBook>();
     auto downstream = make_downstream();
     auto orders = make_orders();
-    order_router router(*book, downstream.get(), orders.get(), make_split_config());
+    order_router router(*book, downstream.get(), orders.get());
 
     const std::size_t capacity = decltype(downstream->order_queue)::capacity();
-    OrderRequest dummy;
-    dummy.init_new("000001", InternalSecurityId("XSHE_000001"), 999999, TradeSide::Buy, Market::SZ, 1, 1000, 93000000);
-    dummy.order_state.store(OrderState::TraderSubmitted, std::memory_order_relaxed);
-
     for (std::size_t i = 0; i < capacity - 1; ++i) {
-        dummy.internal_order_id = static_cast<InternalOrderId>(1000 + i);
+        OrderRequest dummy;
+        dummy.init_new("000001", InternalSecurityId("XSHE_000001"), static_cast<InternalOrderId>(1000 + i),
+                       TradeSide::Buy, Market::SZ, 1, 1000, 93000000);
+        dummy.order_state.store(OrderState::TraderSubmitted, std::memory_order_relaxed);
         OrderIndex dummy_index = kInvalidOrderIndex;
         assert(orders_shm_append(orders.get(),
             dummy,
@@ -171,14 +173,25 @@ TEST(partial_send_failure_latches_parent_error) {
     parent.shm_order_index = parent_index;
     assert(book->add_order(parent));
 
-    assert(router.route_order(parent));
+    const InternalOrderId child1_id = book->next_order_id();
+    const InternalOrderId child2_id = book->next_order_id();
+    const InternalOrderId child3_id = book->next_order_id();
+    OrderEntry child1 = make_child_entry(child1_id, parent_id, 100);
+    OrderEntry child2 = make_child_entry(child2_id, parent_id, 100);
+    OrderEntry child3 = make_child_entry(child3_id, parent_id, 100);
+
+    assert(book->add_order(child1));
+    assert(book->add_order(child2));
+    assert(book->add_order(child3));
+
+    assert(router.route_cancel(parent_id, book->next_order_id(), 93100000));
 
     const OrderEntry* parent_after = book->find_order(parent_id);
     assert(parent_after != nullptr);
     assert(parent_after->request.order_state.load(std::memory_order_acquire) == OrderState::TraderError);
 
     const std::vector<InternalOrderId> children = book->get_children(parent_id);
-    assert(children.size() == 3);
+    assert(children.size() >= 3);
 
     std::size_t submitted_children = 0;
     std::size_t error_children = 0;
@@ -200,8 +213,8 @@ TEST(partial_send_failure_latches_parent_error) {
 int main() {
     printf("=== Order Router Split Cancel Test Suite ===\n\n");
 
-    RUN_TEST(split_cancel_fanout_tracks_parent);
-    RUN_TEST(partial_send_failure_latches_parent_error);
+    RUN_TEST(internal_child_cancel_fanout_tracks_parent);
+    RUN_TEST(cancel_send_failure_latches_parent_error);
 
     printf("\n=== All tests passed! ===\n");
     return 0;

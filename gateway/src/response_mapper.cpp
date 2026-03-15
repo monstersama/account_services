@@ -58,6 +58,7 @@ bool map_broker_event_to_trade_response(const broker_api::broker_event& event, T
     out_response.trade_side = to_order_side(event.trade_side);
     out_response.new_state = mapped_state;
     out_response.volume_traded = event.volume_traded;
+    out_response.cancelled_volume = event.cancelled_volume;
     out_response.dprice_traded = event.price_traded;
     out_response.dvalue_traded = event.value_traded;
     out_response.dfee = event.fee;

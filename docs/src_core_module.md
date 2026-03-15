@@ -19,7 +19,7 @@
 - 解析配置文件和命令行覆盖项，形成运行配置快照。
 - 初始化日志与五类共享内存映射。
 - 初始化持仓、账户信息、成交记录和委托记录。
-- 创建 `RiskManager`、`OrderBook`、`order_router` 和 `EventLoop`。
+- 创建 `RiskManager`、`OrderBook`、`order_router`、`ExecutionEngine` 和 `EventLoop`。
 - 驱动上游订单消费、下游成交回报处理、统计输出和可选归档。
 - 统一收敛错误并把关键错误提升为停服/退出决策。
 
@@ -54,6 +54,7 @@
 - `DBConfig`
 - `RiskConfig`
 - `split_config`
+  - 当前作为执行算法默认参数配置，而不是旧的一次性 splitter 运行时配置
 
 实现说明：
 
@@ -120,7 +121,9 @@
    - 初始化 `portfolio` 组件
    - 初始化 `RiskManager`
    - 初始化 `OrderBook` 与 `order_router`
-   - 恢复下游在途订单
+    - 恢复下游在途订单
+   - 初始化 `MarketDataService`
+   - 初始化 `ExecutionEngine`
    - 创建 `EventLoop`
 4. 若全部成功，状态进入 `Ready`。
 5. `run()` 将状态推进到 `Running` 并阻塞执行事件循环。
@@ -139,8 +142,9 @@
    - 把订单加入 `OrderBook`
    - 推进到 `RiskControllerPending`
    - 对新单调用 `RiskManager`
-   - 风控通过后冻结必要资源
-   - 调 `order_router` 发往下游
+   - 风控通过后：
+     - managed execution 订单进入 `ExecutionEngine`
+     - 普通订单冻结必要资源并调 `order_router` 发往下游
 
 ### 4.3 下游回报处理
 
@@ -195,7 +199,9 @@
 - `src/risk`
   - 风控规则链
 - `src/order`
-  - 订单簿、路由、拆单、重启恢复
+  - 订单簿、路由、父子索引、重启恢复
+- `src/execution`
+  - 统一执行会话、行情驱动子单定价、父单镜像回写
 
 ### 不负责的内容
 

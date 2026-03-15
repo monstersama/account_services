@@ -87,9 +87,13 @@ void fill_snapshot(acct_orders_mon_snapshot_t& out, uint32_t index, uint64_t seq
     out.stage = static_cast<uint8_t>(stage);
     out.source = static_cast<uint8_t>(source);
     out.order_type = static_cast<uint8_t>(request.order_type);
+    out.passive_exec_algo = static_cast<uint8_t>(request.passive_execution_algo);
     out.trade_side = static_cast<uint8_t>(request.trade_side);
     out.market = static_cast<uint8_t>(request.market);
     out.order_status = static_cast<uint8_t>(request.order_state.load(std::memory_order_acquire));
+    out.active_strategy_claimed = request.active_strategy_claimed;
+    out.execution_algo = static_cast<uint8_t>(request.execution_algo);
+    out.execution_state = static_cast<uint8_t>(request.execution_state);
     std::memcpy(out.internal_security_id, request.internal_security_id.data, sizeof(out.internal_security_id));
 
     out.internal_order_id = request.internal_order_id;
@@ -107,6 +111,9 @@ void fill_snapshot(acct_orders_mon_snapshot_t& out, uint32_t index, uint64_t seq
     out.volume_entrust = request.volume_entrust;
     out.volume_traded = request.volume_traded;
     out.volume_remain = request.volume_remain;
+    out.target_volume = request.target_volume;
+    out.working_volume = request.working_volume;
+    out.schedulable_volume = request.schedulable_volume;
     out.dprice_entrust = request.dprice_entrust;
     out.dprice_traded = request.dprice_traded;
     out.dvalue_traded = request.dvalue_traded;
@@ -217,8 +224,8 @@ ACCT_MON_API acct_mon_error_t acct_orders_mon_open(const acct_orders_mon_options
     }
 
     ctx->orders_dated_name = make_orders_shm_name(base_name, trading_day);
-    if (!acct_service::basecore_shm_bridge::open_reader(
-            ctx->reader, ctx->orders_dated_name, sizeof(acct_service::orders_shm_layout))) {
+    if (!acct_service::basecore_shm_bridge::open_reader(ctx->reader, ctx->orders_dated_name,
+                                                        sizeof(acct_service::orders_shm_layout))) {
         return ACCT_MON_ERR_SHM_FAILED;
     }
 

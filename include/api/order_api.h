@@ -31,7 +31,7 @@ typedef enum {
     ACCT_ERR_QUEUE_FULL = -3,
     ACCT_ERR_SHM_FAILED = -4,
     ACCT_ERR_ORDER_NOT_FOUND = -5,
-    ACCT_ERR_CACHE_FULL = -6,  // 订单缓存已满
+    ACCT_ERR_CACHE_FULL = -6,       // 订单缓存已满
     ACCT_ERR_ORDER_POOL_FULL = -7,  // 订单池容量耗尽
     ACCT_ERR_INTERNAL = -99,
 } acct_error_t;
@@ -50,6 +50,16 @@ typedef enum {
     ACCT_SIDE_SELL = 2,
 } acct_side_t;
 
+// ============ 被动执行算法 ============
+typedef enum {
+    ACCT_PASSIVE_EXEC_DEFAULT = 0,
+    ACCT_PASSIVE_EXEC_NONE = 1,
+    ACCT_PASSIVE_EXEC_FIXED_SIZE = 2,
+    ACCT_PASSIVE_EXEC_TWAP = 3,
+    ACCT_PASSIVE_EXEC_VWAP = 4,
+    ACCT_PASSIVE_EXEC_ICEBERG = 5,
+} acct_passive_exec_algo_t;
+
 // ============ 上下文句柄 ============
 typedef struct acct_context* acct_ctx_t;
 
@@ -62,6 +72,12 @@ typedef struct acct_init_options {
     const char* trading_day;        // 必须为 YYYYMMDD
     uint8_t create_if_not_exist;    // 0=仅打开，非0=可创建
 } acct_init_options_t;
+
+// ============ 单笔执行选项 ============
+typedef struct acct_order_exec_options {
+    uint8_t passive_exec_algo;  // acct_passive_exec_algo_t，默认 ACCT_PASSIVE_EXEC_DEFAULT
+    uint8_t reserved[7];
+} acct_order_exec_options_t;
 
 // ============ 初始化/销毁 ============
 
@@ -109,7 +125,15 @@ ACCT_API acct_error_t acct_cleanup_shm(void);
  * @return 错误码，ACCT_OK 表示成功
  */
 ACCT_API acct_error_t acct_new_order(acct_ctx_t ctx, const char* security_id, uint8_t side, uint8_t market,
-    uint64_t volume, double price, uint32_t valid_sec, uint32_t* out_order_id);
+                                     uint64_t volume, double price, uint32_t valid_sec, uint32_t* out_order_id);
+
+/**
+ * @brief 创建新订单并指定逐单被动执行算法
+ * @param exec_options 执行选项，可传 NULL 使用默认值
+ */
+ACCT_API acct_error_t acct_new_order_ex(acct_ctx_t ctx, const char* security_id, uint8_t side, uint8_t market,
+                                        uint64_t volume, double price, uint32_t valid_sec,
+                                        const acct_order_exec_options_t* exec_options, uint32_t* out_order_id);
 
 /**
  * @brief 发送已创建的订单到共享内存队列
@@ -132,7 +156,15 @@ ACCT_API acct_error_t acct_send_order(acct_ctx_t ctx, uint32_t order_id);
  * @return 错误码，ACCT_OK 表示成功
  */
 ACCT_API acct_error_t acct_submit_order(acct_ctx_t ctx, const char* security_id, uint8_t side, uint8_t market,
-    uint64_t volume, double price, uint32_t valid_sec, uint32_t* out_order_id);
+                                        uint64_t volume, double price, uint32_t valid_sec, uint32_t* out_order_id);
+
+/**
+ * @brief 创建并发送订单，同时指定逐单被动执行算法
+ * @param exec_options 执行选项，可传 NULL 使用默认值
+ */
+ACCT_API acct_error_t acct_submit_order_ex(acct_ctx_t ctx, const char* security_id, uint8_t side, uint8_t market,
+                                           uint64_t volume, double price, uint32_t valid_sec,
+                                           const acct_order_exec_options_t* exec_options, uint32_t* out_order_id);
 
 // ============ 撤单接口 ============
 
@@ -144,8 +176,8 @@ ACCT_API acct_error_t acct_submit_order(acct_ctx_t ctx, const char* security_id,
  * @param out_cancel_id 输出参数：撤单请求ID
  * @return 错误码，ACCT_OK 表示成功
  */
-ACCT_API acct_error_t acct_cancel_order(
-    acct_ctx_t ctx, uint32_t orig_order_id, uint32_t valid_sec, uint32_t* out_cancel_id);
+ACCT_API acct_error_t acct_cancel_order(acct_ctx_t ctx, uint32_t orig_order_id, uint32_t valid_sec,
+                                        uint32_t* out_cancel_id);
 
 // ============ 辅助接口 ============
 

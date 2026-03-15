@@ -144,7 +144,9 @@ bool OrderBook::add_order(const OrderEntry& entry) {
         if (stored.is_split_child && stored.parent_order_id != 0) {
             parent_to_children_[stored.parent_order_id].push_back(order_id);
             child_to_parent_[order_id] = stored.parent_order_id;
-            refresh_parent_from_children_nolock(stored.parent_order_id);
+            if (!is_managed_parent_nolock(stored.parent_order_id)) {
+                refresh_parent_from_children_nolock(stored.parent_order_id);
+            }
         }
 
         ++active_count_;
@@ -196,12 +198,13 @@ bool OrderBook::update_state(InternalOrderId order_id, OrderState new_state) {
         entry->request.order_state.store(new_state, std::memory_order_release);
         entry->last_update_ns = now_ns();
 
-        if (new_state == OrderState::TraderError && parent_to_children_.find(order_id) != parent_to_children_.end()) {
+        if (new_state == OrderState::TraderError && parent_to_children_.find(order_id) != parent_to_children_.end() &&
+            !is_managed_parent_nolock(order_id)) {
             split_parent_error_latched_.insert(order_id);
         }
 
         const auto parent_it = child_to_parent_.find(order_id);
-        if (parent_it != child_to_parent_.end()) {
+        if (parent_it != child_to_parent_.end() && !is_managed_parent_nolock(parent_it->second)) {
             refresh_parent_from_children_nolock(parent_it->second);
         }
 
@@ -263,7 +266,7 @@ bool OrderBook::update_trade(InternalOrderId order_id, Volume vol, DPrice px, DV
         entry->last_update_ns = now_ns();
 
         const auto parent_it = child_to_parent_.find(order_id);
-        if (parent_it != child_to_parent_.end()) {
+        if (parent_it != child_to_parent_.end() && !is_managed_parent_nolock(parent_it->second)) {
             refresh_parent_from_children_nolock(parent_it->second);
         }
 
@@ -273,6 +276,67 @@ bool OrderBook::update_trade(InternalOrderId order_id, Volume vol, DPrice px, DV
 
     if (callback) {
         callback(snapshot, order_book_event_t::TradeUpdated);
+    }
+    return true;
+}
+
+// 标记执行引擎托管的父单，后续子单变更不再触发旧聚合刷新。
+bool OrderBook::mark_managed_parent(InternalOrderId parent_id) {
+    LockGuard<SpinLock> guard(lock_);
+
+    OrderEntry* parent = find_order_nolock(parent_id);
+    if (!parent) {
+        ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::order, ErrorCode::OrderNotFound, "OrderBook",
+                                             "mark_managed_parent parent not found", 0);
+        record_error(status);
+        ACCT_LOG_ERROR_STATUS(status);
+        return false;
+    }
+
+    managed_parent_ids_.insert(parent_id);
+    return true;
+}
+
+// 用执行引擎的派生视图覆盖受管父单镜像，避免被旧的 child volume_remain 语义污染。
+bool OrderBook::sync_managed_parent_view(InternalOrderId parent_id, const ManagedParentView& view,
+                                         OrderState parent_state) {
+    order_change_callback_t callback;
+    OrderEntry snapshot{};
+    {
+        LockGuard<SpinLock> guard(lock_);
+
+        OrderEntry* parent = find_order_nolock(parent_id);
+        if (!parent) {
+            ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::order, ErrorCode::OrderNotFound, "OrderBook",
+                                                 "sync_managed_parent_view parent not found", 0);
+            record_error(status);
+            ACCT_LOG_ERROR_STATUS(status);
+            return false;
+        }
+
+        managed_parent_ids_.insert(parent_id);
+        parent->request.execution_algo = view.execution_algo;
+        parent->request.execution_state = view.execution_state;
+        parent->request.target_volume = view.target_volume;
+        parent->request.working_volume = view.working_volume;
+        parent->request.schedulable_volume = view.schedulable_volume;
+        parent->request.volume_entrust = view.target_volume;
+        parent->request.volume_traded = view.confirmed_traded_volume;
+        parent->request.volume_remain =
+            (view.target_volume >= view.confirmed_traded_volume) ? (view.target_volume - view.confirmed_traded_volume) : 0;
+        parent->request.dvalue_traded = view.confirmed_traded_value;
+        parent->request.dfee_executed = view.confirmed_fee;
+        parent->request.dprice_traded =
+            (view.confirmed_traded_volume > 0) ? (view.confirmed_traded_value / view.confirmed_traded_volume) : 0;
+        parent->request.order_state.store(parent_state, std::memory_order_release);
+        parent->last_update_ns = now_ns();
+
+        snapshot = *parent;
+        callback = change_callback_;
+    }
+
+    if (callback) {
+        callback(snapshot, order_book_event_t::ParentRefreshed);
     }
     return true;
 }
@@ -318,6 +382,8 @@ bool OrderBook::archive_order(InternalOrderId order_id) {
         }
 
         id_to_index_.erase(it);
+        managed_parent_ids_.erase(order_id);
+        split_parent_error_latched_.erase(order_id);
         orders_[index] = OrderEntry{};
         free_slots_.push_back(index);
 
@@ -406,6 +472,7 @@ void OrderBook::clear() {
     security_orders_.clear();
     parent_to_children_.clear();
     child_to_parent_.clear();
+    managed_parent_ids_.clear();
     split_parent_error_latched_.clear();
 
     free_slots_.clear();
@@ -422,6 +489,10 @@ void OrderBook::clear() {
 void OrderBook::set_change_callback(order_change_callback_t callback) {
     LockGuard<SpinLock> guard(lock_);
     change_callback_ = std::move(callback);
+}
+
+bool OrderBook::is_managed_parent_nolock(InternalOrderId parent_id) const noexcept {
+    return managed_parent_ids_.find(parent_id) != managed_parent_ids_.end();
 }
 
 OrderEntry* OrderBook::find_order_nolock(InternalOrderId order_id) {
@@ -441,6 +512,10 @@ const OrderEntry* OrderBook::find_order_nolock(InternalOrderId order_id) const {
 }
 
 void OrderBook::refresh_parent_from_children_nolock(InternalOrderId parent_id) {
+    if (is_managed_parent_nolock(parent_id)) {
+        return;
+    }
+
     OrderEntry* parent = find_order_nolock(parent_id);
     if (!parent) {
         ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::order, ErrorCode::OrderInvariantBroken, "OrderBook",

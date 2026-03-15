@@ -1,5 +1,7 @@
 #include "core/config_manager.hpp"
 
+#include <yaml-cpp/yaml.h>
+
 #include <algorithm>
 #include <cctype>
 #include <climits>
@@ -7,8 +9,6 @@
 #include <fstream>
 #include <string>
 #include <string_view>
-
-#include <yaml-cpp/yaml.h>
 
 #include "common/error.hpp"
 #include "common/log.hpp"
@@ -34,9 +34,8 @@ std::string trim_copy(std::string s) {
 
 bool parse_bool(std::string value, bool& out) {
     value = trim_copy(std::move(value));
-    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
-        return static_cast<char>(std::tolower(c));
-    });
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
     if (value == "1" || value == "true" || value == "yes" || value == "on") {
         out = true;
@@ -95,9 +94,8 @@ bool parse_double(const std::string& value, double& out) {
 
 bool parse_split_strategy(std::string value, SplitStrategy& out) {
     value = trim_copy(std::move(value));
-    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
-        return static_cast<char>(std::tolower(c));
-    });
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
     if (value == "none") {
         out = SplitStrategy::None;
@@ -251,6 +249,25 @@ bool apply_value(Config& cfg, const std::string& key, const std::string& raw_val
         return true;
     }
 
+    if (key == "market_data.enabled") {
+        return parse_bool(value, cfg.market_data.enabled);
+    }
+    if (key == "market_data.snapshot_shm_name") {
+        cfg.market_data.snapshot_shm_name = value;
+        return true;
+    }
+
+    if (key == "active_strategy.enabled") {
+        return parse_bool(value, cfg.active_strategy.enabled);
+    }
+    if (key == "active_strategy.name") {
+        cfg.active_strategy.name = value;
+        return true;
+    }
+    if (key == "active_strategy.signal_threshold") {
+        return parse_double(value, cfg.active_strategy.signal_threshold);
+    }
+
     if (key == "risk.max_order_value") {
         return parse_u64(value, cfg.risk.max_order_value);
     }
@@ -378,7 +395,7 @@ bool ensure_mapping(const YAML::Node& node, std::string_view section_name) {
 }
 
 bool check_allowed_keys(const YAML::Node& map_node, std::string_view section_name,
-    std::initializer_list<std::string_view> allowed_keys) {
+                        std::initializer_list<std::string_view> allowed_keys) {
     for (const auto& entry : map_node) {
         const YAML::Node key_node = entry.first;
         if (!key_node.IsScalar()) {
@@ -420,7 +437,7 @@ bool check_allowed_keys(const YAML::Node& map_node, std::string_view section_nam
 }
 
 bool parse_section(Config& cfg, const YAML::Node& root, std::string_view section_name,
-    std::initializer_list<std::string_view> allowed_keys) {
+                   std::initializer_list<std::string_view> allowed_keys) {
     const YAML::Node section = root[std::string(section_name)];
     if (!section) {
         return true;
@@ -474,8 +491,9 @@ bool ConfigManager::load_from_file(const std::string& config_path) {
     }
 
     if (root && root.IsMap()) {
-        if (!check_allowed_keys(
-                root, "", {"account_id", "trading_day", "shm", "event_loop", "EventLoop", "risk", "split", "log", "db"})) {
+        if (!check_allowed_keys(root, "",
+                                {"account_id", "trading_day", "shm", "event_loop", "EventLoop", "market_data",
+                                 "active_strategy", "risk", "split", "log", "db"})) {
             return false;
         }
 
@@ -502,33 +520,41 @@ bool ConfigManager::load_from_file(const std::string& config_path) {
         }
 
         if (!parse_section(loaded, root, "shm",
-                {"upstream_shm_name", "downstream_shm_name", "trades_shm_name", "orders_shm_name", "positions_shm_name",
-                    "create_if_not_exist"})) {
+                           {"upstream_shm_name", "downstream_shm_name", "trades_shm_name", "orders_shm_name",
+                            "positions_shm_name", "create_if_not_exist"})) {
             return false;
         }
 
         if (!parse_section(loaded, root, "event_loop",
-                {"busy_polling", "poll_batch_size", "idle_sleep_us", "stats_interval_ms", "archive_terminal_orders",
-                    "terminal_archive_delay_ms", "pin_cpu", "cpu_core"})) {
+                           {"busy_polling", "poll_batch_size", "idle_sleep_us", "stats_interval_ms",
+                            "archive_terminal_orders", "terminal_archive_delay_ms", "pin_cpu", "cpu_core"})) {
             return false;
         }
 
         if (!parse_section(loaded, root, "EventLoop",
-                {"busy_polling", "poll_batch_size", "idle_sleep_us", "stats_interval_ms", "archive_terminal_orders",
-                    "terminal_archive_delay_ms", "pin_cpu", "cpu_core"})) {
+                           {"busy_polling", "poll_batch_size", "idle_sleep_us", "stats_interval_ms",
+                            "archive_terminal_orders", "terminal_archive_delay_ms", "pin_cpu", "cpu_core"})) {
+            return false;
+        }
+
+        if (!parse_section(loaded, root, "market_data", {"enabled", "snapshot_shm_name"})) {
+            return false;
+        }
+
+        if (!parse_section(loaded, root, "active_strategy", {"enabled", "name", "signal_threshold"})) {
             return false;
         }
 
         if (!parse_section(loaded, root, "risk",
-                {"max_order_value", "max_order_volume", "max_daily_turnover", "max_orders_per_second",
-                    "enable_price_limit_check", "enable_duplicate_check", "enable_fund_check",
-                    "enable_position_check", "duplicate_window_ns"})) {
+                           {"max_order_value", "max_order_volume", "max_daily_turnover", "max_orders_per_second",
+                            "enable_price_limit_check", "enable_duplicate_check", "enable_fund_check",
+                            "enable_position_check", "duplicate_window_ns"})) {
             return false;
         }
 
         if (!parse_section(loaded, root, "split",
-                {"strategy", "max_child_volume", "min_child_volume", "max_child_count", "interval_ms",
-                    "randomize_factor"})) {
+                           {"strategy", "max_child_volume", "min_child_volume", "max_child_count", "interval_ms",
+                            "randomize_factor"})) {
             return false;
         }
 
@@ -678,6 +704,20 @@ bool ConfigManager::validate() const {
         return false;
     }
 
+    if (config_.market_data.enabled && config_.market_data.snapshot_shm_name.empty()) {
+        (void)report_config_error(ErrorCode::ConfigValidateFailed, "market_data snapshot_shm_name must be non-empty");
+        return false;
+    }
+    if (config_.active_strategy.enabled && !config_.market_data.enabled) {
+        (void)report_config_error(ErrorCode::ConfigValidateFailed, "active_strategy requires market_data.enabled=true");
+        return false;
+    }
+    if (config_.split.strategy != SplitStrategy::None && !config_.market_data.enabled) {
+        (void)report_config_error(ErrorCode::ConfigValidateFailed,
+                                  "managed execution requires market_data.enabled=true");
+        return false;
+    }
+
     if (config_.EventLoop.poll_batch_size == 0) {
         (void)report_config_error(ErrorCode::ConfigValidateFailed, "poll_batch_size must be non-zero");
         return false;
@@ -700,6 +740,10 @@ AccountId ConfigManager::account_id() const noexcept { return config_.account_id
 const SHMConfig& ConfigManager::shm() const noexcept { return config_.shm; }
 
 const EventLoopConfig& ConfigManager::EventLoop() const noexcept { return config_.EventLoop; }
+
+const MarketDataConfig& ConfigManager::market_data() const noexcept { return config_.market_data; }
+
+const ActiveStrategyConfig& ConfigManager::active_strategy() const noexcept { return config_.active_strategy; }
 
 const RiskConfig& ConfigManager::risk() const noexcept { return config_.risk; }
 
@@ -742,6 +786,15 @@ bool ConfigManager::export_to_file(const std::string& path) const {
     out << "  terminal_archive_delay_ms: " << config_.EventLoop.terminal_archive_delay_ms << "\n";
     out << "  pin_cpu: " << (config_.EventLoop.pin_cpu ? "true" : "false") << "\n";
     out << "  cpu_core: " << config_.EventLoop.cpu_core << "\n\n";
+
+    out << "market_data:\n";
+    out << "  enabled: " << (config_.market_data.enabled ? "true" : "false") << "\n";
+    out << "  snapshot_shm_name: \"" << escape_yaml_string(config_.market_data.snapshot_shm_name) << "\"\n\n";
+
+    out << "active_strategy:\n";
+    out << "  enabled: " << (config_.active_strategy.enabled ? "true" : "false") << "\n";
+    out << "  name: \"" << escape_yaml_string(config_.active_strategy.name) << "\"\n";
+    out << "  signal_threshold: " << config_.active_strategy.signal_threshold << "\n\n";
 
     out << "risk:\n";
     out << "  max_order_value: " << config_.risk.max_order_value << "\n";

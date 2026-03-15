@@ -17,6 +17,12 @@ add_executable(test_order_monitor_api
 
 target_link_libraries(test_order_monitor_api PRIVATE acct_order acct_order_monitor)
 
+add_executable(test_market_data_service
+    test_market_data_service.cpp
+)
+
+target_link_libraries(test_market_data_service PRIVATE acct_market_data snapshot_reader)
+
 add_executable(test_position_monitor_api
     test_position_monitor_api.cpp
 )
@@ -82,6 +88,12 @@ add_executable(test_event_loop
 )
 
 target_link_libraries(test_event_loop PRIVATE acct_core_loop)
+
+add_executable(test_execution_engine
+    test_execution_engine.cpp
+)
+
+target_link_libraries(test_execution_engine PRIVATE acct_core_loop snapshot_reader)
 
 # ============ config_manager 测试 ==========
 add_executable(test_config_manager
@@ -154,6 +166,7 @@ add_dependencies(test_adapter_loader acct_gateway_sim_plugin)
 enable_testing()
 add_test(NAME test_order_api COMMAND test_order_api)
 add_test(NAME test_order_monitor_api COMMAND test_order_monitor_api)
+add_test(NAME test_market_data_service COMMAND test_market_data_service)
 add_test(NAME test_position_monitor_api COMMAND test_position_monitor_api)
 add_test(NAME test_shm_manager COMMAND test_shm_manager)
 add_test(NAME test_error_registry COMMAND test_error_registry)
@@ -164,6 +177,7 @@ add_test(NAME test_order_book_split_tracking COMMAND test_order_book_split_track
 add_test(NAME test_order_router_split_cancel COMMAND test_order_router_split_cancel)
 add_test(NAME test_risk_manager COMMAND test_risk_manager)
 add_test(NAME test_event_loop COMMAND test_event_loop)
+add_test(NAME test_execution_engine COMMAND test_execution_engine)
 add_test(NAME test_config_manager COMMAND test_config_manager)
 add_test(NAME test_full_chain_observer_config COMMAND test_full_chain_observer_config)
 add_test(NAME test_account_service COMMAND test_account_service)

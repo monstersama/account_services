@@ -130,7 +130,7 @@ TEST(process_order_and_trade_response) {
     auto book = std::make_unique<OrderBook>();
     split_config split_cfg;
     split_cfg.strategy = SplitStrategy::None;
-    order_router router(*book, downstream.get(), orders_shm.get(), split_cfg);
+    order_router router(*book, downstream.get(), orders_shm.get());
 
     EventLoopConfig loop_cfg;
     loop_cfg.busy_polling = false;
@@ -226,7 +226,7 @@ TEST(delay_archive_allows_late_terminal_trade) {
     auto book = std::make_unique<OrderBook>();
     split_config split_cfg;
     split_cfg.strategy = SplitStrategy::None;
-    order_router router(*book, downstream.get(), orders_shm.get(), split_cfg);
+    order_router router(*book, downstream.get(), orders_shm.get());
 
     EventLoopConfig loop_cfg;
     loop_cfg.busy_polling = false;
@@ -321,7 +321,7 @@ TEST(reject_second_buy_after_fund_reservation) {
     auto book = std::make_unique<OrderBook>();
     split_config split_cfg;
     split_cfg.strategy = SplitStrategy::None;
-    order_router router(*book, downstream.get(), orders_shm.get(), split_cfg);
+    order_router router(*book, downstream.get(), orders_shm.get());
 
     EventLoopConfig loop_cfg;
     loop_cfg.busy_polling = false;

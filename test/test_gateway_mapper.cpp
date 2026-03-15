@@ -68,6 +68,7 @@ TEST(map_trade_event_response) {
     std::strcpy(event.internal_security_id, "SZ.000009");
     event.trade_side = broker_api::side::Sell;
     event.volume_traded = 88;
+    event.cancelled_volume = 0;
     event.price_traded = 3210;
     event.value_traded = 282480;
     event.fee = 30;
@@ -82,10 +83,31 @@ TEST(map_trade_event_response) {
     assert(response.trade_side == TradeSide::Sell);
     assert(response.new_state == OrderState::MarketAccepted);
     assert(response.volume_traded == 88);
+    assert(response.cancelled_volume == 0);
     assert(response.dprice_traded == 3210);
     assert(response.dvalue_traded == 282480);
     assert(response.dfee == 30);
     assert(response.md_time_traded == 100001000);
+}
+
+// 验证撤单完成事件会透传权威 cancelled_volume。
+TEST(map_cancel_finished_response) {
+    broker_api::broker_event event;
+    event.kind = broker_api::event_kind::Finished;
+    event.internal_order_id = 4001;
+    event.broker_order_id = 8001;
+    std::strcpy(event.internal_security_id, "XSHE_000009");
+    event.trade_side = broker_api::side::Buy;
+    event.cancelled_volume = 37;
+
+    TradeResponse response;
+    assert(gateway::map_broker_event_to_trade_response(event, response));
+
+    assert(response.internal_order_id == 4001);
+    assert(response.broker_order_id == 8001);
+    assert(response.trade_side == TradeSide::Buy);
+    assert(response.new_state == OrderState::Finished);
+    assert(response.cancelled_volume == 37);
 }
 
 } // namespace
@@ -96,6 +118,7 @@ int main() {
     RUN_TEST(map_new_order_request);
     RUN_TEST(map_cancel_order_request);
     RUN_TEST(map_trade_event_response);
+    RUN_TEST(map_cancel_finished_response);
 
     printf("\n=== All tests passed! ===\n");
     return 0;

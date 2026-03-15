@@ -86,12 +86,16 @@ typedef struct acct_orders_mon_snapshot {
     uint64_t seq;             // seqlock 序号（偶数稳定，奇数写入中）
     uint64_t last_update_ns;  // 槽位最后更新时间（Unix Epoch ns）
 
-    uint8_t stage;                                                 // acct_mon_order_stage_t
-    uint8_t source;                                                // acct_mon_order_source_t
-    uint8_t order_type;                                            // 0=NotSet,1=New,2=Cancel,255=Unknown
-    uint8_t trade_side;                                            // 0=NotSet,1=Buy,2=Sell
-    uint8_t market;                                                // 1=SZ,2=SH,3=BJ,4=HK
-    uint8_t order_status;                                          // 内部状态码（见 docs/order_monitor_sdk.md）
+    uint8_t stage;                    // acct_mon_order_stage_t
+    uint8_t source;                   // acct_mon_order_source_t
+    uint8_t order_type;               // 0=NotSet,1=New,2=Cancel,255=Unknown
+    uint8_t passive_exec_algo;        // 逐单被动执行算法（default/none/fixed/twap/...）
+    uint8_t trade_side;               // 0=NotSet,1=Buy,2=Sell
+    uint8_t market;                   // 1=SZ,2=SH,3=BJ,4=HK
+    uint8_t order_status;             // 内部状态码（见 docs/order_monitor_sdk.md）
+    uint8_t active_strategy_claimed;  // 1=启用主动覆盖层或由主动策略生成
+    uint8_t execution_algo;           // 受管父单执行算法（普通订单为 0）
+    uint8_t execution_state;          // 受管父单执行态（普通订单为 0）
     char internal_security_id[ACCT_MON_INTERNAL_SECURITY_ID_LEN];  // 内部证券 ID（MIC_security_id）
 
     uint32_t internal_order_id;       // 系统内部订单 ID
@@ -109,6 +113,9 @@ typedef struct acct_orders_mon_snapshot {
     uint64_t volume_entrust;       // 委托数量
     uint64_t volume_traded;        // 已成交数量
     uint64_t volume_remain;        // 剩余数量
+    uint64_t target_volume;        // 受管父单目标量
+    uint64_t working_volume;       // 受管父单在途量
+    uint64_t schedulable_volume;   // 受管父单当前可释放预算
     uint64_t dprice_entrust;       // 委托价格（分）
     uint64_t dprice_traded;        // 成交均价（分）
     uint64_t dvalue_traded;        // 已成交金额（分）

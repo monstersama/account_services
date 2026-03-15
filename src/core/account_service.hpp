@@ -7,6 +7,8 @@
 #include "common/error.hpp"
 #include "core/config_manager.hpp"
 #include "core/event_loop.hpp"
+#include "execution/execution_engine.hpp"
+#include "market_data/market_data_service.hpp"
 #include "order/order_book.hpp"
 #include "order/order_router.hpp"
 #include "portfolio/account_info.hpp"
@@ -70,6 +72,8 @@ private:
     bool init_portfolio();
     bool init_risk_manager();
     bool init_order_components();
+    bool init_market_data();
+    bool init_execution_engine();
     bool init_event_loop();
 
     // 加载历史数据
@@ -111,6 +115,8 @@ private:
     std::unique_ptr<OrderBook> order_book_;
     std::unique_ptr<order_router> order_router_;
     std::unique_ptr<RiskManager> risk_manager_;
+    std::unique_ptr<MarketDataService> market_data_service_;
+    std::unique_ptr<ExecutionEngine> execution_engine_;
     std::unique_ptr<trade_record_manager> trade_records_;
     std::unique_ptr<entrust_record_manager> entrust_records_;
 

@@ -6,6 +6,7 @@ set(ACCT_YAMLCPP_TARGET yaml-cpp)
 if(TARGET yaml-cpp::yaml-cpp)
     set(ACCT_YAMLCPP_TARGET yaml-cpp::yaml-cpp)
 endif()
+set(ACCT_SNAPSHOT_READER_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/third_party/snapshot_reader/include)
 
 # ============ 核心库 ============
 
@@ -29,6 +30,24 @@ target_include_directories(acct_common PUBLIC
     ${CMAKE_BINARY_DIR}/generated
 )
 target_link_libraries(acct_common PUBLIC rt)
+
+# vendored snapshot_reader：直接在宿主工程内编译，避免依赖外部安装包。
+add_library(snapshot_reader SHARED
+    ${CMAKE_SOURCE_DIR}/third_party/snapshot_reader/src/snapshot_reader.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/snapshot_reader/src/snapshot_shm.cpp
+    ${CMAKE_SOURCE_DIR}/BaseCore/src/shm/shm_common.cpp
+    ${CMAKE_SOURCE_DIR}/BaseCore/src/shm/shm_generic.cpp
+    ${CMAKE_SOURCE_DIR}/BaseCore/src/logging/default_single_log.cpp
+    ${CMAKE_SOURCE_DIR}/BaseCore/src/logging/log.cpp
+    ${CMAKE_SOURCE_DIR}/BaseCore/src/logging/log_format_registry.cpp
+)
+target_include_directories(snapshot_reader PUBLIC
+    ${ACCT_SNAPSHOT_READER_INCLUDE_DIR}
+)
+target_include_directories(snapshot_reader PRIVATE
+    ${CMAKE_SOURCE_DIR}/BaseCore/src
+)
+target_link_libraries(snapshot_reader PRIVATE rt)
 
 # shm 库 (shm_manager)
 add_library(acct_shm STATIC
@@ -73,18 +92,47 @@ else()
     target_link_libraries(acct_portfolio PUBLIC acct_common ${ACCT_SQLITE3_RUNTIME_LIB})
 endif()
 
-# order 核心库 (order_book, order_router, order_splitter)
+# order 核心库 (order_book, order_router, order_recovery)
 add_library(acct_order_core STATIC
     order/order_book.cpp
     order/order_recovery.cpp
     order/order_router.cpp
-    order/order_splitter.cpp
 )
 target_include_directories(acct_order_core PUBLIC
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_BINARY_DIR}/generated
 )
 target_link_libraries(acct_order_core PUBLIC acct_common)
+
+# 行情访问库
+add_library(acct_market_data STATIC
+    market_data/market_data_service.cpp
+)
+target_include_directories(acct_market_data PUBLIC
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/generated
+)
+target_link_libraries(acct_market_data PUBLIC acct_common snapshot_reader)
+
+# 主动策略库
+add_library(acct_strategy STATIC
+    strategy/active_strategy.cpp
+)
+target_include_directories(acct_strategy PUBLIC
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/generated
+)
+target_link_libraries(acct_strategy PUBLIC acct_common acct_market_data)
+
+# 长期执行会话库
+add_library(acct_execution STATIC
+    execution/execution_engine.cpp
+)
+target_include_directories(acct_execution PUBLIC
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/generated
+)
+target_link_libraries(acct_execution PUBLIC acct_common acct_order_core acct_market_data acct_strategy)
 
 # risk 库 (risk_checker, risk_manager)
 add_library(acct_risk STATIC
@@ -105,7 +153,15 @@ target_include_directories(acct_core_loop PUBLIC
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_BINARY_DIR}/generated
 )
-target_link_libraries(acct_core_loop PUBLIC acct_common acct_order_core acct_risk acct_portfolio)
+target_link_libraries(acct_core_loop PUBLIC
+    acct_common
+    acct_order_core
+    acct_risk
+    acct_portfolio
+    acct_execution
+    acct_market_data
+    acct_strategy
+)
 
 # core 服务库 (config_manager, account_service)
 add_library(acct_core_service STATIC
@@ -121,6 +177,9 @@ target_link_libraries(acct_core_service PUBLIC
     acct_shm
     acct_portfolio
     acct_order_core
+    acct_market_data
+    acct_strategy
+    acct_execution
     acct_risk
     acct_core_loop
     ${ACCT_YAMLCPP_TARGET}

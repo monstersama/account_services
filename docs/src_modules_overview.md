@@ -7,7 +7,10 @@
 | 模块 | 主要职责 | 模块文档 |
 | --- | --- | --- |
 | `src/core` | 服务生命周期、配置加载、组件装配、事件循环 | [core 模块设计](src_core_module.md) |
-| `src/order` | 订单簿、拆单、撤单路由、重启恢复 | [order 模块设计](src_order_module.md) |
+| `src/order` | 订单簿、内部子单登记、撤单路由、重启恢复 | [order 模块设计](src_order_module.md) |
+| `src/execution` | 统一执行会话、父单镜像回写、主动优先/被动回落调度 | [execution 模块设计](src_execution_module.md) |
+| `src/strategy` | 主动策略抽象、内建策略注册与时间片决策接口 | [strategy 模块设计](src_strategy_module.md) |
+| `src/market_data` | `snapshot_reader` 适配、行情与 prediction 统一读视图 | [market_data 模块设计](src_market_data_module.md) |
 | `src/portfolio` | 资金/持仓状态、账户信息、成交与委托记录 | [portfolio 模块设计](src_portfolio_module.md) |
 | `src/risk` | 风控规则链与风控统计 | [risk 模块设计](src_risk_module.md) |
 | `src/shm` | 共享内存布局、订单池协议、SHM 打开与校验 | [shm 模块设计](src_shm_module.md) |
@@ -31,6 +34,9 @@
   - `acct_shm` 对应 `src/shm`
   - `acct_portfolio` 对应 `src/portfolio`
   - `acct_order_core` 对应 `src/order`
+  - `acct_market_data` 对应 `src/market_data`
+  - `acct_strategy` 对应 `src/strategy`
+  - `acct_execution` 对应 `src/execution`
   - `acct_risk` 对应 `src/risk`
   - `acct_core_loop` 与 `acct_core_service` 对应 `src/core`
   - `acct_broker_api` 对应 `src/broker_api`
@@ -58,8 +64,10 @@
    - `entrust_record_manager`
 6. 初始化 `RiskManager`。
 7. 初始化 `OrderBook`、`order_router`，并执行订单恢复。
-8. 构造 `EventLoop`，进入 `Ready` 状态。
-9. `run()` 启动事件循环，服务进入 `Running`。
+8. 初始化 `MarketDataService`。
+9. 初始化 `ExecutionEngine` 与服务级主动策略对象。
+10. 构造 `EventLoop`，进入 `Ready` 状态。
+11. `run()` 启动事件循环，服务进入 `Running`。
 
 ### 3.2 新单 / 撤单链路
 
@@ -68,12 +76,18 @@
 3. `EventLoop` 从上游队列取出索引，并从 `orders_shm` 读取订单快照。
 4. 订单进入 `OrderBook`，状态推进到 `RiskControllerPending`。
 5. `RiskManager` 对新单执行规则链校验。
-6. 风控通过后，`EventLoop` 负责冻结必要资源并调用 `order_router`。
-7. `order_router` 选择：
-   - 直接推送下游
-   - 拆成多个子单后推送下游
-   - 为母单或子单生成撤单请求
-8. 下游交易进程消费 `downstream_shm->order_queue`。
+6. 风控通过后，`EventLoop` 分两条路径：
+   - 受管执行算法订单：创建 `ExecutionEngine` 会话
+   - 普通订单：冻结必要资源并调用 `order_router`
+7. `ExecutionEngine` 对 `FixedSize / Iceberg / TWAP` 持续推进：
+   - 先尝试主动策略
+   - 若无主动子单，再回落到被动执行
+   - 所有 managed child 均先读取行情，再按盘口派生价格发单
+8. `order_router` 负责：
+   - 普通订单直接推送下游
+   - 接收执行引擎提交的内部子单
+   - 为父单或普通单生成撤单请求
+9. 下游交易进程消费 `downstream_shm->order_queue`。
 
 ### 3.3 成交 / 状态回报链路
 
@@ -104,18 +118,24 @@
 1. 本文档
 2. [core 模块设计](src_core_module.md)
 3. [order 模块设计](src_order_module.md)
-4. [portfolio 模块设计](src_portfolio_module.md)
-5. [risk 模块设计](src_risk_module.md)
-6. [shm 模块设计](src_shm_module.md)
-7. [api 模块设计](src_api_module.md)
+4. [execution 模块设计](src_execution_module.md)
+5. [strategy 模块设计](src_strategy_module.md)
+6. [market_data 模块设计](src_market_data_module.md)
+7. [portfolio 模块设计](src_portfolio_module.md)
+8. [risk 模块设计](src_risk_module.md)
+9. [shm 模块设计](src_shm_module.md)
+10. [api 模块设计](src_api_module.md)
 
 ### 排查订单生命周期问题
 
 1. [order 模块设计](src_order_module.md)
 2. [core 模块设计](src_core_module.md)
-3. [risk 模块设计](src_risk_module.md)
-4. [portfolio 模块设计](src_portfolio_module.md)
-5. [订单处理流程图](order_flowchart.md)
+3. [execution 模块设计](src_execution_module.md)
+4. [strategy 模块设计](src_strategy_module.md)
+5. [market_data 模块设计](src_market_data_module.md)
+6. [risk 模块设计](src_risk_module.md)
+7. [portfolio 模块设计](src_portfolio_module.md)
+8. [订单处理流程图](order_flowchart.md)
 
 ### 排查共享内存、监控或重启恢复问题
 
