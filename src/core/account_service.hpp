@@ -31,6 +31,8 @@ enum class ServiceState {
     Error,
 };
 
+bool should_log_startup_config() noexcept;
+
 // 账户服务主类
 class AccountService {
 public:
@@ -84,6 +86,7 @@ private:
 
     // 清理资源
     void cleanup();
+    void print_loaded_config() const;
     void raise_service_error(const ErrorStatus& status);
     bool should_terminate_due_to_error() const noexcept;
 

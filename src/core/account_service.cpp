@@ -18,6 +18,14 @@ ErrorStatus make_service_error(ErrorCode code, std::string_view message, int sys
 
 }  // namespace
 
+bool should_log_startup_config() noexcept {
+#if defined(ACCT_ENABLE_DEBUG_STARTUP_CONFIG_LOG)
+    return true;
+#else
+    return false;
+#endif
+}
+
 AccountService::AccountService() = default;
 
 AccountService::~AccountService() {
@@ -46,6 +54,8 @@ bool AccountService::initialize(const std::string& config_path) {
         cleanup();
         return false;
     }
+
+    print_loaded_config();
 
     if (!init_logger(config_manager_.log(), config_manager_.account_id())) {
         raise_service_error(make_service_error(ErrorCode::LoggerInitFailed, "failed to initialize logger"));
@@ -152,6 +162,16 @@ void AccountService::print_stats() const {
                      static_cast<unsigned long long>(stats.total_checks), static_cast<unsigned long long>(stats.passed),
                      static_cast<unsigned long long>(stats.rejected));
     }
+}
+
+void AccountService::print_loaded_config() const {
+    if (!should_log_startup_config()) {
+        return;
+    }
+
+    const std::string config_text = config_manager_.to_log_string();
+    std::fputs(config_text.c_str(), stderr);
+    std::fflush(stderr);
 }
 
 bool AccountService::init_config(const std::string& config_path) {

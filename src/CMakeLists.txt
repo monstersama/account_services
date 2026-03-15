@@ -168,6 +168,9 @@ add_library(acct_core_service STATIC
     core/config_manager.cpp
     core/account_service.cpp
 )
+target_compile_definitions(acct_core_service PRIVATE
+    $<$<CONFIG:Debug>:ACCT_ENABLE_DEBUG_STARTUP_CONFIG_LOG>
+)
 target_include_directories(acct_core_service PUBLIC
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_BINARY_DIR}/generated

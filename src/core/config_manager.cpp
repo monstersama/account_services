@@ -7,6 +7,7 @@
 #include <climits>
 #include <cstdint>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <string_view>
 
@@ -135,6 +136,150 @@ const char* split_strategy_to_string(SplitStrategy strategy) {
     }
 }
 
+std::string escape_yaml_string(std::string_view value);
+
+std::string escape_log_value(std::string_view value);
+
+void write_config_yaml(std::ostream& out, const Config& config) {
+    out << "account_id: " << config.account_id << "\n\n";
+    out << "trading_day: \"" << escape_yaml_string(config.trading_day) << "\"\n\n";
+
+    out << "shm:\n";
+    out << "  upstream_shm_name: \"" << escape_yaml_string(config.shm.upstream_shm_name) << "\"\n";
+    out << "  downstream_shm_name: \"" << escape_yaml_string(config.shm.downstream_shm_name) << "\"\n";
+    out << "  trades_shm_name: \"" << escape_yaml_string(config.shm.trades_shm_name) << "\"\n";
+    out << "  orders_shm_name: \"" << escape_yaml_string(config.shm.orders_shm_name) << "\"\n";
+    out << "  positions_shm_name: \"" << escape_yaml_string(config.shm.positions_shm_name) << "\"\n";
+    out << "  create_if_not_exist: " << (config.shm.create_if_not_exist ? "true" : "false") << "\n\n";
+
+    out << "EventLoop:\n";
+    out << "  busy_polling: " << (config.EventLoop.busy_polling ? "true" : "false") << "\n";
+    out << "  poll_batch_size: " << config.EventLoop.poll_batch_size << "\n";
+    out << "  idle_sleep_us: " << config.EventLoop.idle_sleep_us << "\n";
+    out << "  stats_interval_ms: " << config.EventLoop.stats_interval_ms << "\n";
+    out << "  archive_terminal_orders: " << (config.EventLoop.archive_terminal_orders ? "true" : "false") << "\n";
+    out << "  terminal_archive_delay_ms: " << config.EventLoop.terminal_archive_delay_ms << "\n";
+    out << "  pin_cpu: " << (config.EventLoop.pin_cpu ? "true" : "false") << "\n";
+    out << "  cpu_core: " << config.EventLoop.cpu_core << "\n\n";
+
+    out << "market_data:\n";
+    out << "  enabled: " << (config.market_data.enabled ? "true" : "false") << "\n";
+    out << "  snapshot_shm_name: \"" << escape_yaml_string(config.market_data.snapshot_shm_name) << "\"\n\n";
+
+    out << "active_strategy:\n";
+    out << "  enabled: " << (config.active_strategy.enabled ? "true" : "false") << "\n";
+    out << "  name: \"" << escape_yaml_string(config.active_strategy.name) << "\"\n";
+    out << "  signal_threshold: " << config.active_strategy.signal_threshold << "\n\n";
+
+    out << "risk:\n";
+    out << "  max_order_value: " << config.risk.max_order_value << "\n";
+    out << "  max_order_volume: " << config.risk.max_order_volume << "\n";
+    out << "  max_daily_turnover: " << config.risk.max_daily_turnover << "\n";
+    out << "  max_orders_per_second: " << config.risk.max_orders_per_second << "\n";
+    out << "  enable_price_limit_check: " << (config.risk.enable_price_limit_check ? "true" : "false") << "\n";
+    out << "  enable_duplicate_check: " << (config.risk.enable_duplicate_check ? "true" : "false") << "\n";
+    out << "  enable_fund_check: " << (config.risk.enable_fund_check ? "true" : "false") << "\n";
+    out << "  enable_position_check: " << (config.risk.enable_position_check ? "true" : "false") << "\n";
+    out << "  duplicate_window_ns: " << config.risk.duplicate_window_ns << "\n\n";
+
+    out << "split:\n";
+    out << "  strategy: \"" << split_strategy_to_string(config.split.strategy) << "\"\n";
+    out << "  max_child_volume: " << config.split.max_child_volume << "\n";
+    out << "  min_child_volume: " << config.split.min_child_volume << "\n";
+    out << "  max_child_count: " << config.split.max_child_count << "\n";
+    out << "  interval_ms: " << config.split.interval_ms << "\n";
+    out << "  randomize_factor: " << config.split.randomize_factor << "\n\n";
+
+    out << "log:\n";
+    out << "  log_dir: \"" << escape_yaml_string(config.log.log_dir) << "\"\n";
+    out << "  log_level: \"" << escape_yaml_string(config.log.log_level) << "\"\n";
+    out << "  async_logging: " << (config.log.async_logging ? "true" : "false") << "\n";
+    out << "  async_queue_size: " << config.log.async_queue_size << "\n\n";
+
+    out << "db:\n";
+    out << "  db_path: \"" << escape_yaml_string(config.db.db_path) << "\"\n";
+    out << "  enable_persistence: " << (config.db.enable_persistence ? "true" : "false") << "\n";
+    out << "  sync_interval_ms: " << config.db.sync_interval_ms << "\n";
+}
+
+void write_config_log_line(std::ostream& out, std::string_view section, std::string_view key, std::string_view value) {
+    out << "[config][" << section << "]" << key << "=" << escape_log_value(value) << "\n";
+}
+
+void write_config_log_line(std::ostream& out, std::string_view section, std::string_view key,
+                           const std::string& value) {
+    write_config_log_line(out, section, key, std::string_view(value));
+}
+
+void write_config_log_line(std::ostream& out, std::string_view section, std::string_view key, const char* value) {
+    write_config_log_line(out, section, key, std::string_view(value ? value : ""));
+}
+
+void write_config_log_line(std::ostream& out, std::string_view section, std::string_view key, bool value) {
+    out << "[config][" << section << "]" << key << "=" << (value ? "true" : "false") << "\n";
+}
+
+template <typename T>
+void write_config_log_line(std::ostream& out, std::string_view section, std::string_view key, const T& value) {
+    out << "[config][" << section << "]" << key << "=" << value << "\n";
+}
+
+void write_config_log(std::ostream& out, const Config& config) {
+    write_config_log_line(out, "meta", "config_file", config.config_file);
+
+    write_config_log_line(out, "root", "account_id", config.account_id);
+    write_config_log_line(out, "root", "trading_day", config.trading_day);
+
+    write_config_log_line(out, "shm", "upstream_shm_name", config.shm.upstream_shm_name);
+    write_config_log_line(out, "shm", "downstream_shm_name", config.shm.downstream_shm_name);
+    write_config_log_line(out, "shm", "trades_shm_name", config.shm.trades_shm_name);
+    write_config_log_line(out, "shm", "orders_shm_name", config.shm.orders_shm_name);
+    write_config_log_line(out, "shm", "positions_shm_name", config.shm.positions_shm_name);
+    write_config_log_line(out, "shm", "create_if_not_exist", config.shm.create_if_not_exist);
+
+    write_config_log_line(out, "event_loop", "busy_polling", config.EventLoop.busy_polling);
+    write_config_log_line(out, "event_loop", "poll_batch_size", config.EventLoop.poll_batch_size);
+    write_config_log_line(out, "event_loop", "idle_sleep_us", config.EventLoop.idle_sleep_us);
+    write_config_log_line(out, "event_loop", "stats_interval_ms", config.EventLoop.stats_interval_ms);
+    write_config_log_line(out, "event_loop", "archive_terminal_orders", config.EventLoop.archive_terminal_orders);
+    write_config_log_line(out, "event_loop", "terminal_archive_delay_ms", config.EventLoop.terminal_archive_delay_ms);
+    write_config_log_line(out, "event_loop", "pin_cpu", config.EventLoop.pin_cpu);
+    write_config_log_line(out, "event_loop", "cpu_core", config.EventLoop.cpu_core);
+
+    write_config_log_line(out, "market_data", "enabled", config.market_data.enabled);
+    write_config_log_line(out, "market_data", "snapshot_shm_name", config.market_data.snapshot_shm_name);
+
+    write_config_log_line(out, "active_strategy", "enabled", config.active_strategy.enabled);
+    write_config_log_line(out, "active_strategy", "name", config.active_strategy.name);
+    write_config_log_line(out, "active_strategy", "signal_threshold", config.active_strategy.signal_threshold);
+
+    write_config_log_line(out, "risk", "max_order_value", config.risk.max_order_value);
+    write_config_log_line(out, "risk", "max_order_volume", config.risk.max_order_volume);
+    write_config_log_line(out, "risk", "max_daily_turnover", config.risk.max_daily_turnover);
+    write_config_log_line(out, "risk", "max_orders_per_second", config.risk.max_orders_per_second);
+    write_config_log_line(out, "risk", "enable_price_limit_check", config.risk.enable_price_limit_check);
+    write_config_log_line(out, "risk", "enable_duplicate_check", config.risk.enable_duplicate_check);
+    write_config_log_line(out, "risk", "enable_fund_check", config.risk.enable_fund_check);
+    write_config_log_line(out, "risk", "enable_position_check", config.risk.enable_position_check);
+    write_config_log_line(out, "risk", "duplicate_window_ns", config.risk.duplicate_window_ns);
+
+    write_config_log_line(out, "split", "strategy", split_strategy_to_string(config.split.strategy));
+    write_config_log_line(out, "split", "max_child_volume", config.split.max_child_volume);
+    write_config_log_line(out, "split", "min_child_volume", config.split.min_child_volume);
+    write_config_log_line(out, "split", "max_child_count", config.split.max_child_count);
+    write_config_log_line(out, "split", "interval_ms", config.split.interval_ms);
+    write_config_log_line(out, "split", "randomize_factor", config.split.randomize_factor);
+
+    write_config_log_line(out, "log", "log_dir", config.log.log_dir);
+    write_config_log_line(out, "log", "log_level", config.log.log_level);
+    write_config_log_line(out, "log", "async_logging", config.log.async_logging);
+    write_config_log_line(out, "log", "async_queue_size", config.log.async_queue_size);
+
+    write_config_log_line(out, "db", "db_path", config.db.db_path);
+    write_config_log_line(out, "db", "enable_persistence", config.db.enable_persistence);
+    write_config_log_line(out, "db", "sync_interval_ms", config.db.sync_interval_ms);
+}
+
 bool is_valid_trading_day_value(std::string_view trading_day) {
     if (trading_day.size() != 8) {
         return false;
@@ -175,6 +320,8 @@ std::string escape_yaml_string(std::string_view value) {
     }
     return out;
 }
+
+std::string escape_log_value(std::string_view value) { return escape_yaml_string(value); }
 
 bool apply_value(Config& cfg, const std::string& key, const std::string& raw_value) {
     const std::string value = trim_copy(raw_value);
@@ -760,72 +907,19 @@ bool ConfigManager::reload() {
     return load_from_file(config_path_);
 }
 
+std::string ConfigManager::to_log_string() const {
+    std::ostringstream out;
+    write_config_log(out, config_);
+    return out.str();
+}
+
 bool ConfigManager::export_to_file(const std::string& path) const {
     std::ofstream out(path);
     if (!out.is_open()) {
         return report_config_error(ErrorCode::InvalidConfig, "failed to open config export path");
     }
 
-    out << "account_id: " << config_.account_id << "\n\n";
-    out << "trading_day: \"" << escape_yaml_string(config_.trading_day) << "\"\n\n";
-
-    out << "shm:\n";
-    out << "  upstream_shm_name: \"" << escape_yaml_string(config_.shm.upstream_shm_name) << "\"\n";
-    out << "  downstream_shm_name: \"" << escape_yaml_string(config_.shm.downstream_shm_name) << "\"\n";
-    out << "  trades_shm_name: \"" << escape_yaml_string(config_.shm.trades_shm_name) << "\"\n";
-    out << "  orders_shm_name: \"" << escape_yaml_string(config_.shm.orders_shm_name) << "\"\n";
-    out << "  positions_shm_name: \"" << escape_yaml_string(config_.shm.positions_shm_name) << "\"\n";
-    out << "  create_if_not_exist: " << (config_.shm.create_if_not_exist ? "true" : "false") << "\n\n";
-
-    out << "EventLoop:\n";
-    out << "  busy_polling: " << (config_.EventLoop.busy_polling ? "true" : "false") << "\n";
-    out << "  poll_batch_size: " << config_.EventLoop.poll_batch_size << "\n";
-    out << "  idle_sleep_us: " << config_.EventLoop.idle_sleep_us << "\n";
-    out << "  stats_interval_ms: " << config_.EventLoop.stats_interval_ms << "\n";
-    out << "  archive_terminal_orders: " << (config_.EventLoop.archive_terminal_orders ? "true" : "false") << "\n";
-    out << "  terminal_archive_delay_ms: " << config_.EventLoop.terminal_archive_delay_ms << "\n";
-    out << "  pin_cpu: " << (config_.EventLoop.pin_cpu ? "true" : "false") << "\n";
-    out << "  cpu_core: " << config_.EventLoop.cpu_core << "\n\n";
-
-    out << "market_data:\n";
-    out << "  enabled: " << (config_.market_data.enabled ? "true" : "false") << "\n";
-    out << "  snapshot_shm_name: \"" << escape_yaml_string(config_.market_data.snapshot_shm_name) << "\"\n\n";
-
-    out << "active_strategy:\n";
-    out << "  enabled: " << (config_.active_strategy.enabled ? "true" : "false") << "\n";
-    out << "  name: \"" << escape_yaml_string(config_.active_strategy.name) << "\"\n";
-    out << "  signal_threshold: " << config_.active_strategy.signal_threshold << "\n\n";
-
-    out << "risk:\n";
-    out << "  max_order_value: " << config_.risk.max_order_value << "\n";
-    out << "  max_order_volume: " << config_.risk.max_order_volume << "\n";
-    out << "  max_daily_turnover: " << config_.risk.max_daily_turnover << "\n";
-    out << "  max_orders_per_second: " << config_.risk.max_orders_per_second << "\n";
-    out << "  enable_price_limit_check: " << (config_.risk.enable_price_limit_check ? "true" : "false") << "\n";
-    out << "  enable_duplicate_check: " << (config_.risk.enable_duplicate_check ? "true" : "false") << "\n";
-    out << "  enable_fund_check: " << (config_.risk.enable_fund_check ? "true" : "false") << "\n";
-    out << "  enable_position_check: " << (config_.risk.enable_position_check ? "true" : "false") << "\n";
-    out << "  duplicate_window_ns: " << config_.risk.duplicate_window_ns << "\n\n";
-
-    out << "split:\n";
-    out << "  strategy: \"" << split_strategy_to_string(config_.split.strategy) << "\"\n";
-    out << "  max_child_volume: " << config_.split.max_child_volume << "\n";
-    out << "  min_child_volume: " << config_.split.min_child_volume << "\n";
-    out << "  max_child_count: " << config_.split.max_child_count << "\n";
-    out << "  interval_ms: " << config_.split.interval_ms << "\n";
-    out << "  randomize_factor: " << config_.split.randomize_factor << "\n\n";
-
-    out << "log:\n";
-    out << "  log_dir: \"" << escape_yaml_string(config_.log.log_dir) << "\"\n";
-    out << "  log_level: \"" << escape_yaml_string(config_.log.log_level) << "\"\n";
-    out << "  async_logging: " << (config_.log.async_logging ? "true" : "false") << "\n";
-    out << "  async_queue_size: " << config_.log.async_queue_size << "\n\n";
-
-    out << "db:\n";
-    out << "  db_path: \"" << escape_yaml_string(config_.db.db_path) << "\"\n";
-    out << "  enable_persistence: " << (config_.db.enable_persistence ? "true" : "false") << "\n";
-    out << "  sync_interval_ms: " << config_.db.sync_interval_ms << "\n";
-
+    write_config_yaml(out, config_);
     return true;
 }
 
