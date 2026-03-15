@@ -1,12 +1,12 @@
-#include <cassert>
+#include "third_party/sqlite3/sqlite3_shim.hpp"
 #include <atomic>
+#include <cassert>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <functional>
 #include <memory>
-#include "third_party/sqlite3/sqlite3_shim.hpp"
 #include <string>
 #include <thread>
 
@@ -18,11 +18,11 @@
 #include "shm/shm_manager.hpp"
 
 #define TEST(name) static void test_##name()
-#define RUN_TEST(name)                   \
-    do {                                 \
-        printf("Running %s... ", #name); \
-        test_##name();                   \
-        printf("PASSED\n");              \
+#define RUN_TEST(name)                                                                                                 \
+    do {                                                                                                               \
+        printf("Running %s... ", #name);                                                                               \
+        test_##name();                                                                                                 \
+        printf("PASSED\n");                                                                                            \
     } while (0)
 
 namespace {
@@ -215,7 +215,7 @@ bool init_position_loader_schema(sqlite3* db) {
                ");");
 }
 
-}  // namespace
+} // namespace
 
 TEST(initialize_and_run_processes_orders) {
     Config cfg;
@@ -271,14 +271,20 @@ TEST(initialize_and_run_processes_orders) {
     std::thread worker([&service, &run_rc]() { run_rc = service.run(); });
 
     OrderRequest req;
-    req.init_new("000001", InternalSecurityId("SZ.000001"), static_cast<InternalOrderId>(5001),
-        TradeSide::Buy, Market::SZ, static_cast<Volume>(100), static_cast<DPrice>(1000), 93000000);
+    req.init_new("000001",
+        InternalSecurityId("XSHE_000001"),
+        static_cast<InternalOrderId>(5001),
+        TradeSide::Buy,
+        Market::SZ,
+        static_cast<Volume>(100),
+        static_cast<DPrice>(1000),
+        93000000);
     req.order_state.store(OrderState::StrategySubmitted, std::memory_order_relaxed);
 
     OrderIndex upstream_index = kInvalidOrderIndex;
     assert(orders_shm_append(
         orders, req, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy, now_ns(), upstream_index));
-    assert(upstream->strategy_order_queue.try_push(upstream_index));
+    assert(upstream->upstream_order_queue.try_push(upstream_index));
 
     assert(wait_until([downstream]() { return downstream->order_queue.size() > 0; }));
 
@@ -291,7 +297,7 @@ TEST(initialize_and_run_processes_orders) {
 
     TradeResponse rsp{};
     rsp.internal_order_id = static_cast<InternalOrderId>(5001);
-    rsp.internal_security_id = InternalSecurityId("SZ.000001");
+    rsp.internal_security_id = InternalSecurityId("XSHE_000001");
     rsp.trade_side = TradeSide::Buy;
     rsp.new_state = OrderState::MarketAccepted;
     rsp.volume_traded = static_cast<Volume>(50);
@@ -378,28 +384,58 @@ TEST(restart_recovers_downstream_active_orders) {
         assert(trades != nullptr);
 
         OrderRequest recoverable;
-        recoverable.init_new("000001", InternalSecurityId("SZ.000001"), static_cast<InternalOrderId>(7001),
-            TradeSide::Buy, Market::SZ, static_cast<Volume>(100), static_cast<DPrice>(1000), 93000000);
+        recoverable.init_new("000001",
+            InternalSecurityId("XSHE_000001"),
+            static_cast<InternalOrderId>(7001),
+            TradeSide::Buy,
+            Market::SZ,
+            static_cast<Volume>(100),
+            static_cast<DPrice>(1000),
+            93000000);
         recoverable.order_state.store(OrderState::TraderSubmitted, std::memory_order_relaxed);
         OrderIndex recover_index = kInvalidOrderIndex;
-        assert(orders_shm_append(orders, recoverable, OrderSlotState::DownstreamQueued, order_slot_source_t::AccountInternal,
-            now_ns(), recover_index));
+        assert(orders_shm_append(orders,
+            recoverable,
+            OrderSlotState::DownstreamQueued,
+            order_slot_source_t::AccountInternal,
+            now_ns(),
+            recover_index));
 
         OrderRequest non_downstream;
-        non_downstream.init_new("000002", InternalSecurityId("SZ.000002"), static_cast<InternalOrderId>(7002),
-            TradeSide::Buy, Market::SZ, static_cast<Volume>(100), static_cast<DPrice>(1000), 93000000);
+        non_downstream.init_new("000002",
+            InternalSecurityId("XSHE_000002"),
+            static_cast<InternalOrderId>(7002),
+            TradeSide::Buy,
+            Market::SZ,
+            static_cast<Volume>(100),
+            static_cast<DPrice>(1000),
+            93000000);
         non_downstream.order_state.store(OrderState::TraderSubmitted, std::memory_order_relaxed);
         OrderIndex non_downstream_index = kInvalidOrderIndex;
-        assert(orders_shm_append(
-            orders, non_downstream, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy, now_ns(), non_downstream_index));
+        assert(orders_shm_append(orders,
+            non_downstream,
+            OrderSlotState::UpstreamQueued,
+            order_slot_source_t::Strategy,
+            now_ns(),
+            non_downstream_index));
 
         OrderRequest terminal_downstream;
-        terminal_downstream.init_new("000003", InternalSecurityId("SZ.000003"), static_cast<InternalOrderId>(7003),
-            TradeSide::Buy, Market::SZ, static_cast<Volume>(100), static_cast<DPrice>(1000), 93000000);
+        terminal_downstream.init_new("000003",
+            InternalSecurityId("XSHE_000003"),
+            static_cast<InternalOrderId>(7003),
+            TradeSide::Buy,
+            Market::SZ,
+            static_cast<Volume>(100),
+            static_cast<DPrice>(1000),
+            93000000);
         terminal_downstream.order_state.store(OrderState::Finished, std::memory_order_relaxed);
         OrderIndex terminal_index = kInvalidOrderIndex;
-        assert(orders_shm_append(orders, terminal_downstream, OrderSlotState::DownstreamDequeued,
-            order_slot_source_t::AccountInternal, now_ns(), terminal_index));
+        assert(orders_shm_append(orders,
+            terminal_downstream,
+            OrderSlotState::DownstreamDequeued,
+            order_slot_source_t::AccountInternal,
+            now_ns(),
+            terminal_index));
     }
 
     AccountService second_start;
@@ -418,7 +454,7 @@ TEST(restart_recovers_downstream_active_orders) {
 
     TradeResponse response{};
     response.internal_order_id = static_cast<InternalOrderId>(7001);
-    response.internal_security_id = InternalSecurityId("SZ.000001");
+    response.internal_security_id = InternalSecurityId("XSHE_000001");
     response.trade_side = TradeSide::Buy;
     response.new_state = OrderState::BrokerAccepted;
     response.recv_time_ns = now_ns();
@@ -492,33 +528,38 @@ TEST(position_loader_file_mode_only_on_fresh_shm) {
     {
         std::ofstream out(bootstrap_file);
         assert(out.is_open());
-        out << "record_type,internal_security_id,name,volume_available_t0,volume_available_t1,volume_buy,dvalue_buy,"
-               "volume_buy_traded,dvalue_buy_traded,volume_sell,dvalue_sell,volume_sell_traded,dvalue_sell_traded,count_order\n";
+        out << "record_type,internal_security_id,name,volume_available_t0,volume_"
+               "available_t1,volume_buy,dvalue_buy,"
+               "volume_buy_traded,dvalue_buy_traded,volume_sell,dvalue_sell,volume_"
+               "sell_traded,dvalue_sell_traded,count_order\n";
         out << "position,SZ.000001,PingAn,123,0,0,0,0,0,0,0,0,0,0\n";
     }
 
     {
         AccountService first_start;
         assert(first_start.initialize(config_path));
-        const position* loaded = first_start.positions().get_position(InternalSecurityId("SZ.000001"));
+        const position* loaded = first_start.positions().get_position(InternalSecurityId("XSHE_000001"));
         assert(loaded != nullptr);
         assert(loaded->volume_available_t0 == 123);
         assert(first_start.positions().position_count() == 1);
+        assert(first_start.positions().get_position(InternalSecurityId("SZ.000001")) != nullptr);
     }
 
     {
         std::ofstream out(bootstrap_file, std::ios::trunc);
         assert(out.is_open());
-        out << "record_type,internal_security_id,name,volume_available_t0,volume_available_t1,volume_buy,dvalue_buy,"
-               "volume_buy_traded,dvalue_buy_traded,volume_sell,dvalue_sell,volume_sell_traded,dvalue_sell_traded,count_order\n";
+        out << "record_type,internal_security_id,name,volume_available_t0,volume_"
+               "available_t1,volume_buy,dvalue_buy,"
+               "volume_buy_traded,dvalue_buy_traded,volume_sell,dvalue_sell,volume_"
+               "sell_traded,dvalue_sell_traded,count_order\n";
         out << "position,SZ.000002,Vanke,999,0,0,0,0,0,0,0,0,0,0\n";
     }
 
     {
         AccountService second_start;
         assert(second_start.initialize(config_path));
-        const position* old_pos = second_start.positions().get_position(InternalSecurityId("SZ.000001"));
-        const position* new_pos = second_start.positions().get_position(InternalSecurityId("SZ.000002"));
+        const position* old_pos = second_start.positions().get_position(InternalSecurityId("XSHE_000001"));
+        const position* new_pos = second_start.positions().get_position(InternalSecurityId("XSHE_000002"));
         assert(old_pos != nullptr);
         assert(old_pos->volume_available_t0 == 123);
         assert(new_pos == nullptr);
@@ -569,38 +610,45 @@ TEST(position_loader_db_mode_only_on_fresh_shm) {
     assert(open_sqlite_rw(cfg.db.db_path, db));
     assert(init_position_loader_schema(db.get()));
     assert(exec_sql(db.get(),
-        "INSERT INTO account_info(account_id,total_assets,available_cash,frozen_cash,position_value) "
+        "INSERT INTO "
+        "account_info(account_id,total_assets,available_cash,frozen_"
+        "cash,position_value) "
         "VALUES (103,300000000,280000000,10000000,10000000);"));
     assert(exec_sql(db.get(),
         "INSERT INTO positions("
-        "security_id,internal_security_id,volume_available_t0,volume_available_t1,volume_buy,dvalue_buy,"
-        "volume_buy_traded,dvalue_buy_traded,volume_sell,dvalue_sell,volume_sell_traded,dvalue_sell_traded,count_order"
+        "security_id,internal_security_id,volume_available_t0,volume_"
+        "available_t1,volume_buy,dvalue_buy,"
+        "volume_buy_traded,dvalue_buy_traded,volume_sell,dvalue_sell,"
+        "volume_sell_traded,dvalue_sell_traded,count_order"
         ") VALUES ('000001','SZ.000001',456,0,0,0,0,0,0,0,0,0,0);"));
     db.reset();
 
     {
         AccountService first_start;
         assert(first_start.initialize(config_path));
-        const position* loaded = first_start.positions().get_position(InternalSecurityId("SZ.000001"));
+        const position* loaded = first_start.positions().get_position(InternalSecurityId("XSHE_000001"));
         assert(loaded != nullptr);
         assert(loaded->volume_available_t0 == 456);
         assert(first_start.positions().position_count() == 1);
+        assert(first_start.positions().get_position(InternalSecurityId("SZ.000001")) != nullptr);
     }
 
     assert(open_sqlite_rw(cfg.db.db_path, db));
     assert(exec_sql(db.get(), "DELETE FROM positions;"));
     assert(exec_sql(db.get(),
         "INSERT INTO positions("
-        "security_id,internal_security_id,volume_available_t0,volume_available_t1,volume_buy,dvalue_buy,"
-        "volume_buy_traded,dvalue_buy_traded,volume_sell,dvalue_sell,volume_sell_traded,dvalue_sell_traded,count_order"
+        "security_id,internal_security_id,volume_available_t0,volume_"
+        "available_t1,volume_buy,dvalue_buy,"
+        "volume_buy_traded,dvalue_buy_traded,volume_sell,dvalue_sell,"
+        "volume_sell_traded,dvalue_sell_traded,count_order"
         ") VALUES ('000002','SZ.000002',999,0,0,0,0,0,0,0,0,0,0);"));
     db.reset();
 
     {
         AccountService second_start;
         assert(second_start.initialize(config_path));
-        const position* old_pos = second_start.positions().get_position(InternalSecurityId("SZ.000001"));
-        const position* new_pos = second_start.positions().get_position(InternalSecurityId("SZ.000002"));
+        const position* old_pos = second_start.positions().get_position(InternalSecurityId("XSHE_000001"));
+        const position* new_pos = second_start.positions().get_position(InternalSecurityId("XSHE_000002"));
         assert(old_pos != nullptr);
         assert(old_pos->volume_available_t0 == 456);
         assert(new_pos == nullptr);

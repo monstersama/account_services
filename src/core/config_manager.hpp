@@ -3,14 +3,14 @@
 #include <string>
 
 #include "common/types.hpp"
-#include "order/order_splitter.hpp"
+#include "execution/execution_config.hpp"
 #include "risk/risk_manager.hpp"
 
 namespace acct_service {
 
 // 共享内存配置
 struct SHMConfig {
-    std::string upstream_shm_name = "/strategy_order_shm";
+    std::string upstream_shm_name = "/upstream_order_shm";
     std::string downstream_shm_name = "/downstream_order_shm";
     std::string trades_shm_name = "/trades_shm";
     std::string orders_shm_name = "/orders_shm";
@@ -28,6 +28,19 @@ struct EventLoopConfig {
     uint32_t terminal_archive_delay_ms = 2000;
     bool pin_cpu = false;
     int cpu_core = -1;
+};
+
+// 行情读取配置
+struct MarketDataConfig {
+    bool enabled = false;
+    std::string snapshot_shm_name = "/signal_xshg_v2";
+};
+
+// 主动策略配置
+struct ActiveStrategyConfig {
+    bool enabled = false;
+    std::string name = "none";
+    double signal_threshold = 0.0;
 };
 
 // 日志配置
@@ -53,6 +66,8 @@ struct Config {
 
     SHMConfig shm;
     EventLoopConfig EventLoop;
+    MarketDataConfig market_data;
+    ActiveStrategyConfig active_strategy;
     RiskConfig risk;
     split_config split;
     LogConfig log;
@@ -82,6 +97,8 @@ public:
     AccountId account_id() const noexcept;
     const SHMConfig& shm() const noexcept;
     const EventLoopConfig& EventLoop() const noexcept;
+    const MarketDataConfig& market_data() const noexcept;
+    const ActiveStrategyConfig& active_strategy() const noexcept;
     const RiskConfig& risk() const noexcept;
     const split_config& split() const noexcept;
     const LogConfig& log() const noexcept;

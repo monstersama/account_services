@@ -1,3 +1,5 @@
+#include <sys/mman.h>
+
 #include <cassert>
 #include <cerrno>
 #include <chrono>
@@ -5,7 +7,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
-#include <sys/mman.h>
 
 #include "api/order_api.h"
 #include "api/order_monitor_api.h"
@@ -46,9 +47,9 @@ private:
 };
 
 std::string unique_shm_name(const char* prefix) {
-    const auto now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                            std::chrono::steady_clock::now().time_since_epoch())
-                            .count();
+    const auto now_ns =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch())
+            .count();
     return std::string("/") + prefix + "_" + std::to_string(static_cast<unsigned long long>(now_ns));
 }
 
@@ -90,8 +91,12 @@ TEST(open_read_close) {
     assert(acct_init_ex(&init_options, &order_ctx) == ACCT_OK);
     assert(order_ctx != nullptr);
 
+    acct_order_exec_options_t exec_options{};
+    exec_options.passive_exec_algo = ACCT_PASSIVE_EXEC_TWAP;
+
     uint32_t order_id = 0;
-    assert(acct_submit_order(order_ctx, "000001", ACCT_SIDE_BUY, ACCT_MARKET_SZ, 100, 10.5, 0, &order_id) == ACCT_OK);
+    assert(acct_submit_order_ex(order_ctx, "000001", ACCT_SIDE_BUY, ACCT_MARKET_SZ, 100, 10.5, 0, &exec_options,
+                                &order_id) == ACCT_OK);
     assert(order_id > 0);
 
     acct_orders_mon_options_t mon_options{};
@@ -117,7 +122,14 @@ TEST(open_read_close) {
     assert(snapshot.index == 0);
     assert(snapshot.internal_order_id == order_id);
     assert(snapshot.stage == ACCT_MON_STAGE_UPSTREAM_QUEUED);
+    assert(snapshot.passive_exec_algo == ACCT_PASSIVE_EXEC_TWAP);
+    assert(snapshot.active_strategy_claimed == 0);
+    assert(snapshot.execution_algo == ACCT_PASSIVE_EXEC_NONE);
+    assert(snapshot.execution_state == 0);
     assert(snapshot.volume_entrust == 100);
+    assert(snapshot.target_volume == 0);
+    assert(snapshot.working_volume == 0);
+    assert(snapshot.schedulable_volume == 0);
     assert(std::strncmp(snapshot.security_id, "000001", 6) == 0);
 
     assert(acct_orders_mon_close(mon_ctx) == ACCT_MON_OK);

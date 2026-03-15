@@ -27,7 +27,7 @@ ctest -R test_full_chain_e2e --output-on-failure --test-dir build
 
 - `test_full_chain_e2e` 返回 `Passed`
 - 订单 CSV 中目标订单满足 `volume_traded > 0 && volume_remain == 0`
-- 持仓 CSV 中 `event_kind="position"` 且 `row_key="SZ.000001"` 的记录满足 `position_volume_buy_traded > 0`
+- 持仓 CSV 中 `event_kind="position"` 且 `row_key="XSHE_000001"` 的记录满足 `position_volume_buy_traded > 0`
 
 ## 3. 手工运行脚本
 

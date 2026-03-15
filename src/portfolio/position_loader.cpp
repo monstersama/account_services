@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "common/log.hpp"
+#include "common/security_identity.hpp"
 #include "portfolio/position_manager.hpp"
 #include "third_party/sqlite3/sqlite3_shim.hpp"
 
@@ -23,8 +24,10 @@ constexpr std::string_view kFundQuerySql =
     "SELECT total_assets, available_cash, frozen_cash, position_value "
     "FROM account_info WHERE account_id = ? LIMIT 1;";
 constexpr std::string_view kPositionQuerySql =
-    "SELECT security_id, internal_security_id, volume_available_t0, volume_available_t1, volume_buy, dvalue_buy, "
-    "volume_buy_traded, dvalue_buy_traded, volume_sell, dvalue_sell, volume_sell_traded, dvalue_sell_traded, "
+    "SELECT security_id, internal_security_id, volume_available_t0, "
+    "volume_available_t1, volume_buy, dvalue_buy, "
+    "volume_buy_traded, dvalue_buy_traded, volume_sell, dvalue_sell, "
+    "volume_sell_traded, dvalue_sell_traded, "
     "count_order FROM positions ORDER BY ID ASC;";
 
 // DB 行字段映射，保持与 SQL 结果列一一对应。
@@ -54,9 +57,8 @@ std::string trim_copy(std::string value) {
 
 // 将字段标准化为小写，便于做大小写无关匹配。
 std::string to_lower_copy(std::string value) {
-    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
-        return static_cast<char>(std::tolower(ch));
-    });
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
     return value;
 }
 
@@ -84,40 +86,6 @@ bool parse_u64_field(std::string_view text, uint64_t& out) {
     } catch (...) {
         return false;
     }
-}
-
-// 解析内部证券 id 前缀的市场段。
-bool parse_market_prefix(std::string_view prefix, Market& market) {
-    if (prefix == "SZ") {
-        market = Market::SZ;
-        return true;
-    }
-    if (prefix == "SH") {
-        market = Market::SH;
-        return true;
-    }
-    if (prefix == "BJ") {
-        market = Market::BJ;
-        return true;
-    }
-    if (prefix == "HK") {
-        market = Market::HK;
-        return true;
-    }
-    return false;
-}
-
-// 将 "SZ.000001" 解析为 market + code，供 add_security 使用。
-bool parse_internal_security_id(std::string_view internal_id, Market& market, std::string_view& code) {
-    const std::size_t dot = internal_id.find('.');
-    if (dot == std::string_view::npos || dot == 0 || dot + 1 >= internal_id.size()) {
-        return false;
-    }
-    if (!parse_market_prefix(internal_id.substr(0, dot), market)) {
-        return false;
-    }
-    code = internal_id.substr(dot + 1);
-    return !code.empty();
 }
 
 // 将一行 position 快照写入持仓管理器（新增证券行并回填字段）。
@@ -152,11 +120,14 @@ bool apply_position_seed_row(const std::vector<std::string>& columns, PositionMa
         return false;
     }
 
-    const std::string& internal_id = columns[1];
-    const std::string_view position_name =
-        columns[2].empty() ? std::string_view(internal_id) : std::string_view(columns[2]);
+    InternalSecurityId normalized_id;
+    if (!normalize_internal_security_id(columns[1], normalized_id)) {
+        return false;
+    }
+
+    const std::string_view position_name = columns[2].empty() ? normalized_id.view() : std::string_view(columns[2]);
     const InternalSecurityId added = manager.add_security(code, position_name, market);
-    if (added.empty() || added != std::string_view(internal_id)) {
+    if (added.empty() || added != normalized_id.view()) {
         return false;
     }
 
@@ -187,8 +158,13 @@ bool apply_position_db_row(const db_position_row& row, PositionManager& manager)
         return false;
     }
 
-    const InternalSecurityId added = manager.add_security(code, row.internal_security_id, market);
-    if (added.empty() || added != std::string_view(row.internal_security_id)) {
+    InternalSecurityId normalized_id;
+    if (!normalize_internal_security_id(row.internal_security_id, normalized_id)) {
+        return false;
+    }
+
+    const InternalSecurityId added = manager.add_security(code, normalized_id.view(), market);
+    if (added.empty() || added != normalized_id.view()) {
         return false;
     }
 
@@ -425,7 +401,8 @@ position_loader::position_loader(file_source source)
     : source_type_(source_type::File), source_path_(std::move(source.path)) {}
 
 // DB 模式构造：从 sqlite DB 读取 FUND + positions。
-position_loader::position_loader(db_source source) : source_type_(source_type::Db), source_path_(std::move(source.path)) {}
+position_loader::position_loader(db_source source)
+    : source_type_(source_type::Db), source_path_(std::move(source.path)) {}
 
 // 按已选模式加载快照，不做 DB/File 自动回退。
 bool position_loader::load(AccountId account_id, PositionManager& manager) {

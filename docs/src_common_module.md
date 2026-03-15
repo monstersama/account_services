@@ -153,12 +153,12 @@
 
 `security_identity.hpp` 统一把内部证券键构造成：
 
-- `<MARKET>.<security_id>`
+- `<MIC>_<security_id>`
 
 例如：
 
-- `SZ.000001`
-- `SH.600000`
+- `XSHE_000001`
+- `XSHG_600000`
 
 `time_utils.hpp` 和 `types.hpp` 提供两套常用时间语义：
 

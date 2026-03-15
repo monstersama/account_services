@@ -42,6 +42,17 @@ enum class order_book_event_t : uint8_t {
 
 using order_change_callback_t = std::function<void(const OrderEntry&, order_book_event_t)>;
 
+struct ManagedParentView {
+    PassiveExecutionAlgo execution_algo{PassiveExecutionAlgo::None};
+    ExecutionState execution_state{ExecutionState::None};
+    Volume target_volume{0};
+    Volume working_volume{0};
+    Volume schedulable_volume{0};
+    Volume confirmed_traded_volume{0};
+    DValue confirmed_traded_value{0};
+    DValue confirmed_fee{0};
+};
+
 // 订单簿管理器
 class OrderBook {
 public:
@@ -67,6 +78,12 @@ public:
 
     // 更新订单成交信息
     bool update_trade(InternalOrderId order_id, Volume vol, DPrice px, DValue val, DValue fee);
+
+    // 将父单标记为执行引擎托管，避免再被旧子单聚合逻辑覆盖。
+    bool mark_managed_parent(InternalOrderId parent_id);
+
+    // 同步执行引擎维护的父单镜像到订单簿和 orders_shm。
+    bool sync_managed_parent_view(InternalOrderId parent_id, const ManagedParentView& view, OrderState parent_state);
 
     // 移除已完成订单（移到历史）
     bool archive_order(InternalOrderId order_id);
@@ -101,6 +118,7 @@ public:
 private:
     OrderEntry* find_order_nolock(InternalOrderId order_id);
     const OrderEntry* find_order_nolock(InternalOrderId order_id) const;
+    bool is_managed_parent_nolock(InternalOrderId parent_id) const noexcept;
     void refresh_parent_from_children_nolock(InternalOrderId parent_id);
 
     std::array<OrderEntry, kMaxActiveOrders> orders_;  // 固定容量订单存储区
@@ -111,6 +129,7 @@ private:
     std::unordered_map<InternalOrderId, std::vector<InternalOrderId>>
         parent_to_children_;  // 父单 -> 子单（含子撤单）
     std::unordered_map<InternalOrderId, InternalOrderId> child_to_parent_;  // 子单 -> 父单
+    std::unordered_set<InternalOrderId> managed_parent_ids_;  // 执行引擎托管父单集合
     std::unordered_set<InternalOrderId> split_parent_error_latched_;  // 拆单父单错误锁存集合
     std::vector<std::size_t> free_slots_;  // orders_ 空闲槽位栈
     std::size_t active_count_ = 0;  // 当前活跃订单数量

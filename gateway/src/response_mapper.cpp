@@ -3,6 +3,7 @@
 #include <cstring>
 #include <string_view>
 
+#include "common/security_identity.hpp"
 #include "order_mapper.hpp"
 
 namespace acct_service::gateway {
@@ -30,8 +31,7 @@ OrderState map_event_kind_to_state(broker_api::event_kind kind) noexcept {
 }  // namespace
 
 // 将 broker_event 映射为 trade_response；如果事件不合法或无法识别则返回 false。
-bool map_broker_event_to_trade_response(
-    const broker_api::broker_event& event, TradeResponse& out_response) noexcept {
+bool map_broker_event_to_trade_response(const broker_api::broker_event& event, TradeResponse& out_response) noexcept {
     // internal_order_id 是上游关联主键，不能为空。
     if (event.internal_order_id == 0) {
         return false;
@@ -48,10 +48,17 @@ bool map_broker_event_to_trade_response(
     out_response.internal_order_id = event.internal_order_id;
     out_response.broker_order_id = event.broker_order_id;
     const std::size_t key_len = ::strnlen(event.internal_security_id, sizeof(event.internal_security_id));
-    out_response.internal_security_id.assign(std::string_view(event.internal_security_id, key_len));
+    const std::string_view raw_security_id(event.internal_security_id, key_len);
+    if (!raw_security_id.empty()) {
+        // 兼容历史插件仍回传旧格式证券键，但服务内始终存 canonical MIC。
+        if (!normalize_internal_security_id(raw_security_id, out_response.internal_security_id)) {
+            return false;
+        }
+    }
     out_response.trade_side = to_order_side(event.trade_side);
     out_response.new_state = mapped_state;
     out_response.volume_traded = event.volume_traded;
+    out_response.cancelled_volume = event.cancelled_volume;
     out_response.dprice_traded = event.price_traded;
     out_response.dvalue_traded = event.value_traded;
     out_response.dfee = event.fee;

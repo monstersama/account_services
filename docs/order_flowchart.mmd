@@ -17,12 +17,14 @@ graph TD
 
     RiskRejected --> EndReject[订单终止<br/>通知策略]
 
-    RiskAccepted --> SplitCheck{需要拆单?}
+    RiskAccepted --> ExecCheck{受管执行算法?}
 
-    SplitCheck -->|是| Splitter[拆单器处理<br/>生成子订单]
-    SplitCheck -->|否| Router[订单路由器]
+    ExecCheck -->|是| ExecEngine[执行引擎<br/>生成内部子订单]
+    ExecCheck -->|否| Router[订单路由器]
 
-    Splitter --> Router
+    ExecEngine --> MarketData[读取盘口/预测]
+    MarketData --> ExecEngine
+    ExecEngine --> Router
 
     Router --> SHM2[写入下游共享内存<br/>index_queue]
 
@@ -68,7 +70,7 @@ graph TD
 
     linkStyle default stroke:#374151,stroke-width:2px
 
-    class Start,StrategySubmit,SHM0,SHM1,EventLoop,OrderBook,RiskAccepted,Splitter,Router,SHM2,TraderProcess,MarketAccepted,Matching,TradeResponse,SHM3,EventLoop2,UpdateOrder,PositionUpdate,OrderFinished,End normal
-    class RiskCheck,SplitCheck,BrokerCheck,MarketCheck,CompleteCheck decision
+    class Start,StrategySubmit,SHM0,SHM1,EventLoop,OrderBook,RiskAccepted,ExecEngine,MarketData,Router,SHM2,TraderProcess,MarketAccepted,Matching,TradeResponse,SHM3,EventLoop2,UpdateOrder,PositionUpdate,OrderFinished,End normal
+    class RiskCheck,ExecCheck,BrokerCheck,MarketCheck,CompleteCheck decision
     class RiskRejected,EndReject,BrokerReject,EndReject2,MarketReject,EndReject3 reject
     class SHM0,SHM1,SHM2,SHM3 external

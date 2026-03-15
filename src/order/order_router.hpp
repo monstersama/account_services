@@ -4,7 +4,6 @@
 
 #include "common/types.hpp"
 #include "order/order_book.hpp"
-#include "order/order_splitter.hpp"
 #include "shm/shm_layout.hpp"
 
 namespace acct_service {
@@ -13,7 +12,6 @@ namespace acct_service {
 struct router_stats {
     uint64_t orders_received = 0;
     uint64_t orders_sent = 0;
-    uint64_t orders_split = 0;
     uint64_t orders_rejected = 0;
     uint64_t queue_full_count = 0;
     TimestampNs last_order_time = 0;
@@ -22,8 +20,7 @@ struct router_stats {
 // 订单路由器
 class order_router {
 public:
-    order_router(OrderBook& book, downstream_shm_layout* downstream_shm, orders_shm_layout* orders_shm,
-        const split_config& config);
+    order_router(OrderBook& book, downstream_shm_layout* downstream_shm, orders_shm_layout* orders_shm);
     ~order_router() = default;
 
     // 禁止拷贝
@@ -33,14 +30,14 @@ public:
     // 路由订单（经过风控后调用）
     bool route_order(OrderEntry& entry);
 
-    // 判断订单是否会走拆单路径，供上游资源冻结策略复用。
-    bool should_split(const OrderRequest& request) const;
-
     // 批量路由
     std::size_t route_orders(std::vector<OrderEntry*>& entries);
 
     // 处理撤单请求
     bool route_cancel(InternalOrderId orig_id, InternalOrderId cancel_id, MdTime time);
+
+    // 提交执行引擎生成的内部子单，复用统一的下游发送与订单簿登记路径。
+    bool submit_internal_order(OrderEntry& entry);
 
     // 启动恢复：从 orders_shm 重建“已下游但未终态”订单到 OrderBook。
     bool recover_downstream_active_orders(const upstream_shm_layout* upstream_shm);
@@ -53,14 +50,12 @@ public:
 
 private:
     bool send_to_downstream(OrderIndex index);
-    bool handle_split_order(OrderEntry& parent);
-    bool create_internal_order_slot(
-        const OrderRequest& request, OrderSlotState stage, OrderIndex& out_index, order_slot_source_t source);
+    bool create_internal_order_slot(const OrderRequest& request, OrderSlotState stage, OrderIndex& out_index,
+                                    order_slot_source_t source);
 
     OrderBook& order_book_;
     downstream_shm_layout* downstream_shm_;
     orders_shm_layout* orders_shm_;
-    order_splitter splitter_;
     router_stats stats_;
 };
 

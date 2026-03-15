@@ -3,12 +3,13 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
-#include <cstring>
 #include <cstdio>
+#include <cstring>
 #include <thread>
 
 #include "common/error.hpp"
 #include "common/log.hpp"
+#include "common/security_identity.hpp"
 #include "order_mapper.hpp"
 #include "response_mapper.hpp"
 #include "shm/orders_shm.hpp"
@@ -22,8 +23,9 @@ constexpr uint32_t kResponsePushAttempts = 3;
 
 }  // namespace
 
-gateway_loop::gateway_loop(const gateway_config& config, downstream_shm_layout* downstream_shm, trades_shm_layout* trades_shm,
-    orders_shm_layout* orders_shm, broker_api::IBrokerAdapter& adapter)
+gateway_loop::gateway_loop(const gateway_config& config, downstream_shm_layout* downstream_shm,
+                           trades_shm_layout* trades_shm, orders_shm_layout* orders_shm,
+                           broker_api::IBrokerAdapter& adapter)
     : config_(config),
       downstream_shm_(downstream_shm),
       trades_shm_(trades_shm),
@@ -33,8 +35,8 @@ gateway_loop::gateway_loop(const gateway_config& config, downstream_shm_layout* 
 int gateway_loop::run() {
     // 启动前先校验共享内存依赖。
     if (!downstream_shm_ || !trades_shm_ || !orders_shm_) {
-        ErrorStatus status = ACCT_MAKE_ERROR(
-            ErrorDomain::core, ErrorCode::ComponentUnavailable, "gateway_loop", "shared memory not available", 0);
+        ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::core, ErrorCode::ComponentUnavailable, "gateway_loop",
+                                             "shared memory not available", 0);
         record_error(status);
         ACCT_LOG_ERROR_STATUS(status);
         return 1;
@@ -123,7 +125,7 @@ bool gateway_loop::process_orders(std::size_t batch_limit) {
         if (!orders_shm_read_snapshot(orders_shm_, index, snapshot)) {
             ++stats_.orders_failed;
             ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::order, ErrorCode::OrderNotFound, "gateway_loop",
-                "failed to read downstream order slot", 0);
+                                                 "failed to read downstream order slot", 0);
             record_error(status);
             ACCT_LOG_ERROR_STATUS(status);
             continue;
@@ -171,8 +173,8 @@ bool gateway_loop::process_events(std::size_t batch_limit) {
         if (!push_response(response)) {
             ++stats_.responses_dropped;
             stop();
-            ErrorStatus status = ACCT_MAKE_ERROR(
-                ErrorDomain::order, ErrorCode::QueuePushFailed, "gateway_loop", "failed to push trade response", 0);
+            ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::order, ErrorCode::QueuePushFailed, "gateway_loop",
+                                                 "failed to push trade response", 0);
             record_error(status);
             ACCT_LOG_ERROR_STATUS(status);
             break;
@@ -210,7 +212,10 @@ void gateway_loop::submit_request(const broker_api::broker_order_request& reques
     }
     InternalSecurityId internal_security_id;
     const std::size_t sec_id_len = ::strnlen(request.internal_security_id, sizeof(request.internal_security_id));
-    internal_security_id.assign(std::string_view(request.internal_security_id, sec_id_len));
+    const std::string_view raw_security_id(request.internal_security_id, sec_id_len);
+    if (!raw_security_id.empty() && !normalize_internal_security_id(raw_security_id, internal_security_id)) {
+        internal_security_id.assign(raw_security_id);
+    }
     emit_trader_error(request.internal_order_id, internal_security_id, to_order_side(request.trade_side));
 }
 
@@ -227,10 +232,17 @@ bool gateway_loop::push_response(const TradeResponse& response) {
     return false;
 }
 
-void gateway_loop::emit_trader_error(
-    InternalOrderId internal_order_id, InternalSecurityId internal_security_id, TradeSide side_value) {
+void gateway_loop::emit_trader_error(InternalOrderId internal_order_id, InternalSecurityId internal_security_id,
+                                     TradeSide side_value) {
     if (internal_order_id == 0) {
         return;
+    }
+
+    if (!internal_security_id.empty()) {
+        InternalSecurityId normalized_security_id;
+        if (normalize_internal_security_id(internal_security_id.view(), normalized_security_id)) {
+            internal_security_id = normalized_security_id;
+        }
     }
 
     TradeResponse response{};
@@ -250,16 +262,17 @@ void gateway_loop::emit_trader_error(
 
 void gateway_loop::print_periodic_stats() {
     std::fprintf(stderr,
-        "[gateway] loops=%llu idle=%llu received=%llu submitted=%llu failed=%llu retry_q=%llu events=%llu responses=%llu dropped=%llu\n",
-        static_cast<unsigned long long>(stats_.loop_iterations),
-        static_cast<unsigned long long>(stats_.idle_iterations),
-        static_cast<unsigned long long>(stats_.orders_received),
-        static_cast<unsigned long long>(stats_.orders_submitted),
-        static_cast<unsigned long long>(stats_.orders_failed),
-        static_cast<unsigned long long>(stats_.retry_queue_size),
-        static_cast<unsigned long long>(stats_.events_received),
-        static_cast<unsigned long long>(stats_.responses_pushed),
-        static_cast<unsigned long long>(stats_.responses_dropped));
+                 "[gateway] loops=%llu idle=%llu received=%llu submitted=%llu failed=%llu "
+                 "retry_q=%llu events=%llu responses=%llu dropped=%llu\n",
+                 static_cast<unsigned long long>(stats_.loop_iterations),
+                 static_cast<unsigned long long>(stats_.idle_iterations),
+                 static_cast<unsigned long long>(stats_.orders_received),
+                 static_cast<unsigned long long>(stats_.orders_submitted),
+                 static_cast<unsigned long long>(stats_.orders_failed),
+                 static_cast<unsigned long long>(stats_.retry_queue_size),
+                 static_cast<unsigned long long>(stats_.events_received),
+                 static_cast<unsigned long long>(stats_.responses_pushed),
+                 static_cast<unsigned long long>(stats_.responses_dropped));
 }
 
 }  // namespace acct_service::gateway

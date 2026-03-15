@@ -6,7 +6,7 @@
 namespace acct_service {
 
 // 队列容量定义（必须是2的幂）
-inline constexpr std::size_t kStrategyOrderQueueCapacity = 262144;
+inline constexpr std::size_t kUpstreamOrderQueueCapacity = 262144;
 inline constexpr std::size_t kDownstreamQueueCapacity = 262144;
 inline constexpr std::size_t kResponseQueueCapacity = 262144;
 inline constexpr std::size_t kMaxPositions = 8192;
@@ -14,7 +14,7 @@ inline constexpr std::size_t kMaxActiveOrders = 1048576;  // 2^20
 inline constexpr std::size_t kDailyOrderPoolCapacity = kMaxActiveOrders;
 
 // 默认共享内存名称
-inline constexpr const char* kStrategyOrderShmName = "/strategy_order_shm";
+inline constexpr const char* kUpstreamOrderShmName = "/upstream_order_shm";
 inline constexpr const char* kOrdersShmName = "/orders_shm";
 
 // 共享内存魔数和版本

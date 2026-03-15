@@ -8,7 +8,7 @@
 namespace acct_service::broker_api {
 
 // broker_api ABI 版本，用于调用方做兼容性检查。
-inline constexpr uint32_t kBrokerApiAbiVersion = 2;
+inline constexpr uint32_t kBrokerApiAbiVersion = 3;
 inline constexpr std::size_t kSecurityIdSize = 16;
 inline constexpr std::size_t kInternalSecurityIdSize = 16;
 inline constexpr std::size_t kBrokerOrderIdSize = 32;
@@ -83,6 +83,7 @@ struct broker_event {
     char internal_security_id[kInternalSecurityIdSize]{};
     side trade_side = side::Unknown;
     uint64_t volume_traded = 0;
+    uint64_t cancelled_volume = 0;
     uint64_t price_traded = 0;
     uint64_t value_traded = 0;
     uint64_t fee = 0;

@@ -157,7 +157,7 @@ if (acct_orders_mon_info(ctx, &info) == ACCT_MON_OK) {
 | --- | --- | --- |
 | `internal_order_id` | 系统内部订单 ID（主键） | `uint32_t` |
 | `orig_internal_order_id` | 原始订单 ID（撤单请求对应被撤单 ID） | `uint32_t` |
-| `internal_security_id` | 系统内部证券 ID | `uint16_t` |
+| `internal_security_id` | 系统内部证券 ID（如 `XSHE_000001`） | 定长 `char[16]` |
 | `security_id` | 证券代码字符串 | 定长 `char[16]` |
 | `broker_order_id` | 柜台订单号字符串 | 定长 `char[32]` |
 | `broker_order_id_u64` | 柜台订单号数字视图 | `uint64_t` |

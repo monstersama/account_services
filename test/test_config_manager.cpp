@@ -45,6 +45,9 @@ TEST(load_and_export_roundtrip) {
         out << "event_loop:\n";
         out << "  poll_batch_size: 32\n";
         out << "  idle_sleep_us: 10\n";
+        out << "market_data:\n";
+        out << "  enabled: true\n";
+        out << "  snapshot_shm_name: \"/mdsnap_test\"\n";
         out << "split:\n";
         out << "  strategy: \"fixed_size\"\n";
         out << "  max_child_volume: 500\n";
@@ -58,6 +61,7 @@ TEST(load_and_export_roundtrip) {
     assert(manager.shm().trades_shm_name == "/t_test");
     assert(manager.shm().orders_shm_name == "/o_test");
     assert(manager.EventLoop().poll_batch_size == 32);
+    assert(manager.market_data().enabled);
     assert(manager.split().strategy == SplitStrategy::FixedSize);
     assert(manager.split().max_child_volume == 500);
 
@@ -108,7 +112,7 @@ TEST(parse_command_line_and_validate) {
     char arg3[] = "--poll-batch";
     char arg4[] = "128";
     char arg5[] = "--split-strategy";
-    char arg6[] = "iceberg";
+    char arg6[] = "none";
     char arg7[] = "--trades-shm";
     char arg8[] = "/trades_cli";
     char arg9[] = "--orders-shm";
@@ -121,7 +125,7 @@ TEST(parse_command_line_and_validate) {
 
     assert(manager.account_id() == 9);
     assert(manager.EventLoop().poll_batch_size == 128);
-    assert(manager.split().strategy == SplitStrategy::Iceberg);
+    assert(manager.split().strategy == SplitStrategy::None);
     assert(manager.shm().trades_shm_name == "/trades_cli");
     assert(manager.shm().orders_shm_name == "/orders_cli");
     assert(manager.get().trading_day == "20260225");

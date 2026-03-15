@@ -1,7 +1,5 @@
 #include "common/error.hpp"
 
-#include <algorithm>
-
 namespace acct_service {
 
 namespace {

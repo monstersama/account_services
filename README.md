@@ -94,18 +94,35 @@ tools/package_api.sh --native-arch
 tools/package_api.sh --help
 ```
 
-## 待处理事项（工程化）
+## 准备依赖库
 
-以下事项来自当前项目结构与实现评估，作为后续迭代清单：
+### 从公司仓库里拉取
 
-- [ ] P1：收敛进程级信号处理副作用  
-  `event_loop` 内部直接注册信号处理并依赖全局活动指针，建议将信号注册下沉到进程入口层，循环层只保留可控停止接口。
+项目开发前的第一步是执行 `tools/bootstrap_third_party.sh`。部分第三方代码按需拉取到 `third_party/`，不直接提交到主仓，因此在开始开发、首次构建或更新依赖前，都需要先执行：
 
-- [ ] P2：收敛全局头文件注入  
-  顶层 `include_directories(...)` 为全局生效，建议逐步改为各 target 显式声明 `target_include_directories(...)`，强化模块边界。
+```bash
+tools/bootstrap_third_party.sh
+```
 
-- [ ] P2：强化 `trading_day` 配置治理  
-  多处默认 `19700101` 适合开发环境，但生产/联调建议改为显式必填或增加启动期严格校验，避免误用默认值。
+依赖清单位于 `third_party/repos.lock`，每个仓库都固定到明确 commit，以保证构建结果可复现。若需要升级某个第三方仓库，请修改对应 commit 后重新执行脚本。
+
+
+### 从包管理器里下载
+
+```sh
+sudo apt update
+sudo apt install libyaml-cpp-dev
+sudo apt install libsqlite3-dev
+```
+
+## 本地构建
+
+准备完第三方仓库后，可按以下顺序构建：
+
+```bash
+CC=clang CXX=clang++ cmake -S . -B build
+cmake --build build -j4
+```
 
 ## OrbStack 虚拟机下 VSCode 调试（GDB）
 
@@ -150,9 +167,16 @@ qemu-x86_64-static -g 1234 ./build/src/acct_service_main --config ./config/defau
 连接后即可正常下断点、单步、查看变量。
 
 
-## 安装第三方库
-```sh
-sudo apt update
-sudo apt install libyaml-cpp-dev
-sudo apt install libsqlite3-dev
-```
+
+## TODO：
+
+以下事项来自当前项目结构与实现评估，作为后续迭代清单：
+
+- [ ] P1：收敛进程级信号处理副作用  
+  `event_loop` 内部直接注册信号处理并依赖全局活动指针，建议将信号注册下沉到进程入口层，循环层只保留可控停止接口。
+
+- [ ] P2：收敛全局头文件注入  
+  顶层 `include_directories(...)` 为全局生效，建议逐步改为各 target 显式声明 `target_include_directories(...)`，强化模块边界。
+
+- [ ] P2：强化 `trading_day` 配置治理  
+  多处默认 `19700101` 适合开发环境，但生产/联调建议改为显式必填或增加启动期严格校验，避免误用默认值。

@@ -3,7 +3,7 @@ account_id: 1001
 trading_day: "19700101"
 
 shm:
-  upstream_shm_name: "/strategy_order_shm"
+  upstream_shm_name: "/upstream_order_shm"
   downstream_shm_name: "/downstream_order_shm"
   trades_shm_name: "/trades_shm"
   orders_shm_name: "/orders_shm"
@@ -19,6 +19,15 @@ event_loop:
   terminal_archive_delay_ms: 2000
   pin_cpu: false
   cpu_core: -1
+
+market_data:
+  enabled: false
+  snapshot_shm_name: "/signal_xshg_v2"
+
+active_strategy:
+  enabled: false
+  name: "none"
+  signal_threshold: 0.0
 
 risk:
   max_order_value: 0
