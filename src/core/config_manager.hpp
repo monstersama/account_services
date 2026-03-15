@@ -107,6 +107,9 @@ public:
     // 热更新支持
     bool reload();
 
+    // 将当前配置序列化为日志文本
+    std::string to_log_string() const;
+
     // 导出当前配置
     bool export_to_file(const std::string& path) const;
 

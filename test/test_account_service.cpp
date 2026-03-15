@@ -1,4 +1,5 @@
-#include "third_party/sqlite3/sqlite3_shim.hpp"
+#include <unistd.h>
+
 #include <atomic>
 #include <cassert>
 #include <chrono>
@@ -10,19 +11,18 @@
 #include <string>
 #include <thread>
 
-#include <unistd.h>
-
 #include "core/account_service.hpp"
 #include "order/order_request.hpp"
 #include "shm/orders_shm.hpp"
 #include "shm/shm_manager.hpp"
+#include "third_party/sqlite3/sqlite3_shim.hpp"
 
 #define TEST(name) static void test_##name()
-#define RUN_TEST(name)                                                                                                 \
-    do {                                                                                                               \
-        printf("Running %s... ", #name);                                                                               \
-        test_##name();                                                                                                 \
-        printf("PASSED\n");                                                                                            \
+#define RUN_TEST(name)                   \
+    do {                                 \
+        printf("Running %s... ", #name); \
+        test_##name();                   \
+        printf("PASSED\n");              \
     } while (0)
 
 namespace {
@@ -105,8 +105,17 @@ bool write_config_file(const std::string& path, const Config& cfg) {
     out << "  poll_batch_size: " << cfg.EventLoop.poll_batch_size << "\n";
     out << "  idle_sleep_us: " << cfg.EventLoop.idle_sleep_us << "\n";
     out << "  stats_interval_ms: " << cfg.EventLoop.stats_interval_ms << "\n";
+    out << "  archive_terminal_orders: " << (cfg.EventLoop.archive_terminal_orders ? "true" : "false") << "\n";
+    out << "  terminal_archive_delay_ms: " << cfg.EventLoop.terminal_archive_delay_ms << "\n";
     out << "  pin_cpu: " << (cfg.EventLoop.pin_cpu ? "true" : "false") << "\n";
     out << "  cpu_core: " << cfg.EventLoop.cpu_core << "\n";
+    out << "market_data:\n";
+    out << "  enabled: " << (cfg.market_data.enabled ? "true" : "false") << "\n";
+    out << "  snapshot_shm_name: \"" << cfg.market_data.snapshot_shm_name << "\"\n";
+    out << "active_strategy:\n";
+    out << "  enabled: " << (cfg.active_strategy.enabled ? "true" : "false") << "\n";
+    out << "  name: \"" << cfg.active_strategy.name << "\"\n";
+    out << "  signal_threshold: " << cfg.active_strategy.signal_threshold << "\n";
     out << "risk:\n";
     out << "  max_order_value: " << cfg.risk.max_order_value << "\n";
     out << "  max_order_volume: " << cfg.risk.max_order_volume << "\n";
@@ -153,6 +162,68 @@ std::string unique_db_path(const char* prefix) {
            std::to_string(static_cast<unsigned long long>(now_ns())) + ".sqlite";
 }
 
+class StderrCapture {
+public:
+    StderrCapture() {
+        std::fflush(stderr);
+        saved_fd_ = ::dup(STDERR_FILENO);
+        assert(saved_fd_ >= 0);
+        assert(::pipe(pipe_fds_) == 0);
+        assert(::dup2(pipe_fds_[1], STDERR_FILENO) >= 0);
+        assert(::close(pipe_fds_[1]) == 0);
+        pipe_fds_[1] = -1;
+    }
+
+    StderrCapture(const StderrCapture&) = delete;
+    StderrCapture& operator=(const StderrCapture&) = delete;
+
+    ~StderrCapture() {
+        restore();
+        if (pipe_fds_[0] >= 0) {
+            (void)::close(pipe_fds_[0]);
+        }
+        if (pipe_fds_[1] >= 0) {
+            (void)::close(pipe_fds_[1]);
+        }
+        if (saved_fd_ >= 0) {
+            (void)::close(saved_fd_);
+        }
+    }
+
+    std::string finish() {
+        restore();
+
+        std::string output;
+        char buffer[512];
+        for (;;) {
+            const ssize_t bytes = ::read(pipe_fds_[0], buffer, sizeof(buffer));
+            if (bytes <= 0) {
+                break;
+            }
+            output.append(buffer, static_cast<std::size_t>(bytes));
+        }
+
+        assert(::close(pipe_fds_[0]) == 0);
+        pipe_fds_[0] = -1;
+        return output;
+    }
+
+private:
+    void restore() {
+        if (restored_) {
+            return;
+        }
+        std::fflush(stderr);
+        assert(saved_fd_ >= 0);
+        assert(::dup2(saved_fd_, STDERR_FILENO) >= 0);
+        restored_ = true;
+    }
+
+    int saved_fd_ = -1;
+    int pipe_fds_[2]{-1, -1};
+    bool restored_ = false;
+};
+
 // 打开 sqlite 可读写连接，失败时返回 false。
 bool open_sqlite_rw(const std::string& path, sqlite_db_ptr& db) {
     sqlite3* raw_db = nullptr;
@@ -184,38 +255,38 @@ bool exec_sql(sqlite3* db, std::string_view sql) {
 // 初始化 position_loader 所需 sqlite schema。
 bool init_position_loader_schema(sqlite3* db) {
     return exec_sql(db,
-               "CREATE TABLE account_info ("
-               "ID INTEGER PRIMARY KEY AUTOINCREMENT,"
-               "account_id INTEGER NOT NULL UNIQUE,"
-               "total_assets INTEGER NOT NULL DEFAULT 0,"
-               "available_cash INTEGER NOT NULL DEFAULT 0,"
-               "frozen_cash INTEGER NOT NULL DEFAULT 0,"
-               "position_value INTEGER NOT NULL DEFAULT 0,"
-               "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
-               "created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
-               ");") &&
+                    "CREATE TABLE account_info ("
+                    "ID INTEGER PRIMARY KEY AUTOINCREMENT,"
+                    "account_id INTEGER NOT NULL UNIQUE,"
+                    "total_assets INTEGER NOT NULL DEFAULT 0,"
+                    "available_cash INTEGER NOT NULL DEFAULT 0,"
+                    "frozen_cash INTEGER NOT NULL DEFAULT 0,"
+                    "position_value INTEGER NOT NULL DEFAULT 0,"
+                    "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+                    "created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                    ");") &&
            exec_sql(db,
-               "CREATE TABLE positions ("
-               "ID INTEGER PRIMARY KEY AUTOINCREMENT,"
-               "security_id TEXT NOT NULL,"
-               "internal_security_id TEXT NOT NULL,"
-               "volume_available_t0 INTEGER NOT NULL DEFAULT 0,"
-               "volume_available_t1 INTEGER NOT NULL DEFAULT 0,"
-               "volume_buy INTEGER NOT NULL DEFAULT 0,"
-               "dvalue_buy INTEGER NOT NULL DEFAULT 0,"
-               "volume_buy_traded INTEGER NOT NULL DEFAULT 0,"
-               "dvalue_buy_traded INTEGER NOT NULL DEFAULT 0,"
-               "volume_sell INTEGER NOT NULL DEFAULT 0,"
-               "dvalue_sell INTEGER NOT NULL DEFAULT 0,"
-               "volume_sell_traded INTEGER NOT NULL DEFAULT 0,"
-               "dvalue_sell_traded INTEGER NOT NULL DEFAULT 0,"
-               "count_order INTEGER NOT NULL DEFAULT 0,"
-               "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
-               "created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
-               ");");
+                    "CREATE TABLE positions ("
+                    "ID INTEGER PRIMARY KEY AUTOINCREMENT,"
+                    "security_id TEXT NOT NULL,"
+                    "internal_security_id TEXT NOT NULL,"
+                    "volume_available_t0 INTEGER NOT NULL DEFAULT 0,"
+                    "volume_available_t1 INTEGER NOT NULL DEFAULT 0,"
+                    "volume_buy INTEGER NOT NULL DEFAULT 0,"
+                    "dvalue_buy INTEGER NOT NULL DEFAULT 0,"
+                    "volume_buy_traded INTEGER NOT NULL DEFAULT 0,"
+                    "dvalue_buy_traded INTEGER NOT NULL DEFAULT 0,"
+                    "volume_sell INTEGER NOT NULL DEFAULT 0,"
+                    "dvalue_sell INTEGER NOT NULL DEFAULT 0,"
+                    "volume_sell_traded INTEGER NOT NULL DEFAULT 0,"
+                    "dvalue_sell_traded INTEGER NOT NULL DEFAULT 0,"
+                    "count_order INTEGER NOT NULL DEFAULT 0,"
+                    "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+                    "created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                    ");");
 }
 
-} // namespace
+}  // namespace
 
 TEST(initialize_and_run_processes_orders) {
     Config cfg;
@@ -271,19 +342,13 @@ TEST(initialize_and_run_processes_orders) {
     std::thread worker([&service, &run_rc]() { run_rc = service.run(); });
 
     OrderRequest req;
-    req.init_new("000001",
-        InternalSecurityId("XSHE_000001"),
-        static_cast<InternalOrderId>(5001),
-        TradeSide::Buy,
-        Market::SZ,
-        static_cast<Volume>(100),
-        static_cast<DPrice>(1000),
-        93000000);
+    req.init_new("000001", InternalSecurityId("XSHE_000001"), static_cast<InternalOrderId>(5001), TradeSide::Buy,
+                 Market::SZ, static_cast<Volume>(100), static_cast<DPrice>(1000), 93000000);
     req.order_state.store(OrderState::StrategySubmitted, std::memory_order_relaxed);
 
     OrderIndex upstream_index = kInvalidOrderIndex;
-    assert(orders_shm_append(
-        orders, req, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy, now_ns(), upstream_index));
+    assert(orders_shm_append(orders, req, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy, now_ns(),
+                             upstream_index));
     assert(upstream->upstream_order_queue.try_push(upstream_index));
 
     assert(wait_until([downstream]() { return downstream->order_queue.size() > 0; }));
@@ -384,58 +449,30 @@ TEST(restart_recovers_downstream_active_orders) {
         assert(trades != nullptr);
 
         OrderRequest recoverable;
-        recoverable.init_new("000001",
-            InternalSecurityId("XSHE_000001"),
-            static_cast<InternalOrderId>(7001),
-            TradeSide::Buy,
-            Market::SZ,
-            static_cast<Volume>(100),
-            static_cast<DPrice>(1000),
-            93000000);
+        recoverable.init_new("000001", InternalSecurityId("XSHE_000001"), static_cast<InternalOrderId>(7001),
+                             TradeSide::Buy, Market::SZ, static_cast<Volume>(100), static_cast<DPrice>(1000), 93000000);
         recoverable.order_state.store(OrderState::TraderSubmitted, std::memory_order_relaxed);
         OrderIndex recover_index = kInvalidOrderIndex;
-        assert(orders_shm_append(orders,
-            recoverable,
-            OrderSlotState::DownstreamQueued,
-            order_slot_source_t::AccountInternal,
-            now_ns(),
-            recover_index));
+        assert(orders_shm_append(orders, recoverable, OrderSlotState::DownstreamQueued,
+                                 order_slot_source_t::AccountInternal, now_ns(), recover_index));
 
         OrderRequest non_downstream;
-        non_downstream.init_new("000002",
-            InternalSecurityId("XSHE_000002"),
-            static_cast<InternalOrderId>(7002),
-            TradeSide::Buy,
-            Market::SZ,
-            static_cast<Volume>(100),
-            static_cast<DPrice>(1000),
-            93000000);
+        non_downstream.init_new("000002", InternalSecurityId("XSHE_000002"), static_cast<InternalOrderId>(7002),
+                                TradeSide::Buy, Market::SZ, static_cast<Volume>(100), static_cast<DPrice>(1000),
+                                93000000);
         non_downstream.order_state.store(OrderState::TraderSubmitted, std::memory_order_relaxed);
         OrderIndex non_downstream_index = kInvalidOrderIndex;
-        assert(orders_shm_append(orders,
-            non_downstream,
-            OrderSlotState::UpstreamQueued,
-            order_slot_source_t::Strategy,
-            now_ns(),
-            non_downstream_index));
+        assert(orders_shm_append(orders, non_downstream, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy,
+                                 now_ns(), non_downstream_index));
 
         OrderRequest terminal_downstream;
-        terminal_downstream.init_new("000003",
-            InternalSecurityId("XSHE_000003"),
-            static_cast<InternalOrderId>(7003),
-            TradeSide::Buy,
-            Market::SZ,
-            static_cast<Volume>(100),
-            static_cast<DPrice>(1000),
-            93000000);
+        terminal_downstream.init_new("000003", InternalSecurityId("XSHE_000003"), static_cast<InternalOrderId>(7003),
+                                     TradeSide::Buy, Market::SZ, static_cast<Volume>(100), static_cast<DPrice>(1000),
+                                     93000000);
         terminal_downstream.order_state.store(OrderState::Finished, std::memory_order_relaxed);
         OrderIndex terminal_index = kInvalidOrderIndex;
-        assert(orders_shm_append(orders,
-            terminal_downstream,
-            OrderSlotState::DownstreamDequeued,
-            order_slot_source_t::AccountInternal,
-            now_ns(),
-            terminal_index));
+        assert(orders_shm_append(orders, terminal_downstream, OrderSlotState::DownstreamDequeued,
+                                 order_slot_source_t::AccountInternal, now_ns(), terminal_index));
     }
 
     AccountService second_start;
@@ -492,6 +529,76 @@ TEST(initialize_rejects_invalid_config) {
     AccountService service;
     assert(!service.initialize(config_path));
     std::remove(config_path.c_str());
+}
+
+TEST(initialize_prints_loaded_config_to_stderr) {
+    Config cfg;
+    cfg.account_id = 105;
+    cfg.shm.upstream_shm_name = unique_shm_name("acct_upstream_print_cfg");
+    cfg.shm.downstream_shm_name = unique_shm_name("acct_downstream_print_cfg");
+    cfg.shm.trades_shm_name = unique_shm_name("acct_trades_print_cfg");
+    cfg.shm.orders_shm_name = unique_shm_name("acct_orders_print_cfg");
+    cfg.shm.positions_shm_name = unique_shm_name("acct_positions_print_cfg");
+    cfg.shm.create_if_not_exist = true;
+    cfg.trading_day = "20260225";
+
+    cfg.EventLoop.busy_polling = false;
+    cfg.EventLoop.poll_batch_size = 16;
+    cfg.EventLoop.idle_sleep_us = 25;
+    cfg.EventLoop.stats_interval_ms = 0;
+    cfg.EventLoop.archive_terminal_orders = true;
+    cfg.EventLoop.terminal_archive_delay_ms = 321;
+
+    cfg.market_data.enabled = false;
+    cfg.market_data.snapshot_shm_name = unique_shm_name("acct_snapshot_print_cfg");
+
+    cfg.risk.enable_position_check = false;
+    cfg.risk.enable_duplicate_check = false;
+    cfg.risk.enable_price_limit_check = false;
+    cfg.risk.enable_fund_check = false;
+
+    cfg.split.strategy = SplitStrategy::None;
+
+    cfg.log.log_dir = test_data_dir();
+    cfg.log.async_logging = false;
+
+    cfg.db.enable_persistence = false;
+    cfg.db.db_path.clear();
+
+    const std::string config_path = unique_config_path("acct_service_cfg_print");
+    assert(write_config_file(config_path, cfg));
+
+    std::string captured_stderr;
+    {
+        StderrCapture capture;
+        AccountService service;
+        assert(service.initialize(config_path));
+        captured_stderr = capture.finish();
+    }
+
+    if (should_log_startup_config()) {
+        assert(captured_stderr.find("[config] [meta] config_file=" + config_path) != std::string::npos);
+        assert(captured_stderr.find("[config] [root] account_id=105") != std::string::npos);
+        assert(captured_stderr.find("[config] [root] trading_day=20260225") != std::string::npos);
+        assert(captured_stderr.find("[config] [shm] orders_shm_name=" + cfg.shm.orders_shm_name) != std::string::npos);
+        assert(captured_stderr.find("[config] [event_loop] poll_batch_size=16") != std::string::npos);
+        assert(captured_stderr.find("[config] [event_loop] archive_terminal_orders=true") != std::string::npos);
+        assert(captured_stderr.find("[config] [market_data] snapshot_shm_name=" + cfg.market_data.snapshot_shm_name) !=
+               std::string::npos);
+        assert(captured_stderr.find("[config] [log] async_logging=false") != std::string::npos);
+    } else {
+        assert(captured_stderr.empty());
+    }
+
+    const std::string dated_orders_name = make_orders_shm_name(cfg.shm.orders_shm_name, cfg.trading_day);
+    const std::string log_path = cfg.log.log_dir + "/account_" + std::to_string(cfg.account_id) + ".log";
+    (void)SHMManager::unlink(cfg.shm.upstream_shm_name);
+    (void)SHMManager::unlink(cfg.shm.downstream_shm_name);
+    (void)SHMManager::unlink(cfg.shm.trades_shm_name);
+    (void)SHMManager::unlink(dated_orders_name);
+    (void)SHMManager::unlink(cfg.shm.positions_shm_name);
+    std::remove(config_path.c_str());
+    std::remove(log_path.c_str());
 }
 
 TEST(position_loader_file_mode_only_on_fresh_shm) {
@@ -610,17 +717,17 @@ TEST(position_loader_db_mode_only_on_fresh_shm) {
     assert(open_sqlite_rw(cfg.db.db_path, db));
     assert(init_position_loader_schema(db.get()));
     assert(exec_sql(db.get(),
-        "INSERT INTO "
-        "account_info(account_id,total_assets,available_cash,frozen_"
-        "cash,position_value) "
-        "VALUES (103,300000000,280000000,10000000,10000000);"));
+                    "INSERT INTO "
+                    "account_info(account_id,total_assets,available_cash,frozen_"
+                    "cash,position_value) "
+                    "VALUES (103,300000000,280000000,10000000,10000000);"));
     assert(exec_sql(db.get(),
-        "INSERT INTO positions("
-        "security_id,internal_security_id,volume_available_t0,volume_"
-        "available_t1,volume_buy,dvalue_buy,"
-        "volume_buy_traded,dvalue_buy_traded,volume_sell,dvalue_sell,"
-        "volume_sell_traded,dvalue_sell_traded,count_order"
-        ") VALUES ('000001','SZ.000001',456,0,0,0,0,0,0,0,0,0,0);"));
+                    "INSERT INTO positions("
+                    "security_id,internal_security_id,volume_available_t0,volume_"
+                    "available_t1,volume_buy,dvalue_buy,"
+                    "volume_buy_traded,dvalue_buy_traded,volume_sell,dvalue_sell,"
+                    "volume_sell_traded,dvalue_sell_traded,count_order"
+                    ") VALUES ('000001','SZ.000001',456,0,0,0,0,0,0,0,0,0,0);"));
     db.reset();
 
     {
@@ -636,12 +743,12 @@ TEST(position_loader_db_mode_only_on_fresh_shm) {
     assert(open_sqlite_rw(cfg.db.db_path, db));
     assert(exec_sql(db.get(), "DELETE FROM positions;"));
     assert(exec_sql(db.get(),
-        "INSERT INTO positions("
-        "security_id,internal_security_id,volume_available_t0,volume_"
-        "available_t1,volume_buy,dvalue_buy,"
-        "volume_buy_traded,dvalue_buy_traded,volume_sell,dvalue_sell,"
-        "volume_sell_traded,dvalue_sell_traded,count_order"
-        ") VALUES ('000002','SZ.000002',999,0,0,0,0,0,0,0,0,0,0);"));
+                    "INSERT INTO positions("
+                    "security_id,internal_security_id,volume_available_t0,volume_"
+                    "available_t1,volume_buy,dvalue_buy,"
+                    "volume_buy_traded,dvalue_buy_traded,volume_sell,dvalue_sell,"
+                    "volume_sell_traded,dvalue_sell_traded,count_order"
+                    ") VALUES ('000002','SZ.000002',999,0,0,0,0,0,0,0,0,0,0);"));
     db.reset();
 
     {
@@ -671,6 +778,7 @@ int main() {
     RUN_TEST(initialize_and_run_processes_orders);
     RUN_TEST(restart_recovers_downstream_active_orders);
     RUN_TEST(initialize_rejects_invalid_config);
+    RUN_TEST(initialize_prints_loaded_config_to_stderr);
     RUN_TEST(position_loader_file_mode_only_on_fresh_shm);
     RUN_TEST(position_loader_db_mode_only_on_fresh_shm);
 
