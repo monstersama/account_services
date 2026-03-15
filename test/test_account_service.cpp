@@ -577,15 +577,15 @@ TEST(initialize_prints_loaded_config_to_stderr) {
     }
 
     if (should_log_startup_config()) {
-        assert(captured_stderr.find("[config][meta]config_file=" + config_path) != std::string::npos);
-        assert(captured_stderr.find("[config][root]account_id=105") != std::string::npos);
-        assert(captured_stderr.find("[config][root]trading_day=20260225") != std::string::npos);
-        assert(captured_stderr.find("[config][shm]orders_shm_name=" + cfg.shm.orders_shm_name) != std::string::npos);
-        assert(captured_stderr.find("[config][event_loop]poll_batch_size=16") != std::string::npos);
-        assert(captured_stderr.find("[config][event_loop]archive_terminal_orders=true") != std::string::npos);
-        assert(captured_stderr.find("[config][market_data]snapshot_shm_name=" + cfg.market_data.snapshot_shm_name) !=
+        assert(captured_stderr.find("[config] [meta] config_file=" + config_path) != std::string::npos);
+        assert(captured_stderr.find("[config] [root] account_id=105") != std::string::npos);
+        assert(captured_stderr.find("[config] [root] trading_day=20260225") != std::string::npos);
+        assert(captured_stderr.find("[config] [shm] orders_shm_name=" + cfg.shm.orders_shm_name) != std::string::npos);
+        assert(captured_stderr.find("[config] [event_loop] poll_batch_size=16") != std::string::npos);
+        assert(captured_stderr.find("[config] [event_loop] archive_terminal_orders=true") != std::string::npos);
+        assert(captured_stderr.find("[config] [market_data] snapshot_shm_name=" + cfg.market_data.snapshot_shm_name) !=
                std::string::npos);
-        assert(captured_stderr.find("[config][log]async_logging=false") != std::string::npos);
+        assert(captured_stderr.find("[config] [log] async_logging=false") != std::string::npos);
     } else {
         assert(captured_stderr.empty());
     }

@@ -196,17 +196,17 @@ TEST(to_log_string_includes_all_sections) {
     assert(manager.load_from_file(in_path));
 
     const std::string log_text = manager.to_log_string();
-    assert(log_text.find("[config][meta]config_file=" + in_path) != std::string::npos);
-    assert(log_text.find("[config][root]account_id=19") != std::string::npos);
-    assert(log_text.find("[config][root]trading_day=20260301") != std::string::npos);
-    assert(log_text.find("[config][shm]upstream_shm_name=/yaml_upstream") != std::string::npos);
-    assert(log_text.find("[config][event_loop]archive_terminal_orders=true") != std::string::npos);
-    assert(log_text.find("[config][market_data]snapshot_shm_name=/yaml_snapshot") != std::string::npos);
-    assert(log_text.find("[config][active_strategy]name=mean_revert") != std::string::npos);
-    assert(log_text.find("[config][risk]duplicate_window_ns=1005") != std::string::npos);
-    assert(log_text.find("[config][split]strategy=twap") != std::string::npos);
-    assert(log_text.find("[config][log]log_level=debug") != std::string::npos);
-    assert(log_text.find("[config][db]db_path=/tmp/config_mgr.sqlite") != std::string::npos);
+    assert(log_text.find("[config] [meta] config_file=" + in_path) != std::string::npos);
+    assert(log_text.find("[config] [root] account_id=19") != std::string::npos);
+    assert(log_text.find("[config] [root] trading_day=20260301") != std::string::npos);
+    assert(log_text.find("[config] [shm] upstream_shm_name=/yaml_upstream") != std::string::npos);
+    assert(log_text.find("[config] [event_loop] archive_terminal_orders=true") != std::string::npos);
+    assert(log_text.find("[config] [market_data] snapshot_shm_name=/yaml_snapshot") != std::string::npos);
+    assert(log_text.find("[config] [active_strategy] name=mean_revert") != std::string::npos);
+    assert(log_text.find("[config] [risk] duplicate_window_ns=1005") != std::string::npos);
+    assert(log_text.find("[config] [split] strategy=twap") != std::string::npos);
+    assert(log_text.find("[config] [log] log_level=debug") != std::string::npos);
+    assert(log_text.find("[config] [db] db_path=/tmp/config_mgr.sqlite") != std::string::npos);
 
     std::remove(in_path.c_str());
 }

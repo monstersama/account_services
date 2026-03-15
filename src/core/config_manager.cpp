@@ -203,7 +203,7 @@ void write_config_yaml(std::ostream& out, const Config& config) {
 }
 
 void write_config_log_line(std::ostream& out, std::string_view section, std::string_view key, std::string_view value) {
-    out << "[config][" << section << "]" << key << "=" << escape_log_value(value) << "\n";
+    out << "[config] [" << section << "] " << key << "=" << escape_log_value(value) << "\n";
 }
 
 void write_config_log_line(std::ostream& out, std::string_view section, std::string_view key,
@@ -216,12 +216,12 @@ void write_config_log_line(std::ostream& out, std::string_view section, std::str
 }
 
 void write_config_log_line(std::ostream& out, std::string_view section, std::string_view key, bool value) {
-    out << "[config][" << section << "]" << key << "=" << (value ? "true" : "false") << "\n";
+    out << "[config] [" << section << "] " << key << "=" << (value ? "true" : "false") << "\n";
 }
 
 template <typename T>
 void write_config_log_line(std::ostream& out, std::string_view section, std::string_view key, const T& value) {
-    out << "[config][" << section << "]" << key << "=" << value << "\n";
+    out << "[config] [" << section << "] " << key << "=" << value << "\n";
 }
 
 void write_config_log(std::ostream& out, const Config& config) {
