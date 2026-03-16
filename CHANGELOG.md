@@ -10,6 +10,8 @@
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-03-17
+
 ### Added
 
 - 新增 `market_data.allow_order_price_fallback` 调试开关，支持在行情缺失或盘口无效时回退使用父单委托价发出托管子单。
@@ -20,12 +22,16 @@
 - 补全 `config/acct.dev.yaml` 中缺失的 `event_loop` 配置项，避免开发配置回退到隐式默认值。
 - 为账户服务内置配置文件增加显式覆盖检查，防止后续新增配置键未同步写入仓库配置。
 - 订单业务日志从通用技术日志分流为独立 recorder：生产默认异步落独立文件，`Debug` 构建额外输出父子单与执行会话详细 trace。
+- 托管执行子单在有效盘口下改为直接使用盘口顶档价格：买单优先卖一、对手档无效时回退到买一；卖单优先买一、对手档无效时回退到卖一，不再用父单委托价做盘口有效场景下的夹价边界。
+- `order_events_*` 与 `order_debug_*` 的日志语义进一步拆分：业务日志继续保留订单快照事实字段，调试日志改为 `trace=` 视角并按事件类型裁剪输出字段，避免不同流之间重复输出误导性的默认值。
 
 ### Fixed
 
 - 托管执行会话在拆单运行时约束不满足时，不再把拒单原因记录为 `invalid_session`，而是输出明确的不可拆单语义。
 - `TWAP` 托管父单在视图未变化时不再重复触发 `parent_refreshed`，避免 `order_events_*` 日志被事件循环频率刷屏。
 - 修复显式父单 `internal_order_id` 未抬升本地 ID 生成器的问题，避免托管子单撞号后表现为 `route_failed`。
+- 统一父单、执行引擎内部子单和内部撤单子单的订单号分配到 `upstream_shm->header.next_order_id`，修复托管子单先占用本地号段后，后续父单可能复用旧 `internal_order_id` 并触发 `DuplicateOrder` 的问题。
+- 修复 `order_debug_*` 中 `shm_order_index` 与结果字段长期落默认值的问题：`child_submit_result` / `child_finalized` 现在会回填真实槽位索引，且 `success`、`cancel_requested`、`reason`、`result` 等字段只在对应 trace 类型中出现。
 
 ## [1.1.0] - 2026-03-15
 
