@@ -18,6 +18,8 @@ ORDER_COUNT="${ORDER_COUNT:-100}"
 SUBMIT_INTERVAL_SEC="${SUBMIT_INTERVAL_SEC:-0.1}"
 SUBMIT_DURATION_SEC="${SUBMIT_DURATION_SEC:-60}"
 RANDOM_SIDE="${RANDOM_SIDE:-1}"
+VALID_SEC="${VALID_SEC:-0}"
+PASSIVE_EXEC_ALGO="${PASSIVE_EXEC_ALGO:-default}"
 MONITOR_CONSOLE="${MONITOR_CONSOLE:-1}"
 # 固定样本 DB：默认使用仓库 data 目录下的数据库，可通过环境变量覆盖。
 SAMPLE_DB_PATH="${SAMPLE_DB_PATH:-${SOURCE_DIR}/data/account_service.db}"
@@ -214,6 +216,10 @@ if ! [[ "${RANDOM_SIDE}" =~ ^[01]$ ]]; then
   echo "[e2e] invalid RANDOM_SIDE: ${RANDOM_SIDE}" >&2
   exit 1
 fi
+if ! [[ "${VALID_SEC}" =~ ^[0-9]+$ ]]; then
+  echo "[e2e] invalid VALID_SEC: ${VALID_SEC}" >&2
+  exit 1
+fi
 if ! [[ "${MONITOR_CONSOLE}" =~ ^[01]$ ]]; then
   echo "[e2e] invalid MONITOR_CONSOLE: ${MONITOR_CONSOLE}" >&2
   exit 1
@@ -288,6 +294,8 @@ ORDER_COUNT="${ORDER_COUNT}" \
 SUBMIT_INTERVAL_SEC="${SUBMIT_INTERVAL_SEC}" \
 SUBMIT_DURATION_SEC="${SUBMIT_DURATION_SEC}" \
 RANDOM_SIDE="${RANDOM_SIDE}" \
+VALID_SEC="${VALID_SEC}" \
+PASSIVE_EXEC_ALGO="${PASSIVE_EXEC_ALGO}" \
 RUN_DIR="${RUN_DIR}" \
 SUBMIT_LOG="${SUBMIT_LOG}" \
 ORDER_IDS_CSV="${ORDER_IDS_CSV}" \

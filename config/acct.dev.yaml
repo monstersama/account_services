@@ -23,6 +23,7 @@ event_loop:
 market_data:
   enabled: false
   snapshot_shm_name: "/signal_xshg_v2"
+  allow_order_price_fallback: false
 
 active_strategy:
   enabled: false

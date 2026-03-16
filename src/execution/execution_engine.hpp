@@ -23,6 +23,7 @@ public:
         InvalidConfig = 2,
         Duplicate = 3,
         MarketDataUnavailable = 4,
+        Unsplittable = 5,
     };
 
     ExecutionEngine(const split_config& split_config, OrderBook& order_book, order_router& order_router,

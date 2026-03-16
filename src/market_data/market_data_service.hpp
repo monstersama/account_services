@@ -1,8 +1,8 @@
 #pragma once
 
-#include <vector>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "core/config_manager.hpp"
 #include "snapshot_reader.hpp"
@@ -57,6 +57,9 @@ public:
 
     // 是否已经成功打开并校验 reader。
     bool is_ready() const noexcept;
+
+    // 是否允许在行情不可用时回退到父单委托价做调试发单。
+    bool allow_order_price_fallback() const noexcept;
 
     // 返回当前 reader 暴露的全部 canonical symbol，供调试工具快速枚举可读合约。
     std::vector<std::string> list_symbols() const;

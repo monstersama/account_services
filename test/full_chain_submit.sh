@@ -23,6 +23,8 @@ ORDER_COUNT="${ORDER_COUNT:-100}"
 SUBMIT_INTERVAL_SEC="${SUBMIT_INTERVAL_SEC:-0.1}"
 SUBMIT_DURATION_SEC="${SUBMIT_DURATION_SEC:-60}"
 RANDOM_SIDE="${RANDOM_SIDE:-1}"
+VALID_SEC="${VALID_SEC:-0}"
+PASSIVE_EXEC_ALGO="${PASSIVE_EXEC_ALGO:-default}"
 
 SUBMIT_LOG="${SUBMIT_LOG:-${RUN_DIR}/order_submit.stderr.log}"
 ORDER_IDS_CSV="${ORDER_IDS_CSV:-${RUN_DIR}/order_ids.csv}"
@@ -56,6 +58,10 @@ if ! [[ "${SUBMIT_DURATION_SEC}" =~ ^[1-9][0-9]*$ ]]; then
 fi
 if ! [[ "${RANDOM_SIDE}" =~ ^[01]$ ]]; then
   echo "[submit_only] invalid RANDOM_SIDE: ${RANDOM_SIDE}" >&2
+  exit 1
+fi
+if ! [[ "${VALID_SEC}" =~ ^[0-9]+$ ]]; then
+  echo "[submit_only] invalid VALID_SEC: ${VALID_SEC}" >&2
   exit 1
 fi
 if ! command -v python3 >/dev/null 2>&1; then
@@ -170,7 +176,7 @@ echo "[submit_only] extra non-db securities (market|security): ${EXTRA_ORDER_KEY
 
 # 发起订单流：支持固定笔数或固定时长两种模式。
 : > "${SUBMIT_LOG}"
-echo "internal_order_id,security_id,market,side,volume,price" > "${ORDER_IDS_CSV}"
+echo "internal_order_id,security_id,market,side,volume,price,valid_sec,passive_exec_algo" > "${ORDER_IDS_CSV}"
 : > "${ORDER_IDS_TXT}"
 
 first_order_id=""
@@ -262,7 +268,8 @@ while :; do
       --market "${security_market}" \
       --volume "${volume}" \
       --price "${price}" \
-      --no-cleanup-shm-on-exit 2>>"${SUBMIT_LOG}")"; then
+      --valid-sec "${VALID_SEC}" \
+      --passive-exec-algo "${PASSIVE_EXEC_ALGO}" 2>>"${SUBMIT_LOG}")"; then
       order_id="$(echo "${order_id}" | tr -d '\r\n')"
       if [[ "${order_id}" =~ ^[0-9]+$ ]]; then
         break
@@ -280,9 +287,9 @@ while :; do
   if [[ -z "${first_order_id}" ]]; then
     first_order_id="${order_id}"
   fi
-  echo "${order_id},${security_id},${security_market},${side},${volume},${price}" >> "${ORDER_IDS_CSV}"
+  echo "${order_id},${security_id},${security_market},${side},${volume},${price},${VALID_SEC},${PASSIVE_EXEC_ALGO}" >> "${ORDER_IDS_CSV}"
   echo "${order_id}" >> "${ORDER_IDS_TXT}"
-  echo "[submit_only] order_id=${order_id} market=${security_market} security=${security_id} side=${side} volume=${volume} price=${price}" >&2
+  echo "[submit_only] order_id=${order_id} market=${security_market} security=${security_id} side=${side} volume=${volume} price=${price} valid_sec=${VALID_SEC} passive_exec_algo=${PASSIVE_EXEC_ALGO}" >&2
 
   if [[ "${side}" == "buy" ]]; then
     prev_volume=${security_holdings["${security_key}"]:-0}

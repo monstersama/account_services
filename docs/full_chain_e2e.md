@@ -62,8 +62,7 @@ ctest -R test_full_chain_e2e --output-on-failure --test-dir build
 
 - 默认行为：控制台实时输出 `account_service/gateway/observer` 日志，`1s/单`，随机 `buy/sell`，持续 `60s`。
 - `full_chain_observer` 仅支持 `--config`（或位置参数 `config_path`）启动，业务参数统一走 YAML。
-- `order_submit_cli` 默认在退出时清理其使用的 `upstream/orders` 共享内存名称。
-- `test/full_chain_e2e.sh` 发单时会显式传 `--no-cleanup-shm-on-exit`，避免持续发单过程中中途清理导致后续发单失败。
+- `order_submit_cli` 默认不会在退出时清理其使用的 `upstream/orders` 共享内存名称；如需清理，可显式传 `--cleanup-shm-on-exit`。
 
 常用可调参数（环境变量）：
 
@@ -72,6 +71,8 @@ ctest -R test_full_chain_e2e --output-on-failure --test-dir build
 - `SUBMIT_DURATION_SEC=N`：持续发单时长秒数（默认 `60`）
 - `RANDOM_SIDE=0|1`：是否随机买卖方向（默认 `1`）
 - `ORDER_COUNT=N`：若设置则改为“固定笔数模式”，优先于持续时长
+- `VALID_SEC=N`：传给 `order_submit_cli --valid-sec` 的有效秒数（默认 `0`）
+- `PASSIVE_EXEC_ALGO=default|none|fixed_size|twap|vwap|iceberg`：传给 `order_submit_cli --passive-exec-algo` 的逐单被动执行算法（默认 `default`）
 
 ## 4. 产物目录
 

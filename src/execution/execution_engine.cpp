@@ -272,6 +272,11 @@ protected:
         return market_data_service_->read(parent_request_.internal_security_id.view(), out_view);
     }
 
+    // 判断当前会话是否允许在行情不可用时回退到父单委托价。
+    bool allow_order_price_fallback() const noexcept {
+        return market_data_service_ != nullptr && market_data_service_->allow_order_price_fallback();
+    }
+
     // 基于当前盘口生成子单价格，父单限价只作为边界，不再直接作为默认发单价。
     bool resolve_market_price(const MarketDataView& market_data_view, DPrice& out_price) const noexcept {
         const snapshot_shm::LobSnapshot& snapshot = market_data_view.snapshot;
@@ -296,6 +301,52 @@ protected:
             return false;
         }
         out_price = candidate_price;
+        return true;
+    }
+
+    // 调试回退只记一次 warning，避免一个父单在每轮 tick 中重复刷日志。
+    void log_order_price_fallback_once(const char* reason) {
+        if (order_price_fallback_logged_) {
+            return;
+        }
+        order_price_fallback_logged_ = true;
+
+        if (reason == nullptr) {
+            ACCT_LOG_WARN("ExecutionEngine", "managed execution fell back to parent order price");
+            return;
+        }
+        if (std::string_view(reason) == "market_data_unavailable") {
+            ACCT_LOG_WARN("ExecutionEngine",
+                          "managed execution fell back to parent order price because market data is unavailable");
+            return;
+        }
+        ACCT_LOG_WARN("ExecutionEngine",
+                      "managed execution fell back to parent order price because no valid market level is available");
+    }
+
+    // 先尝试按行情定价；若启用了调试回退，则在行情缺失或脏数据时改用父单委托价。
+    bool resolve_submit_price(MarketDataView& out_view, bool& has_market_data_view, DPrice& out_price) {
+        has_market_data_view = false;
+        if (read_market_data_view(out_view)) {
+            has_market_data_view = true;
+            if (resolve_market_price(out_view, out_price)) {
+                return true;
+            }
+            if (!allow_order_price_fallback()) {
+                return false;
+            }
+            log_order_price_fallback_once("invalid_market_level");
+        } else {
+            if (!allow_order_price_fallback()) {
+                return false;
+            }
+            log_order_price_fallback_once("market_data_unavailable");
+        }
+
+        if (parent_request_.dprice_entrust == 0) {
+            return false;
+        }
+        out_price = parent_request_.dprice_entrust;
         return true;
     }
 
@@ -585,6 +636,7 @@ protected:
     ActiveStrategy* active_strategy_ = nullptr;
     std::unordered_map<InternalOrderId, child_execution_ledger> child_ledgers_;
     uint64_t last_active_publish_seq_no_ = 0;
+    bool order_price_fallback_logged_ = false;
     bool cancel_requested_ = false;
     bool failed_ = false;
     bool terminal_ = false;
@@ -639,13 +691,14 @@ public:
         }
 
         MarketDataView market_data_view{};
+        bool has_market_data_view = false;
         DPrice market_price = 0;
-        if (!read_market_data_view(market_data_view) || !resolve_market_price(market_data_view, market_price)) {
+        if (!resolve_submit_price(market_data_view, has_market_data_view, market_price)) {
             sync_parent_view();
             return;
         }
 
-        if (!try_active_submit(market_data_view, market_price, budget_volume)) {
+        if (!(has_market_data_view && try_active_submit(market_data_view, market_price, budget_volume))) {
             (void)submit_child(budget_volume, market_price, false);
         }
         sync_parent_view();
@@ -731,13 +784,14 @@ public:
         const Volume budget_volume = current_budget_volume();
         if (budget_volume > 0) {
             MarketDataView market_data_view{};
+            bool has_market_data_view = false;
             DPrice market_price = 0;
-            if (!read_market_data_view(market_data_view) || !resolve_market_price(market_data_view, market_price)) {
+            if (!resolve_submit_price(market_data_view, has_market_data_view, market_price)) {
                 sync_parent_view();
                 return;
             }
 
-            if (!slice_consumed_) {
+            if (!slice_consumed_ && has_market_data_view) {
                 slice_consumed_ = try_active_submit(market_data_view, market_price, budget_volume);
             }
             if (!slice_consumed_ && now_ns_value >= next_deadline_ns_) {
@@ -842,7 +896,7 @@ bool ExecutionEngine::should_manage(const OrderRequest& request) const noexcept 
 
 bool ExecutionEngine::has_active_strategy() const noexcept { return active_strategy_ != nullptr; }
 
-// 为父单创建统一执行会话，VWAP 明确拒绝，其他无效配置返回错误。
+// 为父单创建统一执行会话，VWAP 明确拒绝，运行时无法满足拆单约束时返回不可拆单。
 ExecutionEngine::SessionStartResult ExecutionEngine::start_session(OrderIndex parent_index,
                                                                    const OrderRequest& parent_request,
                                                                    StrategyId strategy_id, TimestampNs start_time_ns) {
@@ -870,7 +924,10 @@ ExecutionEngine::SessionStartResult ExecutionEngine::start_session(OrderIndex pa
         }
         return SessionStartResult::Unsupported;
     }
-    if (!market_data_service_ || !market_data_service_->is_ready()) {
+    const bool market_data_ready = market_data_service_ != nullptr && market_data_service_->is_ready();
+    const bool allow_order_price_fallback =
+        market_data_service_ != nullptr && market_data_service_->allow_order_price_fallback();
+    if (!market_data_ready && !allow_order_price_fallback) {
         if (order_event_recorder_) {
             order_event_recorder_->record_session_start_rejected(parent_request, strategy_id, execution_algo,
                                                                  "market_data_unavailable");
@@ -881,12 +938,19 @@ ExecutionEngine::SessionStartResult ExecutionEngine::start_session(OrderIndex pa
     std::unique_ptr<ExecutionSession> session =
         create_execution_session(split_config_, parent_index, parent_request, strategy_id, start_time_ns, order_book_,
                                  order_router_, market_data_service_, order_event_recorder_, active_strategy_.get());
-    if (!session || !session->is_valid()) {
+    if (!session) {
         if (order_event_recorder_) {
             order_event_recorder_->record_session_start_rejected(parent_request, strategy_id, execution_algo,
-                                                                 "invalid_session");
+                                                                 "session_factory_failed");
         }
         return SessionStartResult::InvalidConfig;
+    }
+    if (!session->is_valid()) {
+        if (order_event_recorder_) {
+            order_event_recorder_->record_session_start_rejected(parent_request, strategy_id, execution_algo,
+                                                                 "unsplittable");
+        }
+        return SessionStartResult::Unsplittable;
     }
 
     if (!order_book_.mark_managed_parent(parent_request.internal_order_id)) {

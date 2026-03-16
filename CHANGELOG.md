@@ -10,12 +10,22 @@
 
 ## [Unreleased]
 
+### Added
+
+- 新增 `market_data.allow_order_price_fallback` 调试开关，支持在行情缺失或盘口无效时回退使用父单委托价发出托管子单。
+
 ### Changed
 
 - 账户服务启动时新增配置项输出，使用 `[config][section]key=value` 扁平格式打印，并且仅在 `Debug` 编译产物中启用。
 - 补全 `config/acct.dev.yaml` 中缺失的 `event_loop` 配置项，避免开发配置回退到隐式默认值。
 - 为账户服务内置配置文件增加显式覆盖检查，防止后续新增配置键未同步写入仓库配置。
 - 订单业务日志从通用技术日志分流为独立 recorder：生产默认异步落独立文件，`Debug` 构建额外输出父子单与执行会话详细 trace。
+
+### Fixed
+
+- 托管执行会话在拆单运行时约束不满足时，不再把拒单原因记录为 `invalid_session`，而是输出明确的不可拆单语义。
+- `TWAP` 托管父单在视图未变化时不再重复触发 `parent_refreshed`，避免 `order_events_*` 日志被事件循环频率刷屏。
+- 修复显式父单 `internal_order_id` 未抬升本地 ID 生成器的问题，避免托管子单撞号后表现为 `route_failed`。
 
 ## [1.1.0] - 2026-03-15
 

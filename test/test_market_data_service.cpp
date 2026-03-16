@@ -163,12 +163,29 @@ TEST(lists_symbols_from_snapshot_source) {
     assert(snapshot_shm_writer_unlink(snapshot_path.c_str()) == 1);
 }
 
+TEST(initialization_succeeds_with_missing_snapshot_when_order_price_fallback_enabled) {
+    acct_service::MarketDataConfig config{};
+    config.enabled = true;
+    config.snapshot_shm_name = unique_snapshot_path("acct_market_data_missing");
+    config.allow_order_price_fallback = true;
+
+    acct_service::MarketDataService service(config);
+    assert(service.initialize());
+    assert(!service.is_ready());
+    assert(service.allow_order_price_fallback());
+
+    acct_service::MarketDataView view{};
+    assert(!service.read("XSHE_000001", view));
+    assert(service.list_symbols().empty());
+}
+
 int main() {
     printf("=== Market Data Service Test Suite ===\n\n");
 
     RUN_TEST(reads_fresh_prediction);
     RUN_TEST(reads_carried_prediction_without_fresh_flag);
     RUN_TEST(lists_symbols_from_snapshot_source);
+    RUN_TEST(initialization_succeeds_with_missing_snapshot_when_order_price_fallback_enabled);
 
     printf("\n=== All tests passed! ===\n");
     return 0;

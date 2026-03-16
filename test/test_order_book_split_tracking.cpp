@@ -7,22 +7,22 @@
 #include "order/order_book.hpp"
 
 #define TEST(name) static void test_##name()
-#define RUN_TEST(name)                                                                                                 \
-    do {                                                                                                               \
-        printf("Running %s... ", #name);                                                                               \
-        test_##name();                                                                                                 \
-        printf("PASSED\n");                                                                                            \
+#define RUN_TEST(name)                   \
+    do {                                 \
+        printf("Running %s... ", #name); \
+        test_##name();                   \
+        printf("PASSED\n");              \
     } while (0)
 
 namespace {
 
 using namespace acct_service;
 
-OrderEntry make_new_entry(
-    InternalOrderId order_id, Volume volume, bool is_split_child = false, InternalOrderId parent_order_id = 0) {
+OrderEntry make_new_entry(InternalOrderId order_id, Volume volume, bool is_split_child = false,
+                          InternalOrderId parent_order_id = 0) {
     OrderEntry entry{};
-    entry.request.init_new(
-        "000001", InternalSecurityId("XSHE_000001"), order_id, TradeSide::Buy, Market::SZ, volume, 1000, 93000000);
+    entry.request.init_new("000001", InternalSecurityId("XSHE_000001"), order_id, TradeSide::Buy, Market::SZ, volume,
+                           1000, 93000000);
     entry.request.order_state.store(OrderState::StrategySubmitted, std::memory_order_relaxed);
     entry.submit_time_ns = now_ns();
     entry.last_update_ns = entry.submit_time_ns;
@@ -38,7 +38,7 @@ bool contains(const std::vector<InternalOrderId>& ids, InternalOrderId id) {
     return std::find(ids.begin(), ids.end(), id) != ids.end();
 }
 
-} // namespace
+}  // namespace
 
 TEST(split_mapping_and_aggregation) {
     auto book = std::make_unique<OrderBook>();
@@ -141,6 +141,41 @@ TEST(managed_parent_view_skips_legacy_child_aggregation) {
     assert(parent->request.volume_remain == 100);
 }
 
+TEST(managed_parent_view_deduplicates_identical_refresh) {
+    auto book = std::make_unique<OrderBook>();
+
+    const InternalOrderId parent_id = book->next_order_id();
+    assert(book->add_order(make_new_entry(parent_id, 100)));
+
+    std::size_t parent_refresh_count = 0;
+    book->set_change_callback([&](const OrderEntry& entry, order_book_event_t event) {
+        if (entry.request.internal_order_id == parent_id && event == order_book_event_t::ParentRefreshed) {
+            ++parent_refresh_count;
+        }
+    });
+
+    ManagedParentView view{};
+    view.execution_algo = PassiveExecutionAlgo::TWAP;
+    view.execution_state = ExecutionState::Running;
+    view.target_volume = 100;
+    view.working_volume = 25;
+    view.schedulable_volume = 75;
+    view.confirmed_traded_volume = 0;
+    view.confirmed_traded_value = 0;
+    view.confirmed_fee = 0;
+
+    assert(book->sync_managed_parent_view(parent_id, view, OrderState::TraderPending));
+    assert(parent_refresh_count == 1);
+
+    assert(book->sync_managed_parent_view(parent_id, view, OrderState::TraderPending));
+    assert(parent_refresh_count == 1);
+
+    view.working_volume = 50;
+    view.schedulable_volume = 50;
+    assert(book->sync_managed_parent_view(parent_id, view, OrderState::TraderPending));
+    assert(parent_refresh_count == 2);
+}
+
 TEST(ensure_next_order_id_at_least) {
     auto book = std::make_unique<OrderBook>();
 
@@ -156,13 +191,25 @@ TEST(ensure_next_order_id_at_least) {
     assert(next == static_cast<InternalOrderId>(5001));
 }
 
+TEST(explicit_order_id_advances_internal_id_generator) {
+    auto book = std::make_unique<OrderBook>();
+
+    book->ensure_next_order_id_at_least(static_cast<InternalOrderId>(13));
+    assert(book->add_order(make_new_entry(static_cast<InternalOrderId>(13), 100)));
+
+    const InternalOrderId next = book->next_order_id();
+    assert(next == static_cast<InternalOrderId>(14));
+}
+
 int main() {
     printf("=== Order Book Split Tracking Test Suite ===\n\n");
 
     RUN_TEST(split_mapping_and_aggregation);
     RUN_TEST(parent_error_latch);
     RUN_TEST(managed_parent_view_skips_legacy_child_aggregation);
+    RUN_TEST(managed_parent_view_deduplicates_identical_refresh);
     RUN_TEST(ensure_next_order_id_at_least);
+    RUN_TEST(explicit_order_id_advances_internal_id_generator);
 
     printf("\n=== All tests passed! ===\n");
     return 0;

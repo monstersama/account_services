@@ -9,6 +9,7 @@
 #include <string>
 #include <thread>
 
+#include "common/error.hpp"
 #include "core/event_loop.hpp"
 #include "execution/execution_engine.hpp"
 #include "market_data/market_data_service.hpp"
@@ -177,18 +178,30 @@ snapshot_shm::LobSnapshot make_snapshot() {
     return snapshot;
 }
 
+// 构造顶档无效的盘口快照，验证调试回退不会被坏行情卡死。
+snapshot_shm::LobSnapshot make_invalid_top_level_snapshot() {
+    snapshot_shm::LobSnapshot snapshot = make_snapshot();
+    snapshot.total_bid_levels = 1;
+    snapshot.total_ask_levels = 0;
+    snapshot.bids[0].volume = 0;
+    snapshot.asks[0].price = 1001;
+    snapshot.asks[0].volume = 180;
+    return snapshot;
+}
+
 // 为 managed execution 测试封装行情文件生命周期，保证子单始终能读到稳定盘口。
 class ManagedMarketDataFixture {
 public:
     // 创建单标的行情文件，并按需要发布 prediction/盘口快照。
     ManagedMarketDataFixture(const char* prefix, float signal, uint32_t flags,
-                             snapshot_shm::SnapshotPredictionState state)
+                             snapshot_shm::SnapshotPredictionState state,
+                             const snapshot_shm::LobSnapshot& snapshot = make_snapshot(),
+                             bool allow_order_price_fallback = false)
         : env_override_("SHM_USE_FILE", "1"),
           snapshot_path_(unique_snapshot_path(prefix)),
           writer_(make_snapshot_writer(snapshot_path_)),
-          market_data_config_(make_market_data_config(snapshot_path_)),
+          market_data_config_(make_market_data_config(snapshot_path_, allow_order_price_fallback)),
           market_data_service_(market_data_config_) {
-        const snapshot_shm::LobSnapshot snapshot = make_snapshot();
         assert(snapshot_shm_writer_publish_with_state(writer_.get(), 0, &snapshot, signal, flags,
                                                       static_cast<uint8_t>(state)) == 1);
         assert(market_data_service_.initialize());
@@ -204,10 +217,11 @@ public:
 
 private:
     // 构造最小市场数据配置，避免每个测试重复拼装。
-    static MarketDataConfig make_market_data_config(const std::string& snapshot_path) {
+    static MarketDataConfig make_market_data_config(const std::string& snapshot_path, bool allow_order_price_fallback) {
         MarketDataConfig config{};
         config.enabled = true;
         config.snapshot_shm_name = snapshot_path;
+        config.allow_order_price_fallback = allow_order_price_fallback;
         return config;
     }
 
@@ -264,7 +278,7 @@ TEST(twap_falls_back_without_active_strategy) {
     split_config.max_child_count = 4;
     split_config.interval_ms = 1;
     order_router router(*book, downstream.get(), orders_shm.get());
-    ExecutionEngine execution_engine(split_config, *book, router, market_data_fixture.service(), nullptr);
+    ExecutionEngine execution_engine(split_config, *book, router, market_data_fixture.service(), nullptr, nullptr);
 
     EventLoopConfig loop_config{};
     loop_config.busy_polling = false;
@@ -301,10 +315,9 @@ TEST(twap_falls_back_without_active_strategy) {
 }
 
 TEST(twap_uses_active_strategy_with_fresh_prediction) {
-    ManagedMarketDataFixture market_data_fixture("acct_exec_engine", 1.5F,
-                                                 snapshot_shm::kSnapshotSlotFlagHasSignal |
-                                                     snapshot_shm::kSnapshotSlotFlagSignalFresh,
-                                                 snapshot_shm::SnapshotPredictionState::kFresh);
+    ManagedMarketDataFixture market_data_fixture(
+        "acct_exec_engine", 1.5F, snapshot_shm::kSnapshotSlotFlagHasSignal | snapshot_shm::kSnapshotSlotFlagSignalFresh,
+        snapshot_shm::SnapshotPredictionState::kFresh);
 
     auto upstream = make_upstream_shm();
     auto downstream = make_downstream_shm();
@@ -334,7 +347,7 @@ TEST(twap_uses_active_strategy_with_fresh_prediction) {
     active_strategy_config.enabled = true;
     active_strategy_config.name = "prediction_signal";
     active_strategy_config.signal_threshold = 0.5;
-    ExecutionEngine execution_engine(split_config, *book, router, market_data_fixture.service(),
+    ExecutionEngine execution_engine(split_config, *book, router, market_data_fixture.service(), nullptr,
                                      StrategyRegistry::create(active_strategy_config));
 
     EventLoopConfig loop_config{};
@@ -369,10 +382,10 @@ TEST(twap_uses_active_strategy_with_fresh_prediction) {
 }
 
 TEST(active_strategy_respects_volume_and_price_decision) {
-    ManagedMarketDataFixture market_data_fixture("acct_exec_engine_fixed_decision", 1.0F,
-                                                 snapshot_shm::kSnapshotSlotFlagHasSignal |
-                                                     snapshot_shm::kSnapshotSlotFlagSignalFresh,
-                                                 snapshot_shm::SnapshotPredictionState::kFresh);
+    ManagedMarketDataFixture market_data_fixture(
+        "acct_exec_engine_fixed_decision", 1.0F,
+        snapshot_shm::kSnapshotSlotFlagHasSignal | snapshot_shm::kSnapshotSlotFlagSignalFresh,
+        snapshot_shm::SnapshotPredictionState::kFresh);
 
     auto upstream = make_upstream_shm();
     auto downstream = make_downstream_shm();
@@ -398,7 +411,7 @@ TEST(active_strategy_respects_volume_and_price_decision) {
     split_config.interval_ms = 1;
     order_router router(*book, downstream.get(), orders_shm.get());
 
-    ExecutionEngine execution_engine(split_config, *book, router, market_data_fixture.service(),
+    ExecutionEngine execution_engine(split_config, *book, router, market_data_fixture.service(), nullptr,
                                      std::make_unique<FixedDecisionStrategy>(17, 998));
 
     EventLoopConfig loop_config{};
@@ -458,7 +471,7 @@ TEST(cancelled_parent_stops_future_twap_slices) {
     split_config.max_child_count = 4;
     split_config.interval_ms = 1;
     order_router router(*book, downstream.get(), orders_shm.get());
-    ExecutionEngine execution_engine(split_config, *book, router, market_data_fixture.service(), nullptr);
+    ExecutionEngine execution_engine(split_config, *book, router, market_data_fixture.service(), nullptr, nullptr);
 
     EventLoopConfig loop_config{};
     loop_config.busy_polling = false;
@@ -543,7 +556,7 @@ TEST(fixed_size_managed_parent_releases_next_clip) {
     split_config.max_child_count = 4;
     split_config.interval_ms = 1;
     order_router router(*book, downstream.get(), orders_shm.get());
-    ExecutionEngine execution_engine(split_config, *book, router, market_data_fixture.service(), nullptr);
+    ExecutionEngine execution_engine(split_config, *book, router, market_data_fixture.service(), nullptr, nullptr);
 
     EventLoopConfig loop_config{};
     loop_config.busy_polling = false;
@@ -637,7 +650,7 @@ TEST(iceberg_enters_managed_execution_session) {
     split_config.max_child_count = 8;
     split_config.interval_ms = 1;
     order_router router(*book, downstream.get(), orders_shm.get());
-    ExecutionEngine execution_engine(split_config, *book, router, market_data_fixture.service(), nullptr);
+    ExecutionEngine execution_engine(split_config, *book, router, market_data_fixture.service(), nullptr, nullptr);
 
     EventLoopConfig loop_config{};
     loop_config.busy_polling = false;
@@ -701,7 +714,7 @@ TEST(vwap_is_rejected_without_falling_back_to_legacy_splitter) {
     split_config.max_child_count = 4;
     split_config.interval_ms = 1;
     order_router router(*book, downstream.get(), orders_shm.get());
-    ExecutionEngine execution_engine(split_config, *book, router, market_data_fixture.service(), nullptr);
+    ExecutionEngine execution_engine(split_config, *book, router, market_data_fixture.service(), nullptr, nullptr);
 
     EventLoopConfig loop_config{};
     loop_config.busy_polling = false;
@@ -730,6 +743,155 @@ TEST(vwap_is_rejected_without_falling_back_to_legacy_splitter) {
     worker.join();
 }
 
+TEST(invalid_runtime_split_config_is_reported_as_unsplittable) {
+    ManagedMarketDataFixture market_data_fixture("acct_exec_engine_unsplittable_direct", 0.0F, 0,
+                                                 snapshot_shm::SnapshotPredictionState::kNone);
+    auto downstream = make_downstream_shm();
+    auto orders_shm = make_orders_shm();
+    auto book = std::make_unique<OrderBook>();
+
+    split_config split_config{};
+    split_config.strategy = SplitStrategy::None;
+    split_config.max_child_volume = 40;
+    split_config.min_child_volume = 1;
+    split_config.max_child_count = 4;
+    split_config.interval_ms = 0;
+    order_router router(*book, downstream.get(), orders_shm.get());
+    ExecutionEngine execution_engine(split_config, *book, router, market_data_fixture.service(), nullptr, nullptr);
+
+    OrderRequest request = make_managed_order(907, 100, PassiveExecutionAlgo::TWAP);
+    OrderEntry entry{};
+    entry.request = request;
+    entry.submit_time_ns = now_ns();
+    entry.last_update_ns = entry.submit_time_ns;
+    entry.strategy_id = 0;
+    entry.risk_result = RiskResult::Pass;
+    entry.retry_count = 0;
+    entry.is_split_child = false;
+    entry.parent_order_id = 0;
+    entry.shm_order_index = kInvalidOrderIndex;
+    assert(book->add_order(entry));
+
+    assert(execution_engine.start_session(kInvalidOrderIndex, request, 0, entry.submit_time_ns) ==
+           ExecutionEngine::SessionStartResult::Unsplittable);
+}
+
+TEST(unsplittable_runtime_config_logs_not_splittable_message) {
+    ManagedMarketDataFixture market_data_fixture("acct_exec_engine_unsplittable_loop", 0.0F, 0,
+                                                 snapshot_shm::SnapshotPredictionState::kNone);
+    auto upstream = make_upstream_shm();
+    auto downstream = make_downstream_shm();
+    auto trades = make_trades_shm();
+    auto orders_shm = make_orders_shm();
+    auto positions_shm = make_positions_shm();
+
+    PositionManager positions(positions_shm.get());
+    assert(positions.initialize(1));
+
+    RiskConfig risk_config;
+    risk_config.enable_position_check = false;
+    risk_config.enable_price_limit_check = false;
+    risk_config.enable_duplicate_check = false;
+    RiskManager risk(positions, risk_config);
+
+    auto book = std::make_unique<OrderBook>();
+    split_config split_config{};
+    split_config.strategy = SplitStrategy::None;
+    split_config.max_child_volume = 40;
+    split_config.min_child_volume = 1;
+    split_config.max_child_count = 4;
+    split_config.interval_ms = 0;
+    order_router router(*book, downstream.get(), orders_shm.get());
+    ExecutionEngine execution_engine(split_config, *book, router, market_data_fixture.service(), nullptr, nullptr);
+
+    EventLoopConfig loop_config{};
+    loop_config.busy_polling = false;
+    loop_config.idle_sleep_us = 50;
+    loop_config.poll_batch_size = 32;
+    loop_config.stats_interval_ms = 0;
+    EventLoop loop(loop_config, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router,
+                   positions, risk, nullptr, &execution_engine);
+
+    std::thread worker([&loop]() { loop.run(); });
+
+    OrderRequest request = make_managed_order(908, 100, PassiveExecutionAlgo::TWAP);
+    OrderIndex parent_index = kInvalidOrderIndex;
+    assert(orders_shm_append(orders_shm.get(), request, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy,
+                             now_ns(), parent_index));
+    assert(upstream->upstream_order_queue.try_push(parent_index));
+
+    assert(wait_until([&book]() {
+        const OrderEntry* parent = book->find_order(908);
+        return parent != nullptr &&
+               parent->request.order_state.load(std::memory_order_acquire) == OrderState::TraderRejected;
+    }));
+    assert(downstream->order_queue.size() == 0);
+    assert(latest_error().code == ErrorCode::InvalidParam);
+    assert(latest_error().message.view() == "order is not splittable under current split config");
+
+    loop.stop();
+    worker.join();
+}
+
+TEST(twap_falls_back_to_order_price_when_market_levels_invalid_and_fallback_enabled) {
+    ManagedMarketDataFixture market_data_fixture("acct_exec_engine_order_price_fallback", 0.0F, 0,
+                                                 snapshot_shm::SnapshotPredictionState::kNone,
+                                                 make_invalid_top_level_snapshot(), true);
+    auto upstream = make_upstream_shm();
+    auto downstream = make_downstream_shm();
+    auto trades = make_trades_shm();
+    auto orders_shm = make_orders_shm();
+    auto positions_shm = make_positions_shm();
+
+    PositionManager positions(positions_shm.get());
+    assert(positions.initialize(1));
+
+    RiskConfig risk_config;
+    risk_config.enable_position_check = false;
+    risk_config.enable_price_limit_check = false;
+    risk_config.enable_duplicate_check = false;
+    RiskManager risk(positions, risk_config);
+
+    auto book = std::make_unique<OrderBook>();
+    split_config split_config{};
+    split_config.strategy = SplitStrategy::None;
+    split_config.max_child_volume = 40;
+    split_config.min_child_volume = 1;
+    split_config.max_child_count = 4;
+    split_config.interval_ms = 1;
+    order_router router(*book, downstream.get(), orders_shm.get());
+    ExecutionEngine execution_engine(split_config, *book, router, market_data_fixture.service(), nullptr, nullptr);
+
+    EventLoopConfig loop_config{};
+    loop_config.busy_polling = false;
+    loop_config.idle_sleep_us = 50;
+    loop_config.poll_batch_size = 32;
+    loop_config.stats_interval_ms = 0;
+    EventLoop loop(loop_config, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router,
+                   positions, risk, nullptr, &execution_engine);
+
+    std::thread worker([&loop]() { loop.run(); });
+
+    OrderRequest request = make_managed_order(909, 100, PassiveExecutionAlgo::TWAP);
+    OrderIndex parent_index = kInvalidOrderIndex;
+    assert(orders_shm_append(orders_shm.get(), request, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy,
+                             now_ns(), parent_index));
+    assert(upstream->upstream_order_queue.try_push(parent_index));
+
+    assert(wait_until([&downstream]() { return downstream->order_queue.size() > 0; }, 1500));
+
+    OrderIndex child_index = kInvalidOrderIndex;
+    assert(downstream->order_queue.try_pop(child_index));
+
+    order_slot_snapshot child_snapshot{};
+    assert(orders_shm_read_snapshot(orders_shm.get(), child_index, child_snapshot));
+    assert(child_snapshot.request.dprice_entrust == request.dprice_entrust);
+    assert(child_snapshot.request.volume_entrust > 0);
+
+    loop.stop();
+    worker.join();
+}
+
 int main() {
     printf("=== Execution Engine Test Suite ===\n\n");
 
@@ -740,6 +902,9 @@ int main() {
     RUN_TEST(fixed_size_managed_parent_releases_next_clip);
     RUN_TEST(iceberg_enters_managed_execution_session);
     RUN_TEST(vwap_is_rejected_without_falling_back_to_legacy_splitter);
+    RUN_TEST(invalid_runtime_split_config_is_reported_as_unsplittable);
+    RUN_TEST(unsplittable_runtime_config_logs_not_splittable_message);
+    RUN_TEST(twap_falls_back_to_order_price_when_market_levels_invalid_and_fallback_enabled);
 
     printf("\n=== All tests passed! ===\n");
     return 0;

@@ -1,8 +1,10 @@
 #include <sys/mman.h>
 
+#include <cctype>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
+#include <limits>
 #include <string>
 #include <string_view>
 
@@ -17,11 +19,13 @@ struct order_submit_cli_options {
     std::string orders_shm_name{"/orders_shm"};
     std::string trading_day{"19700101"};
     std::string security_id{};
-    bool cleanup_shm_on_exit{true};
+    bool cleanup_shm_on_exit{false};
     uint8_t side{0};
     uint8_t market{0};
     uint64_t volume{0};
     double price{0.0};
+    uint32_t valid_sec{0};
+    uint8_t passive_exec_algo{ACCT_PASSIVE_EXEC_DEFAULT};
 };
 
 // 用 RAII 托管 acct_ctx_t，确保退出路径都能释放上下文。
@@ -51,10 +55,12 @@ private:
 // 打印命令行帮助，说明必填参数。
 void print_usage(const char* program_name) {
     std::fprintf(stderr,
-        "Usage: %s --security CODE --side buy|sell --market sz|sh|bj|hk --volume N --price P\n"
-        "          [--upstream-shm NAME] [--orders-shm NAME] [--trading-day YYYYMMDD]\n"
-        "          [--cleanup-shm-on-exit] [--no-cleanup-shm-on-exit]\n",
-        program_name);
+                 "Usage: %s --security CODE --side buy|sell --market sz|sh|bj|hk --volume N --price P\n"
+                 "          [--upstream-shm NAME] [--orders-shm NAME] [--trading-day YYYYMMDD]\n"
+                 "          [--valid-sec N]\n"
+                 "          [--passive-exec-algo default|none|fixed|fixed_size|twap|vwap|iceberg]\n"
+                 "          [--cleanup-shm-on-exit]\n",
+                 program_name);
 }
 
 // 生成按交易日后缀的 orders 共享内存名称。
@@ -67,7 +73,8 @@ bool cleanup_shared_memory(const order_submit_cli_options& options) {
     bool success = true;
 
     if (shm_unlink(options.upstream_shm_name.c_str()) < 0 && errno != ENOENT) {
-        std::fprintf(stderr, "cleanup upstream shm failed: name=%s errno=%d\n", options.upstream_shm_name.c_str(), errno);
+        std::fprintf(stderr, "cleanup upstream shm failed: name=%s errno=%d\n", options.upstream_shm_name.c_str(),
+                     errno);
         success = false;
     }
 
@@ -93,16 +100,26 @@ bool finalize_context_and_cleanup_shm(acct_context_guard* ctx_guard, const order
     return cleanup_shared_memory(options);
 }
 
+// 统一将命令行字面值转成小写，便于做大小写无关匹配。
+std::string normalize_cli_value(std::string_view text) {
+    std::string normalized(text);
+    for (char& ch : normalized) {
+        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    }
+    return normalized;
+}
+
 // 解析买卖方向文本到 C API 枚举值。
 bool parse_side(std::string_view text, uint8_t* out_side) {
     if (out_side == nullptr) {
         return false;
     }
-    if (text == "buy" || text == "BUY" || text == "1") {
+    const std::string normalized = normalize_cli_value(text);
+    if (normalized == "buy" || normalized == "1") {
         *out_side = ACCT_SIDE_BUY;
         return true;
     }
-    if (text == "sell" || text == "SELL" || text == "2") {
+    if (normalized == "sell" || normalized == "2") {
         *out_side = ACCT_SIDE_SELL;
         return true;
     }
@@ -114,19 +131,20 @@ bool parse_market(std::string_view text, uint8_t* out_market) {
     if (out_market == nullptr) {
         return false;
     }
-    if (text == "sz" || text == "SZ" || text == "1") {
+    const std::string normalized = normalize_cli_value(text);
+    if (normalized == "sz" || normalized == "1") {
         *out_market = ACCT_MARKET_SZ;
         return true;
     }
-    if (text == "sh" || text == "SH" || text == "2") {
+    if (normalized == "sh" || normalized == "2") {
         *out_market = ACCT_MARKET_SH;
         return true;
     }
-    if (text == "bj" || text == "BJ" || text == "3") {
+    if (normalized == "bj" || normalized == "3") {
         *out_market = ACCT_MARKET_BJ;
         return true;
     }
-    if (text == "hk" || text == "HK" || text == "4") {
+    if (normalized == "hk" || normalized == "4") {
         *out_market = ACCT_MARKET_HK;
         return true;
     }
@@ -148,6 +166,22 @@ bool parse_uint64(const char* text, uint64_t* out_value) {
     return true;
 }
 
+// 解析 uint32 参数，失败时返回 false。
+bool parse_uint32(const char* text, uint32_t* out_value) {
+    if (text == nullptr || out_value == nullptr) {
+        return false;
+    }
+    char* end = nullptr;
+    errno = 0;
+    const unsigned long long parsed = std::strtoull(text, &end, 10);
+    if (errno != 0 || end == text || *end != '\0' ||
+        parsed > static_cast<unsigned long long>(std::numeric_limits<uint32_t>::max())) {
+        return false;
+    }
+    *out_value = static_cast<uint32_t>(parsed);
+    return true;
+}
+
 // 解析 double 参数，失败时返回 false。
 bool parse_double(const char* text, double* out_value) {
     if (text == nullptr || out_value == nullptr) {
@@ -161,6 +195,40 @@ bool parse_double(const char* text, double* out_value) {
     }
     *out_value = parsed;
     return true;
+}
+
+// 解析逐单被动执行算法文本到 C API 枚举值。
+bool parse_passive_exec_algo(std::string_view text, uint8_t* out_algo) {
+    if (out_algo == nullptr) {
+        return false;
+    }
+
+    const std::string normalized = normalize_cli_value(text);
+    if (normalized == "default" || normalized == "0") {
+        *out_algo = ACCT_PASSIVE_EXEC_DEFAULT;
+        return true;
+    }
+    if (normalized == "none" || normalized == "1") {
+        *out_algo = ACCT_PASSIVE_EXEC_NONE;
+        return true;
+    }
+    if (normalized == "fixed" || normalized == "fixed_size" || normalized == "fixedsize" || normalized == "2") {
+        *out_algo = ACCT_PASSIVE_EXEC_FIXED_SIZE;
+        return true;
+    }
+    if (normalized == "twap" || normalized == "3") {
+        *out_algo = ACCT_PASSIVE_EXEC_TWAP;
+        return true;
+    }
+    if (normalized == "vwap" || normalized == "4") {
+        *out_algo = ACCT_PASSIVE_EXEC_VWAP;
+        return true;
+    }
+    if (normalized == "iceberg" || normalized == "5") {
+        *out_algo = ACCT_PASSIVE_EXEC_ICEBERG;
+        return true;
+    }
+    return false;
 }
 
 // 解析命令行参数并验证必填项完整性。
@@ -215,6 +283,16 @@ bool parse_cli_args(int argc, char** argv, order_submit_cli_options* out_options
         } else if (arg == "--price") {
             if (!parse_double(value, &out_options->price)) {
                 std::fprintf(stderr, "invalid --price value: %s\n", value);
+                return false;
+            }
+        } else if (arg == "--valid-sec") {
+            if (!parse_uint32(value, &out_options->valid_sec)) {
+                std::fprintf(stderr, "invalid --valid-sec value: %s\n", value);
+                return false;
+            }
+        } else if (arg == "--passive-exec-algo" || arg == "--passive-exec") {
+            if (!parse_passive_exec_algo(value, &out_options->passive_exec_algo)) {
+                std::fprintf(stderr, "invalid --passive-exec-algo value: %s\n", value);
                 return false;
             }
         } else {
@@ -276,16 +354,14 @@ int main(int argc, char** argv) {
 
     // 3) 提交订单并将 order_id 输出到 stdout 供脚本断言。
     uint32_t order_id = 0;
-    const acct_error_t submit_rc = acct_submit_order(ctx_guard.get(),
-        options.security_id.c_str(),
-        options.side,
-        options.market,
-        options.volume,
-        options.price,
-        0,
-        &order_id);
+    acct_order_exec_options_t exec_options{};
+    exec_options.passive_exec_algo = options.passive_exec_algo;
+
+    const acct_error_t submit_rc =
+        acct_submit_order_ex(ctx_guard.get(), options.security_id.c_str(), options.side, options.market, options.volume,
+                             options.price, options.valid_sec, &exec_options, &order_id);
     if (submit_rc != ACCT_OK) {
-        std::fprintf(stderr, "acct_submit_order failed: %s\n", acct_strerror(submit_rc));
+        std::fprintf(stderr, "acct_submit_order_ex failed: %s\n", acct_strerror(submit_rc));
         if (options.cleanup_shm_on_exit && !finalize_context_and_cleanup_shm(&ctx_guard, options)) {
             std::fprintf(stderr, "cleanup shared memory failed after submit error\n");
         }
