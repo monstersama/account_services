@@ -172,6 +172,7 @@ OrderRequest make_child_request(const OrderRequest& parent_request, InternalOrde
 
 struct child_execution_ledger {
     InternalOrderId child_order_id = 0;
+    OrderIndex shm_order_index = kInvalidOrderIndex;
     Volume entrust_volume = 0;
     Volume confirmed_traded_volume = 0;
     DValue confirmed_traded_value = 0;
@@ -277,7 +278,7 @@ protected:
         return market_data_service_ != nullptr && market_data_service_->allow_order_price_fallback();
     }
 
-    // 基于当前盘口生成子单价格，父单限价只作为边界，不再直接作为默认发单价。
+    // 基于当前盘口生成子单价格；只要顶档有效，就直接按盘口价发单。
     bool resolve_market_price(const MarketDataView& market_data_view, DPrice& out_price) const noexcept {
         const snapshot_shm::LobSnapshot& snapshot = market_data_view.snapshot;
         const bool has_best_bid = snapshot.total_bid_levels > 0 && is_valid_level(snapshot.bids[0]);
@@ -289,10 +290,8 @@ protected:
         DPrice candidate_price = 0;
         if (parent_request_.trade_side == TradeSide::Buy) {
             candidate_price = has_best_ask ? snapshot.asks[0].price : snapshot.bids[0].price;
-            candidate_price = std::min(candidate_price, parent_request_.dprice_entrust);
         } else if (parent_request_.trade_side == TradeSide::Sell) {
             candidate_price = has_best_bid ? snapshot.bids[0].price : snapshot.asks[0].price;
-            candidate_price = std::max(candidate_price, parent_request_.dprice_entrust);
         } else {
             return false;
         }
@@ -464,13 +463,13 @@ protected:
     }
 
     // 在调试构建里记录子单提交结果，方便区分正常派生与路由失败。
-    void emit_child_submit_result_trace(InternalOrderId child_order_id, bool success,
+    void emit_child_submit_result_trace(InternalOrderId child_order_id, OrderIndex shm_order_index, bool success,
                                         std::string_view reason) noexcept {
         if (!order_event_recorder_) {
             return;
         }
         order_event_recorder_->record_child_submit_result(parent_request_, strategy_id_, execution_algo_,
-                                                          child_order_id, success, reason);
+                                                          child_order_id, shm_order_index, success, reason);
     }
 
     // 在调试构建里记录子单终态结算结果，帮助追踪父单收敛路径。
@@ -479,9 +478,10 @@ protected:
             return;
         }
         order_event_recorder_->record_child_finalized(
-            parent_request_, strategy_id_, execution_algo_, ledger.child_order_id, ledger.order_state,
-            ledger.entrust_volume, ledger.confirmed_traded_volume, ledger.final_cancelled_volume, cancel_requested_,
-            derive_execution_state(), parent_request_.volume_entrust, working_volume(), schedulable_volume());
+            parent_request_, strategy_id_, execution_algo_, ledger.child_order_id, ledger.shm_order_index,
+            ledger.order_state, ledger.entrust_volume, ledger.confirmed_traded_volume, ledger.final_cancelled_volume,
+            cancel_requested_, derive_execution_state(), parent_request_.volume_entrust, working_volume(),
+            schedulable_volume());
     }
 
     // 以统一路径提交一笔内部子单，并把它登记进 child ledger。
@@ -491,8 +491,7 @@ protected:
         }
 
         OrderEntry child_entry{};
-        child_entry.request =
-            make_child_request(parent_request_, order_book_.next_order_id(), volume, price, active_claimed);
+        child_entry.request = make_child_request(parent_request_, 0, volume, price, active_claimed);
         child_entry.submit_time_ns = now_ns();
         child_entry.last_update_ns = child_entry.submit_time_ns;
         child_entry.strategy_id = strategy_id_;
@@ -504,7 +503,8 @@ protected:
         emit_child_submit_attempt_trace(child_entry.request.internal_order_id, volume, price, active_claimed);
 
         if (!order_router_.submit_internal_order(child_entry)) {
-            emit_child_submit_result_trace(child_entry.request.internal_order_id, false, "route_failed");
+            emit_child_submit_result_trace(child_entry.request.internal_order_id, child_entry.shm_order_index, false,
+                                           "route_failed");
             failed_ = true;
             terminal_ = true;
             sync_parent_view();
@@ -513,10 +513,12 @@ protected:
 
         child_execution_ledger ledger{};
         ledger.child_order_id = child_entry.request.internal_order_id;
+        ledger.shm_order_index = child_entry.shm_order_index;
         ledger.entrust_volume = volume;
         ledger.order_state = OrderState::TraderSubmitted;
         child_ledgers_.emplace(ledger.child_order_id, ledger);
-        emit_child_submit_result_trace(child_entry.request.internal_order_id, true, "submitted");
+        emit_child_submit_result_trace(child_entry.request.internal_order_id, child_entry.shm_order_index, true,
+                                       "submitted");
         return true;
     }
 

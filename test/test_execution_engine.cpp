@@ -136,9 +136,10 @@ bool wait_until(const std::function<bool()>& predicate, int timeout_ms = 1000) {
 }
 
 // 生成带执行算法声明的父单请求，供执行引擎接管。
-OrderRequest make_managed_order(InternalOrderId order_id, Volume volume, PassiveExecutionAlgo algo) {
+OrderRequest make_managed_order(InternalOrderId order_id, Volume volume, PassiveExecutionAlgo algo,
+                                TradeSide trade_side = TradeSide::Buy, DPrice price = 1000) {
     OrderRequest request;
-    request.init_new("000001", InternalSecurityId("XSHE_000001"), order_id, TradeSide::Buy, Market::SZ, volume, 1000,
+    request.init_new("000001", InternalSecurityId("XSHE_000001"), order_id, trade_side, Market::SZ, volume, price,
                      93000000);
     request.passive_execution_algo = algo;
     request.order_state.store(OrderState::StrategySubmitted, std::memory_order_relaxed);
@@ -232,7 +233,7 @@ private:
     MarketDataService market_data_service_;
 };
 
-// 用于验证主动策略返回的 volume/price 会被真正落到子单上的测试策略。
+// 固定返回 volume/price，便于验证执行引擎仍会统一接管子单定价。
 class FixedDecisionStrategy final : public ActiveStrategy {
 public:
     // 固定返回半片数量和指定价格，便于测试断言决策是否被执行引擎尊重。
@@ -277,7 +278,7 @@ TEST(twap_falls_back_without_active_strategy) {
     split_config.min_child_volume = 1;
     split_config.max_child_count = 4;
     split_config.interval_ms = 1;
-    order_router router(*book, downstream.get(), orders_shm.get());
+    order_router router(*book, downstream.get(), orders_shm.get(), upstream.get());
     ExecutionEngine execution_engine(split_config, *book, router, market_data_fixture.service(), nullptr, nullptr);
 
     EventLoopConfig loop_config{};
@@ -314,6 +315,142 @@ TEST(twap_falls_back_without_active_strategy) {
     worker.join();
 }
 
+TEST(sell_twap_uses_best_bid_without_parent_price_floor) {
+    ManagedMarketDataFixture market_data_fixture("acct_exec_engine_sell_best_bid", 0.0F, 0,
+                                                 snapshot_shm::SnapshotPredictionState::kNone);
+    auto upstream = make_upstream_shm();
+    auto downstream = make_downstream_shm();
+    auto trades = make_trades_shm();
+    auto orders_shm = make_orders_shm();
+    auto positions_shm = make_positions_shm();
+
+    PositionManager positions(positions_shm.get());
+    assert(positions.initialize(1));
+
+    RiskConfig risk_config;
+    risk_config.enable_position_check = false;
+    risk_config.enable_price_limit_check = false;
+    risk_config.enable_duplicate_check = false;
+    RiskManager risk(positions, risk_config);
+
+    auto book = std::make_unique<OrderBook>();
+    split_config split_config{};
+    split_config.strategy = SplitStrategy::None;
+    split_config.max_child_volume = 40;
+    split_config.min_child_volume = 1;
+    split_config.max_child_count = 4;
+    split_config.interval_ms = 1;
+    order_router router(*book, downstream.get(), orders_shm.get(), upstream.get());
+    ExecutionEngine execution_engine(split_config, *book, router, market_data_fixture.service(), nullptr, nullptr);
+
+    EventLoopConfig loop_config{};
+    loop_config.busy_polling = false;
+    loop_config.idle_sleep_us = 50;
+    loop_config.poll_batch_size = 32;
+    loop_config.stats_interval_ms = 0;
+    EventLoop loop(loop_config, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router,
+                   positions, risk, nullptr, &execution_engine);
+
+    std::thread worker([&loop]() { loop.run(); });
+
+    OrderRequest request = make_managed_order(910, 100, PassiveExecutionAlgo::TWAP, TradeSide::Sell, 1000);
+    OrderIndex parent_index = kInvalidOrderIndex;
+    assert(orders_shm_append(orders_shm.get(), request, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy,
+                             now_ns(), parent_index));
+    assert(upstream->upstream_order_queue.try_push(parent_index));
+
+    assert(wait_until([&downstream]() { return downstream->order_queue.size() > 0; }, 1500));
+
+    OrderIndex child_index = kInvalidOrderIndex;
+    assert(downstream->order_queue.try_pop(child_index));
+    assert(child_index != parent_index);
+
+    order_slot_snapshot child_snapshot{};
+    assert(orders_shm_read_snapshot(orders_shm.get(), child_index, child_snapshot));
+    assert(child_snapshot.request.passive_execution_algo == PassiveExecutionAlgo::None);
+    assert(child_snapshot.request.active_strategy_claimed == 0);
+    assert(child_snapshot.request.volume_entrust > 0);
+    assert(child_snapshot.request.volume_entrust < request.volume_entrust);
+    assert(child_snapshot.request.dprice_entrust == 998);
+
+    loop.stop();
+    worker.join();
+}
+
+TEST(managed_child_advances_shared_upstream_order_id_sequence) {
+    ManagedMarketDataFixture market_data_fixture("acct_exec_engine_shared_order_id", 0.0F, 0,
+                                                 snapshot_shm::SnapshotPredictionState::kNone);
+    auto upstream = make_upstream_shm();
+    auto downstream = make_downstream_shm();
+    auto trades = make_trades_shm();
+    auto orders_shm = make_orders_shm();
+    auto positions_shm = make_positions_shm();
+
+    PositionManager positions(positions_shm.get());
+    assert(positions.initialize(1));
+
+    RiskConfig risk_config;
+    risk_config.enable_position_check = false;
+    risk_config.enable_price_limit_check = false;
+    risk_config.enable_duplicate_check = false;
+    RiskManager risk(positions, risk_config);
+
+    auto book = std::make_unique<OrderBook>();
+    split_config split_config{};
+    split_config.strategy = SplitStrategy::None;
+    split_config.max_child_volume = 40;
+    split_config.min_child_volume = 1;
+    split_config.max_child_count = 4;
+    split_config.interval_ms = 1;
+    order_router router(*book, downstream.get(), orders_shm.get(), upstream.get());
+    ExecutionEngine execution_engine(split_config, *book, router, market_data_fixture.service(), nullptr, nullptr);
+
+    EventLoopConfig loop_config{};
+    loop_config.busy_polling = false;
+    loop_config.idle_sleep_us = 50;
+    loop_config.poll_batch_size = 32;
+    loop_config.stats_interval_ms = 0;
+    EventLoop loop(loop_config, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router,
+                   positions, risk, nullptr, &execution_engine);
+
+    std::thread worker([&loop]() { loop.run(); });
+
+    const InternalOrderId first_parent_id = upstream->header.next_order_id.fetch_add(1, std::memory_order_relaxed);
+    OrderRequest first_request = make_managed_order(first_parent_id, 100, PassiveExecutionAlgo::TWAP);
+    OrderIndex first_parent_index = kInvalidOrderIndex;
+    assert(orders_shm_append(orders_shm.get(), first_request, OrderSlotState::UpstreamQueued,
+                             order_slot_source_t::Strategy, now_ns(), first_parent_index));
+    assert(upstream->upstream_order_queue.try_push(first_parent_index));
+
+    assert(wait_until([&downstream]() { return downstream->order_queue.size() > 0; }, 1500));
+
+    OrderIndex child_index = kInvalidOrderIndex;
+    assert(downstream->order_queue.try_pop(child_index));
+
+    order_slot_snapshot child_snapshot{};
+    assert(orders_shm_read_snapshot(orders_shm.get(), child_index, child_snapshot));
+    assert(child_snapshot.request.internal_order_id != first_parent_id);
+
+    const InternalOrderId second_parent_id = upstream->header.next_order_id.fetch_add(1, std::memory_order_relaxed);
+    assert(second_parent_id > child_snapshot.request.internal_order_id);
+
+    OrderRequest second_request = make_managed_order(second_parent_id, 100, PassiveExecutionAlgo::TWAP);
+    OrderIndex second_parent_index = kInvalidOrderIndex;
+    assert(orders_shm_append(orders_shm.get(), second_request, OrderSlotState::UpstreamQueued,
+                             order_slot_source_t::Strategy, now_ns(), second_parent_index));
+    assert(upstream->upstream_order_queue.try_push(second_parent_index));
+
+    assert(wait_until(
+        [&book, second_parent_id]() {
+            const OrderEntry* order = book->find_order(second_parent_id);
+            return order != nullptr && !order->is_split_child;
+        },
+        1500));
+
+    loop.stop();
+    worker.join();
+}
+
 TEST(twap_uses_active_strategy_with_fresh_prediction) {
     ManagedMarketDataFixture market_data_fixture(
         "acct_exec_engine", 1.5F, snapshot_shm::kSnapshotSlotFlagHasSignal | snapshot_shm::kSnapshotSlotFlagSignalFresh,
@@ -341,7 +478,7 @@ TEST(twap_uses_active_strategy_with_fresh_prediction) {
     split_config.min_child_volume = 1;
     split_config.max_child_count = 4;
     split_config.interval_ms = 1;
-    order_router router(*book, downstream.get(), orders_shm.get());
+    order_router router(*book, downstream.get(), orders_shm.get(), upstream.get());
 
     ActiveStrategyConfig active_strategy_config{};
     active_strategy_config.enabled = true;
@@ -381,7 +518,7 @@ TEST(twap_uses_active_strategy_with_fresh_prediction) {
     worker.join();
 }
 
-TEST(active_strategy_respects_volume_and_price_decision) {
+TEST(active_strategy_respects_volume_decision_and_keeps_market_price) {
     ManagedMarketDataFixture market_data_fixture(
         "acct_exec_engine_fixed_decision", 1.0F,
         snapshot_shm::kSnapshotSlotFlagHasSignal | snapshot_shm::kSnapshotSlotFlagSignalFresh,
@@ -409,7 +546,7 @@ TEST(active_strategy_respects_volume_and_price_decision) {
     split_config.min_child_volume = 1;
     split_config.max_child_count = 4;
     split_config.interval_ms = 1;
-    order_router router(*book, downstream.get(), orders_shm.get());
+    order_router router(*book, downstream.get(), orders_shm.get(), upstream.get());
 
     ExecutionEngine execution_engine(split_config, *book, router, market_data_fixture.service(), nullptr,
                                      std::make_unique<FixedDecisionStrategy>(17, 998));
@@ -470,7 +607,7 @@ TEST(cancelled_parent_stops_future_twap_slices) {
     split_config.min_child_volume = 1;
     split_config.max_child_count = 4;
     split_config.interval_ms = 1;
-    order_router router(*book, downstream.get(), orders_shm.get());
+    order_router router(*book, downstream.get(), orders_shm.get(), upstream.get());
     ExecutionEngine execution_engine(split_config, *book, router, market_data_fixture.service(), nullptr, nullptr);
 
     EventLoopConfig loop_config{};
@@ -555,7 +692,7 @@ TEST(fixed_size_managed_parent_releases_next_clip) {
     split_config.min_child_volume = 1;
     split_config.max_child_count = 4;
     split_config.interval_ms = 1;
-    order_router router(*book, downstream.get(), orders_shm.get());
+    order_router router(*book, downstream.get(), orders_shm.get(), upstream.get());
     ExecutionEngine execution_engine(split_config, *book, router, market_data_fixture.service(), nullptr, nullptr);
 
     EventLoopConfig loop_config{};
@@ -649,7 +786,7 @@ TEST(iceberg_enters_managed_execution_session) {
     split_config.min_child_volume = 1;
     split_config.max_child_count = 8;
     split_config.interval_ms = 1;
-    order_router router(*book, downstream.get(), orders_shm.get());
+    order_router router(*book, downstream.get(), orders_shm.get(), upstream.get());
     ExecutionEngine execution_engine(split_config, *book, router, market_data_fixture.service(), nullptr, nullptr);
 
     EventLoopConfig loop_config{};
@@ -713,7 +850,7 @@ TEST(vwap_is_rejected_without_falling_back_to_legacy_splitter) {
     split_config.min_child_volume = 1;
     split_config.max_child_count = 4;
     split_config.interval_ms = 1;
-    order_router router(*book, downstream.get(), orders_shm.get());
+    order_router router(*book, downstream.get(), orders_shm.get(), upstream.get());
     ExecutionEngine execution_engine(split_config, *book, router, market_data_fixture.service(), nullptr, nullptr);
 
     EventLoopConfig loop_config{};
@@ -859,7 +996,7 @@ TEST(twap_falls_back_to_order_price_when_market_levels_invalid_and_fallback_enab
     split_config.min_child_volume = 1;
     split_config.max_child_count = 4;
     split_config.interval_ms = 1;
-    order_router router(*book, downstream.get(), orders_shm.get());
+    order_router router(*book, downstream.get(), orders_shm.get(), upstream.get());
     ExecutionEngine execution_engine(split_config, *book, router, market_data_fixture.service(), nullptr, nullptr);
 
     EventLoopConfig loop_config{};
@@ -897,7 +1034,9 @@ int main() {
 
     RUN_TEST(twap_falls_back_without_active_strategy);
     RUN_TEST(twap_uses_active_strategy_with_fresh_prediction);
-    RUN_TEST(active_strategy_respects_volume_and_price_decision);
+    RUN_TEST(sell_twap_uses_best_bid_without_parent_price_floor);
+    RUN_TEST(managed_child_advances_shared_upstream_order_id_sequence);
+    RUN_TEST(active_strategy_respects_volume_decision_and_keeps_market_price);
     RUN_TEST(cancelled_parent_stops_future_twap_slices);
     RUN_TEST(fixed_size_managed_parent_releases_next_clip);
     RUN_TEST(iceberg_enters_managed_execution_session);

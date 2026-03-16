@@ -25,6 +25,16 @@ enum class order_event_stream_t : uint8_t {
     Debug = 1,
 };
 
+const char* to_string(order_event_stream_t stream) noexcept {
+    switch (stream) {
+        case order_event_stream_t::Business:
+            return "business";
+        case order_event_stream_t::Debug:
+            return "debug";
+    }
+    return "business";
+}
+
 // 为订单事件定义稳定的落盘种类，避免运行时拼装自由文本。
 enum class OrderEventKind : uint8_t {
     OrderAdded = 0,
@@ -261,6 +271,53 @@ void fill_from_order_entry(OrderEventRecord& record, const OrderEntry& entry) {
     record.internal_security_id = request.internal_security_id;
 }
 
+bool should_render_success(OrderEventKind kind) noexcept { return kind == OrderEventKind::ChildSubmitResult; }
+
+bool should_render_cancel_requested(OrderEventKind kind) noexcept { return kind == OrderEventKind::ChildFinalized; }
+
+bool should_render_active_strategy_claimed(OrderEventKind kind) noexcept {
+    return kind == OrderEventKind::ChildSubmitAttempt || kind == OrderEventKind::ChildSubmitResult;
+}
+
+bool should_render_shm_order_index(const OrderEventRecord& record) noexcept {
+    return record.stream == order_event_stream_t::Business || record.shm_order_index != kInvalidOrderIndex;
+}
+
+bool should_render_order_state(const OrderEventRecord& record) noexcept {
+    return record.stream == order_event_stream_t::Business || record.order_state != OrderState::NotSet;
+}
+
+bool should_render_detail(const OrderEventRecord& record) noexcept { return !record.detail.empty(); }
+
+bool is_child_trace(OrderEventKind kind) noexcept {
+    return kind == OrderEventKind::ChildSubmitAttempt || kind == OrderEventKind::ChildSubmitResult ||
+           kind == OrderEventKind::ChildFinalized;
+}
+
+InternalOrderId debug_parent_order_id(const OrderEventRecord& record) noexcept {
+    return (record.parent_order_id != 0) ? record.parent_order_id : record.order_id;
+}
+
+const char* debug_detail_key(OrderEventKind kind) noexcept {
+    switch (kind) {
+        case OrderEventKind::SessionRejected:
+            return "reason";
+        case OrderEventKind::ChildSubmitResult:
+            return "result";
+        case OrderEventKind::ChildFinalized:
+            return "summary";
+        case OrderEventKind::OrderAdded:
+        case OrderEventKind::OrderStatusUpdated:
+        case OrderEventKind::OrderTradeUpdated:
+        case OrderEventKind::OrderArchived:
+        case OrderEventKind::ParentRefreshed:
+        case OrderEventKind::SessionStarted:
+        case OrderEventKind::ChildSubmitAttempt:
+        default:
+            return "detail";
+    }
+}
+
 // 根据订单簿事件映射稳定的业务事件名。
 OrderEventKind map_order_event_kind(order_book_event_t event) noexcept {
     switch (event) {
@@ -344,16 +401,20 @@ struct OrderEventRecorder::Impl {
         return true;
     }
 
-    // 把一条事件渲染成稳定的 key=value 文本，便于生产检索和离线解析。
-    void write_record(std::ostream& out, const OrderEventRecord& record) {
+    void write_business_prefix(std::ostream& out, const OrderEventRecord& record) {
         out << "ts_ns=" << record.ts_ns << " account_id=" << account_id_ << " trading_day=\""
-            << escape_field(trading_day_) << "\" event=\"" << to_string(record.kind) << "\""
-            << " order_id=" << record.order_id << " parent_order_id=" << record.parent_order_id
-            << " strategy_id=" << record.strategy_id << " shm_order_index=" << record.shm_order_index
-            << " is_split_child=" << (record.is_split_child ? "true" : "false")
-            << " active_strategy_claimed=" << (record.active_strategy_claimed ? "true" : "false")
-            << " success=" << (record.success ? "true" : "false")
-            << " cancel_requested=" << (record.cancel_requested ? "true" : "false") << " order_type=\""
+            << escape_field(trading_day_) << "\" stream=\"" << to_string(record.stream) << "\" event=\""
+            << to_string(record.kind) << "\"" << " order_id=" << record.order_id
+            << " parent_order_id=" << record.parent_order_id << " strategy_id=" << record.strategy_id;
+        if (should_render_shm_order_index(record)) {
+            out << " shm_order_index=" << record.shm_order_index;
+        }
+    }
+
+    // 业务事件日志只保留订单快照事实字段，避免混入调试默认值误导排查。
+    void write_business_record(std::ostream& out, const OrderEventRecord& record) {
+        write_business_prefix(out, record);
+        out << " is_split_child=" << (record.is_split_child ? "true" : "false") << " order_type=\""
             << to_string(record.order_type) << "\" trade_side=\"" << to_string(record.trade_side) << "\" market=\""
             << to_string(record.market) << "\" order_state=\"" << to_string(record.order_state)
             << "\" passive_execution_algo=\"" << passive_execution_algo_name(record.passive_execution_algo)
@@ -364,8 +425,57 @@ struct OrderEventRecorder::Impl {
             << " schedulable_volume=" << record.schedulable_volume << " dprice_entrust=" << record.dprice_entrust
             << " dprice_traded=" << record.dprice_traded << " dvalue_traded=" << record.dvalue_traded
             << " dfee_executed=" << record.dfee_executed << " security_id=\"" << escape_field(record.security_id.view())
-            << "\" internal_security_id=\"" << escape_field(record.internal_security_id.view()) << "\" detail=\""
-            << escape_field(record.detail.view()) << "\"\n";
+            << "\" internal_security_id=\"" << escape_field(record.internal_security_id.view()) << "\"";
+        if (should_render_detail(record)) {
+            out << " detail=\"" << escape_field(record.detail.view()) << "\"";
+        }
+        out << '\n';
+    }
+
+    void write_debug_prefix(std::ostream& out, const OrderEventRecord& record) {
+        out << "ts_ns=" << record.ts_ns << " account_id=" << account_id_ << " trading_day=\""
+            << escape_field(trading_day_) << "\" stream=\"" << to_string(record.stream) << "\" trace=\""
+            << to_string(record.kind) << "\"" << " parent_order_id=" << debug_parent_order_id(record)
+            << " strategy_id=" << record.strategy_id;
+        if (is_child_trace(record.kind)) {
+            out << " child_order_id=" << record.order_id;
+        }
+        if (should_render_shm_order_index(record)) {
+            out << " shm_order_index=" << record.shm_order_index;
+        }
+    }
+
+    // 调试 trace 聚焦执行会话推进过程，只打印当前事件真正有语义的字段。
+    void write_debug_record(std::ostream& out, const OrderEventRecord& record) {
+        write_debug_prefix(out, record);
+        out << " order_type=\"" << to_string(record.order_type) << "\" trade_side=\"" << to_string(record.trade_side)
+            << "\" market=\"" << to_string(record.market) << "\"";
+        if (should_render_order_state(record)) {
+            out << " order_state=\"" << to_string(record.order_state) << "\"";
+        }
+        out << " passive_execution_algo=\"" << passive_execution_algo_name(record.passive_execution_algo)
+            << "\" execution_algo=\"" << passive_execution_algo_name(record.execution_algo) << "\" execution_state=\""
+            << to_string(record.execution_state) << "\" is_split_child=" << (record.is_split_child ? "true" : "false");
+        if (should_render_active_strategy_claimed(record.kind)) {
+            out << " active_strategy_claimed=" << (record.active_strategy_claimed ? "true" : "false");
+        }
+        if (should_render_success(record.kind)) {
+            out << " success=" << (record.success ? "true" : "false");
+        }
+        if (should_render_cancel_requested(record.kind)) {
+            out << " cancel_requested=" << (record.cancel_requested ? "true" : "false");
+        }
+        out << " volume_entrust=" << record.volume_entrust << " volume_traded=" << record.volume_traded
+            << " volume_remain=" << record.volume_remain << " target_volume=" << record.target_volume
+            << " working_volume=" << record.working_volume << " schedulable_volume=" << record.schedulable_volume
+            << " dprice_entrust=" << record.dprice_entrust << " dprice_traded=" << record.dprice_traded
+            << " dvalue_traded=" << record.dvalue_traded << " dfee_executed=" << record.dfee_executed
+            << " security_id=\"" << escape_field(record.security_id.view()) << "\" internal_security_id=\""
+            << escape_field(record.internal_security_id.view()) << "\"";
+        if (should_render_detail(record)) {
+            out << ' ' << debug_detail_key(record.kind) << "=\"" << escape_field(record.detail.view()) << "\"";
+        }
+        out << '\n';
     }
 
     // 后台线程持续消费 ring，避免热路径直接做文件 IO。
@@ -379,11 +489,11 @@ struct OrderEventRecorder::Impl {
             while (read_index != write_index) {
                 const OrderEventRecord& record = ring_[read_index];
                 if (record.stream == order_event_stream_t::Business) {
-                    write_record(business_out_, record);
+                    write_business_record(business_out_, record);
                 }
 #if defined(ACCT_ENABLE_DEBUG_ORDER_TRACE)
                 else {
-                    write_record(debug_out_, record);
+                    write_debug_record(debug_out_, record);
                 }
 #endif
                 drained = true;
@@ -409,11 +519,11 @@ struct OrderEventRecorder::Impl {
         while (read_index != write_index) {
             const OrderEventRecord& record = ring_[read_index];
             if (record.stream == order_event_stream_t::Business) {
-                write_record(business_out_, record);
+                write_business_record(business_out_, record);
             }
 #if defined(ACCT_ENABLE_DEBUG_ORDER_TRACE)
             else {
-                write_record(debug_out_, record);
+                write_debug_record(debug_out_, record);
             }
 #endif
             read_index = (read_index + 1) % ring_size_;
@@ -617,7 +727,8 @@ void OrderEventRecorder::record_child_submit_attempt(const OrderRequest& parent_
 
 void OrderEventRecorder::record_child_submit_result(const OrderRequest& parent_request, StrategyId strategy_id,
                                                     PassiveExecutionAlgo execution_algo, InternalOrderId child_order_id,
-                                                    bool success, std::string_view reason) noexcept {
+                                                    OrderIndex shm_order_index, bool success,
+                                                    std::string_view reason) noexcept {
 #if defined(ACCT_ENABLE_DEBUG_ORDER_TRACE)
     if (!impl_) {
         return;
@@ -630,6 +741,7 @@ void OrderEventRecorder::record_child_submit_result(const OrderRequest& parent_r
     record.order_id = child_order_id;
     record.parent_order_id = parent_request.internal_order_id;
     record.strategy_id = strategy_id;
+    record.shm_order_index = shm_order_index;
     record.order_type = OrderType::New;
     record.trade_side = parent_request.trade_side;
     record.market = parent_request.market;
@@ -645,6 +757,7 @@ void OrderEventRecorder::record_child_submit_result(const OrderRequest& parent_r
     (void)strategy_id;
     (void)execution_algo;
     (void)child_order_id;
+    (void)shm_order_index;
     (void)success;
     (void)reason;
 #endif
@@ -652,10 +765,11 @@ void OrderEventRecorder::record_child_submit_result(const OrderRequest& parent_r
 
 void OrderEventRecorder::record_child_finalized(const OrderRequest& parent_request, StrategyId strategy_id,
                                                 PassiveExecutionAlgo execution_algo, InternalOrderId child_order_id,
-                                                OrderState order_state, Volume entrust_volume, Volume traded_volume,
-                                                Volume cancelled_volume, bool cancel_requested,
-                                                ExecutionState execution_state, Volume target_volume,
-                                                Volume working_volume, Volume schedulable_volume) noexcept {
+                                                OrderIndex shm_order_index, OrderState order_state,
+                                                Volume entrust_volume, Volume traded_volume, Volume cancelled_volume,
+                                                bool cancel_requested, ExecutionState execution_state,
+                                                Volume target_volume, Volume working_volume,
+                                                Volume schedulable_volume) noexcept {
 #if defined(ACCT_ENABLE_DEBUG_ORDER_TRACE)
     if (!impl_) {
         return;
@@ -668,6 +782,7 @@ void OrderEventRecorder::record_child_finalized(const OrderRequest& parent_reque
     record.order_id = child_order_id;
     record.parent_order_id = parent_request.internal_order_id;
     record.strategy_id = strategy_id;
+    record.shm_order_index = shm_order_index;
     record.order_type = OrderType::New;
     record.order_state = order_state;
     record.trade_side = parent_request.trade_side;
@@ -686,13 +801,13 @@ void OrderEventRecorder::record_child_finalized(const OrderRequest& parent_reque
     record.cancel_requested = cancel_requested;
     record.security_id = parent_request.security_id;
     record.internal_security_id = parent_request.internal_security_id;
-    record.detail.assign("finalized");
     (void)impl_->try_enqueue(record);
 #else
     (void)parent_request;
     (void)strategy_id;
     (void)execution_algo;
     (void)child_order_id;
+    (void)shm_order_index;
     (void)order_state;
     (void)entrust_volume;
     (void)traded_volume;

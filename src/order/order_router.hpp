@@ -20,7 +20,8 @@ struct router_stats {
 // 订单路由器
 class order_router {
 public:
-    order_router(OrderBook& book, downstream_shm_layout* downstream_shm, orders_shm_layout* orders_shm);
+    order_router(OrderBook& book, downstream_shm_layout* downstream_shm, orders_shm_layout* orders_shm,
+                 upstream_shm_layout* upstream_shm = nullptr);
     ~order_router() = default;
 
     // 禁止拷贝
@@ -49,6 +50,7 @@ public:
     void reset_stats() noexcept;
 
 private:
+    InternalOrderId allocate_internal_order_id() noexcept;
     bool send_to_downstream(OrderIndex index);
     bool create_internal_order_slot(const OrderRequest& request, OrderSlotState stage, OrderIndex& out_index,
                                     order_slot_source_t source);
@@ -56,6 +58,7 @@ private:
     OrderBook& order_book_;
     downstream_shm_layout* downstream_shm_;
     orders_shm_layout* orders_shm_;
+    upstream_shm_layout* upstream_shm_;
     router_stats stats_;
 };
 

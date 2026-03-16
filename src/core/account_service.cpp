@@ -288,7 +288,7 @@ bool AccountService::init_order_components() {
     }
 
     order_book_ = std::make_unique<OrderBook>();
-    order_router_ = std::make_unique<order_router>(*order_book_, downstream_shm_, orders_shm_);
+    order_router_ = std::make_unique<order_router>(*order_book_, downstream_shm_, orders_shm_, upstream_shm_);
     if (!order_book_ || !order_router_) {
         raise_service_error(
             make_service_error(ErrorCode::ComponentUnavailable, "failed to initialize order components"));

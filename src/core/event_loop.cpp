@@ -326,7 +326,11 @@ void EventLoop::handle_order_request(OrderIndex index, OrderRequest& request) {
     }
 
     if (request.internal_order_id == 0) {
-        request.internal_order_id = order_book_.next_order_id();
+        if (upstream_shm_) {
+            request.internal_order_id = upstream_shm_->header.next_order_id.fetch_add(1, std::memory_order_relaxed);
+        } else {
+            request.internal_order_id = order_book_.next_order_id();
+        }
         (void)orders_shm_sync_order(orders_shm_, index, request, now_ns());
     }
 
@@ -399,9 +403,9 @@ void EventLoop::handle_order_request(OrderIndex index, OrderRequest& request) {
                 error_message = "order is not splittable under current split config";
             }
             (void)orders_shm_update_stage(orders_shm_, index, OrderSlotState::QueuePushFailed, now_ns());
-            ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::order, rejected ? ErrorCode::InvalidParam
-                                                                              : ErrorCode::SplitFailed,
-                                                 "EventLoop", error_message, 0);
+            ErrorStatus status =
+                ACCT_MAKE_ERROR(ErrorDomain::order, rejected ? ErrorCode::InvalidParam : ErrorCode::SplitFailed,
+                                "EventLoop", error_message, 0);
             record_error(status);
             ACCT_LOG_ERROR_STATUS(status);
         }

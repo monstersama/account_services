@@ -7,6 +7,7 @@
 #include <fstream>
 #include <functional>
 #include <iterator>
+#include <sstream>
 #include <string>
 #include <thread>
 
@@ -52,6 +53,17 @@ std::string read_text_file(const std::filesystem::path& path) {
     return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 }
 
+// 返回包含目标片段的首行文本，便于按事件类型断言字段集。
+std::string find_line_containing(const std::string& content, std::string_view needle) {
+    std::istringstream stream(content);
+    for (std::string line; std::getline(stream, line);) {
+        if (line.find(needle) != std::string::npos) {
+            return line;
+        }
+    }
+    return {};
+}
+
 }  // namespace
 
 TEST(records_business_events_and_debug_trace) {
@@ -86,24 +98,37 @@ TEST(records_business_events_and_debug_trace) {
     recorder.record_order_event(entry, order_book_event_t::Added);
     recorder.record_session_started(entry.request, entry.strategy_id, PassiveExecutionAlgo::TWAP);
     recorder.record_child_submit_result(entry.request, entry.strategy_id, PassiveExecutionAlgo::TWAP,
-                                        entry.request.internal_order_id, true, "submitted");
+                                        entry.request.internal_order_id, entry.shm_order_index, true, "submitted");
 
     const std::filesystem::path business_path = output_dir / "order_events_77_20260225.log";
     assert(wait_until([&business_path]() {
         const std::string content = read_text_file(business_path);
-        return content.find("event=\"order_added\"") != std::string::npos &&
-               content.find("order_id=7001") != std::string::npos &&
-               content.find("parent_order_id=6001") != std::string::npos &&
-               content.find("execution_algo=\"twap\"") != std::string::npos;
+        const std::string order_added = find_line_containing(content, "event=\"order_added\"");
+        return !order_added.empty() && order_added.find("stream=\"business\"") != std::string::npos &&
+               order_added.find("order_id=7001") != std::string::npos &&
+               order_added.find("parent_order_id=6001") != std::string::npos &&
+               order_added.find("execution_algo=\"twap\"") != std::string::npos &&
+               order_added.find("shm_order_index=12") != std::string::npos &&
+               order_added.find("success=") == std::string::npos;
     }));
 
     if (should_emit_debug_order_trace()) {
         const std::filesystem::path debug_path = output_dir / "order_debug_77_20260225.log";
         assert(wait_until([&debug_path]() {
             const std::string content = read_text_file(debug_path);
-            return content.find("event=\"session_started\"") != std::string::npos &&
-                   content.find("event=\"child_submit_result\"") != std::string::npos &&
-                   content.find("success=true") != std::string::npos;
+            const std::string session_started = find_line_containing(content, "trace=\"session_started\"");
+            const std::string child_submit_result = find_line_containing(content, "trace=\"child_submit_result\"");
+            return !session_started.empty() && !child_submit_result.empty() &&
+                   session_started.find("stream=\"debug\"") != std::string::npos &&
+                   session_started.find("trace=\"session_started\"") != std::string::npos &&
+                   session_started.find("success=") == std::string::npos &&
+                   session_started.find("shm_order_index=") == std::string::npos &&
+                   session_started.find("parent_order_id=7001") != std::string::npos &&
+                   child_submit_result.find("trace=\"child_submit_result\"") != std::string::npos &&
+                   child_submit_result.find("child_order_id=7001") != std::string::npos &&
+                   child_submit_result.find("success=true") != std::string::npos &&
+                   child_submit_result.find("result=\"submitted\"") != std::string::npos &&
+                   child_submit_result.find("shm_order_index=12") != std::string::npos;
         }));
     }
 

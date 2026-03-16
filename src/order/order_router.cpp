@@ -7,8 +7,9 @@
 
 namespace acct_service {
 
-order_router::order_router(OrderBook& book, downstream_shm_layout* downstream_shm, orders_shm_layout* orders_shm)
-    : order_book_(book), downstream_shm_(downstream_shm), orders_shm_(orders_shm) {}
+order_router::order_router(OrderBook& book, downstream_shm_layout* downstream_shm, orders_shm_layout* orders_shm,
+                           upstream_shm_layout* upstream_shm)
+    : order_book_(book), downstream_shm_(downstream_shm), orders_shm_(orders_shm), upstream_shm_(upstream_shm) {}
 
 bool order_router::route_order(OrderEntry& entry) {
     if (entry.request.order_type == OrderType::Cancel) {
@@ -73,7 +74,7 @@ bool order_router::route_cancel(InternalOrderId orig_id, InternalOrderId cancel_
 
             InternalOrderId child_cancel_id = cancel_id;
             if (used_cancel_id) {
-                child_cancel_id = order_book_.next_order_id();
+                child_cancel_id = allocate_internal_order_id();
             }
             used_cancel_id = true;
 
@@ -196,7 +197,7 @@ bool order_router::submit_internal_order(OrderEntry& entry) {
     stats_.last_order_time = now_ns();
 
     if (entry.request.internal_order_id == 0) {
-        entry.request.internal_order_id = order_book_.next_order_id();
+        entry.request.internal_order_id = allocate_internal_order_id();
     }
     if (entry.submit_time_ns == 0) {
         entry.submit_time_ns = now_ns();
@@ -253,6 +254,13 @@ bool order_router::recover_downstream_active_orders(const upstream_shm_layout* u
 const router_stats& order_router::stats() const noexcept { return stats_; }
 
 void order_router::reset_stats() noexcept { stats_ = router_stats{}; }
+
+InternalOrderId order_router::allocate_internal_order_id() noexcept {
+    if (upstream_shm_) {
+        return upstream_shm_->header.next_order_id.fetch_add(1, std::memory_order_relaxed);
+    }
+    return order_book_.next_order_id();
+}
 
 bool order_router::send_to_downstream(OrderIndex index) {
     if (!downstream_shm_ || !orders_shm_) {

@@ -15,11 +15,11 @@
 #include "shm/orders_shm.hpp"
 
 #define TEST(name) static void test_##name()
-#define RUN_TEST(name)                                                                                                 \
-    do {                                                                                                               \
-        printf("Running %s... ", #name);                                                                               \
-        test_##name();                                                                                                 \
-        printf("PASSED\n");                                                                                            \
+#define RUN_TEST(name)                   \
+    do {                                 \
+        printf("Running %s... ", #name); \
+        test_##name();                   \
+        printf("PASSED\n");              \
     } while (0)
 
 namespace {
@@ -99,13 +99,13 @@ bool wait_until(const std::function<bool()>& predicate, int timeout_ms = 1000) {
 
 OrderRequest make_order(InternalOrderId order_id, Volume volume) {
     OrderRequest req;
-    req.init_new(
-        "000001", InternalSecurityId("XSHE_000001"), order_id, TradeSide::Buy, Market::SZ, volume, 1000, 93000000);
+    req.init_new("000001", InternalSecurityId("XSHE_000001"), order_id, TradeSide::Buy, Market::SZ, volume, 1000,
+                 93000000);
     req.order_state.store(OrderState::StrategySubmitted, std::memory_order_relaxed);
     return req;
 }
 
-} // namespace
+}  // namespace
 
 TEST(process_order_and_trade_response) {
     auto upstream = make_upstream_shm();
@@ -130,23 +130,23 @@ TEST(process_order_and_trade_response) {
     auto book = std::make_unique<OrderBook>();
     split_config split_cfg;
     split_cfg.strategy = SplitStrategy::None;
-    order_router router(*book, downstream.get(), orders_shm.get());
+    order_router router(*book, downstream.get(), orders_shm.get(), upstream.get());
 
     EventLoopConfig loop_cfg;
     loop_cfg.busy_polling = false;
     loop_cfg.idle_sleep_us = 50;
     loop_cfg.poll_batch_size = 32;
     loop_cfg.stats_interval_ms = 0;
-    EventLoop loop(loop_cfg, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router,
-                   positions, risk, nullptr, nullptr, nullptr);
+    EventLoop loop(loop_cfg, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router, positions,
+                   risk, nullptr, nullptr, nullptr);
 
     std::thread worker([&loop]() { loop.run(); });
 
     const InternalOrderId order_id = 500;
     OrderRequest req = make_order(order_id, 100);
     OrderIndex order_index = kInvalidOrderIndex;
-    assert(orders_shm_append(
-        orders_shm.get(), req, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy, now_ns(), order_index));
+    assert(orders_shm_append(orders_shm.get(), req, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy,
+                             now_ns(), order_index));
     assert(upstream->upstream_order_queue.try_push(order_index));
 
     assert(wait_until([&downstream]() { return downstream->order_queue.size() > 0; }));
@@ -226,7 +226,7 @@ TEST(delay_archive_allows_late_terminal_trade) {
     auto book = std::make_unique<OrderBook>();
     split_config split_cfg;
     split_cfg.strategy = SplitStrategy::None;
-    order_router router(*book, downstream.get(), orders_shm.get());
+    order_router router(*book, downstream.get(), orders_shm.get(), upstream.get());
 
     EventLoopConfig loop_cfg;
     loop_cfg.busy_polling = false;
@@ -235,16 +235,16 @@ TEST(delay_archive_allows_late_terminal_trade) {
     loop_cfg.stats_interval_ms = 0;
     loop_cfg.archive_terminal_orders = true;
     loop_cfg.terminal_archive_delay_ms = 80;
-    EventLoop loop(loop_cfg, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router,
-                   positions, risk, nullptr, nullptr, nullptr);
+    EventLoop loop(loop_cfg, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router, positions,
+                   risk, nullptr, nullptr, nullptr);
 
     std::thread worker([&loop]() { loop.run(); });
 
     const InternalOrderId order_id = 700;
     OrderRequest req = make_order(order_id, 100);
     OrderIndex order_index = kInvalidOrderIndex;
-    assert(orders_shm_append(
-        orders_shm.get(), req, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy, now_ns(), order_index));
+    assert(orders_shm_append(orders_shm.get(), req, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy,
+                             now_ns(), order_index));
     assert(upstream->upstream_order_queue.try_push(order_index));
 
     assert(wait_until([&downstream]() { return downstream->order_queue.size() > 0; }));
@@ -321,15 +321,15 @@ TEST(reject_second_buy_after_fund_reservation) {
     auto book = std::make_unique<OrderBook>();
     split_config split_cfg;
     split_cfg.strategy = SplitStrategy::None;
-    order_router router(*book, downstream.get(), orders_shm.get());
+    order_router router(*book, downstream.get(), orders_shm.get(), upstream.get());
 
     EventLoopConfig loop_cfg;
     loop_cfg.busy_polling = false;
     loop_cfg.idle_sleep_us = 50;
     loop_cfg.poll_batch_size = 32;
     loop_cfg.stats_interval_ms = 0;
-    EventLoop loop(loop_cfg, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router,
-                   positions, risk, nullptr, nullptr, nullptr);
+    EventLoop loop(loop_cfg, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router, positions,
+                   risk, nullptr, nullptr, nullptr);
 
     std::thread worker([&loop]() { loop.run(); });
 
@@ -337,14 +337,10 @@ TEST(reject_second_buy_after_fund_reservation) {
     OrderRequest second = make_order(801, 50);
     OrderIndex first_index = kInvalidOrderIndex;
     OrderIndex second_index = kInvalidOrderIndex;
-    assert(orders_shm_append(
-        orders_shm.get(), first, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy, now_ns(), first_index));
-    assert(orders_shm_append(orders_shm.get(),
-        second,
-        OrderSlotState::UpstreamQueued,
-        order_slot_source_t::Strategy,
-        now_ns(),
-        second_index));
+    assert(orders_shm_append(orders_shm.get(), first, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy,
+                             now_ns(), first_index));
+    assert(orders_shm_append(orders_shm.get(), second, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy,
+                             now_ns(), second_index));
     assert(upstream->upstream_order_queue.try_push(first_index));
     assert(upstream->upstream_order_queue.try_push(second_index));
 
