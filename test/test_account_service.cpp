@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <thread>
@@ -138,6 +139,11 @@ bool write_config_file(const std::string& path, const Config& cfg) {
     out << "  log_level: \"" << cfg.log.log_level << "\"\n";
     out << "  async_logging: " << (cfg.log.async_logging ? "true" : "false") << "\n";
     out << "  async_queue_size: " << cfg.log.async_queue_size << "\n";
+    out << "business_log:\n";
+    out << "  enabled: " << (cfg.business_log.enabled ? "true" : "false") << "\n";
+    out << "  output_dir: \"" << cfg.business_log.output_dir << "\"\n";
+    out << "  queue_capacity: " << cfg.business_log.queue_capacity << "\n";
+    out << "  flush_interval_ms: " << cfg.business_log.flush_interval_ms << "\n";
     out << "db:\n";
     out << "  db_path: \"" << cfg.db.db_path << "\"\n";
     out << "  enable_persistence: " << (cfg.db.enable_persistence ? "true" : "false") << "\n";
@@ -160,6 +166,19 @@ bool wait_until(const std::function<bool()>& predicate, int timeout_ms = 1000) {
 std::string unique_db_path(const char* prefix) {
     return test_data_dir() + "/" + prefix + "_" + std::to_string(static_cast<unsigned long long>(getpid())) + "_" +
            std::to_string(static_cast<unsigned long long>(now_ns())) + ".sqlite";
+}
+
+std::string business_log_path(const Config& cfg) {
+    return cfg.business_log.output_dir + "/order_events_" + std::to_string(cfg.account_id) + "_" + cfg.trading_day +
+           ".log";
+}
+
+std::string read_text_file(const std::string& path) {
+    std::ifstream in(path);
+    if (!in.is_open()) {
+        return {};
+    }
+    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 }
 
 class StderrCapture {
@@ -309,6 +328,9 @@ TEST(initialize_and_run_processes_orders) {
     cfg.risk.enable_price_limit_check = false;
 
     cfg.split.strategy = SplitStrategy::None;
+    cfg.log.log_dir = test_data_dir();
+    cfg.business_log.output_dir = test_data_dir();
+    cfg.business_log.flush_interval_ms = 10;
 
     cfg.db.enable_persistence = false;
     cfg.db.db_path.clear();
@@ -390,6 +412,15 @@ TEST(initialize_and_run_processes_orders) {
     assert(run_rc == 0);
     assert(service.state() == ServiceState::Stopped);
 
+    const std::string order_log_path = business_log_path(cfg);
+    assert(wait_until([&order_log_path]() {
+        const std::string content = read_text_file(order_log_path);
+        return content.find("event=\"order_added\"") != std::string::npos &&
+               content.find("order_id=5001") != std::string::npos &&
+               content.find("event=\"order_trade_updated\"") != std::string::npos &&
+               content.find("volume_traded=50") != std::string::npos;
+    }));
+
     upstream_manager.close();
     downstream_manager.close();
     trades_manager.close();
@@ -401,6 +432,7 @@ TEST(initialize_and_run_processes_orders) {
     (void)SHMManager::unlink(dated_orders_name);
     (void)SHMManager::unlink(cfg.shm.positions_shm_name);
     std::remove(config_path.c_str());
+    std::remove(order_log_path.c_str());
 }
 
 TEST(restart_recovers_downstream_active_orders) {
@@ -425,6 +457,9 @@ TEST(restart_recovers_downstream_active_orders) {
     cfg.risk.enable_fund_check = false;
 
     cfg.split.strategy = SplitStrategy::None;
+    cfg.log.log_dir = test_data_dir();
+    cfg.business_log.output_dir = test_data_dir();
+    cfg.business_log.flush_interval_ms = 10;
 
     cfg.db.enable_persistence = false;
     cfg.db.db_path.clear();
@@ -522,6 +557,9 @@ TEST(restart_recovers_downstream_active_orders) {
 TEST(initialize_rejects_invalid_config) {
     Config cfg;
     cfg.account_id = 0;
+    cfg.log.log_dir = test_data_dir();
+    cfg.business_log.output_dir = test_data_dir();
+    cfg.business_log.flush_interval_ms = 10;
 
     const std::string config_path = unique_config_path("acct_service_cfg_invalid");
     assert(write_config_file(config_path, cfg));
@@ -561,6 +599,8 @@ TEST(initialize_prints_loaded_config_to_stderr) {
 
     cfg.log.log_dir = test_data_dir();
     cfg.log.async_logging = false;
+    cfg.business_log.output_dir = test_data_dir();
+    cfg.business_log.flush_interval_ms = 10;
 
     cfg.db.enable_persistence = false;
     cfg.db.db_path.clear();
@@ -624,6 +664,9 @@ TEST(position_loader_file_mode_only_on_fresh_shm) {
     cfg.risk.enable_price_limit_check = false;
 
     cfg.split.strategy = SplitStrategy::None;
+    cfg.log.log_dir = test_data_dir();
+    cfg.business_log.output_dir = test_data_dir();
+    cfg.business_log.flush_interval_ms = 10;
 
     cfg.db.enable_persistence = false;
     cfg.db.db_path.clear();
@@ -706,6 +749,9 @@ TEST(position_loader_db_mode_only_on_fresh_shm) {
     cfg.risk.enable_price_limit_check = false;
 
     cfg.split.strategy = SplitStrategy::None;
+    cfg.log.log_dir = test_data_dir();
+    cfg.business_log.output_dir = test_data_dir();
+    cfg.business_log.flush_interval_ms = 10;
 
     cfg.db.enable_persistence = true;
     cfg.db.db_path = unique_db_path("acct_service_pos_boot");

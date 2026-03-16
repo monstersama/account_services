@@ -54,6 +54,12 @@ log:
   async_logging: true
   async_queue_size: 8192
 
+business_log:
+  enabled: true
+  output_dir: "./logs"
+  queue_capacity: 65536
+  flush_interval_ms: 100
+
 db:
   db_path: "./data/account_service.db"
   enable_persistence: true

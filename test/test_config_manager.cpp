@@ -186,6 +186,11 @@ TEST(to_log_string_includes_all_sections) {
         out << "  log_level: \"debug\"\n";
         out << "  async_logging: false\n";
         out << "  async_queue_size: 256\n";
+        out << "business_log:\n";
+        out << "  enabled: true\n";
+        out << "  output_dir: \"/tmp/business_logs\"\n";
+        out << "  queue_capacity: 1024\n";
+        out << "  flush_interval_ms: 25\n";
         out << "db:\n";
         out << "  db_path: \"/tmp/config_mgr.sqlite\"\n";
         out << "  enable_persistence: false\n";
@@ -206,6 +211,7 @@ TEST(to_log_string_includes_all_sections) {
     assert(log_text.find("[config] [risk] duplicate_window_ns=1005") != std::string::npos);
     assert(log_text.find("[config] [split] strategy=twap") != std::string::npos);
     assert(log_text.find("[config] [log] log_level=debug") != std::string::npos);
+    assert(log_text.find("[config] [business_log] output_dir=/tmp/business_logs") != std::string::npos);
     assert(log_text.find("[config] [db] db_path=/tmp/config_mgr.sqlite") != std::string::npos);
 
     std::remove(in_path.c_str());
@@ -234,6 +240,8 @@ TEST(bundled_account_configs_cover_all_keys) {
         assert_yaml_map_has_keys(root["split"], {"strategy", "max_child_volume", "min_child_volume", "max_child_count",
                                                  "interval_ms", "randomize_factor"});
         assert_yaml_map_has_keys(root["log"], {"log_dir", "log_level", "async_logging", "async_queue_size"});
+        assert_yaml_map_has_keys(root["business_log"],
+                                 {"enabled", "output_dir", "queue_capacity", "flush_interval_ms"});
         assert_yaml_map_has_keys(root["db"], {"db_path", "enable_persistence", "sync_interval_ms"});
     }
 }

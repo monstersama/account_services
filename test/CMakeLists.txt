@@ -95,6 +95,12 @@ add_executable(test_execution_engine
 
 target_link_libraries(test_execution_engine PRIVATE acct_core_loop snapshot_reader)
 
+add_executable(test_order_event_recorder
+    test_order_event_recorder.cpp
+)
+
+target_link_libraries(test_order_event_recorder PRIVATE acct_order_core)
+
 # ============ config_manager 测试 ==========
 add_executable(test_config_manager
     test_config_manager.cpp
@@ -178,6 +184,7 @@ add_test(NAME test_order_router_split_cancel COMMAND test_order_router_split_can
 add_test(NAME test_risk_manager COMMAND test_risk_manager)
 add_test(NAME test_event_loop COMMAND test_event_loop)
 add_test(NAME test_execution_engine COMMAND test_execution_engine)
+add_test(NAME test_order_event_recorder COMMAND test_order_event_recorder)
 add_test(NAME test_config_manager COMMAND test_config_manager)
 add_test(NAME test_full_chain_observer_config COMMAND test_full_chain_observer_config)
 add_test(NAME test_account_service COMMAND test_account_service)
