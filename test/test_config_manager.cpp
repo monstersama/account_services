@@ -78,6 +78,7 @@ TEST(load_and_export_roundtrip) {
         out << "market_data:\n";
         out << "  enabled: true\n";
         out << "  snapshot_shm_name: \"/mdsnap_test\"\n";
+        out << "  allow_order_price_fallback: true\n";
         out << "split:\n";
         out << "  strategy: \"fixed_size\"\n";
         out << "  max_child_volume: 500\n";
@@ -92,6 +93,7 @@ TEST(load_and_export_roundtrip) {
     assert(manager.shm().orders_shm_name == "/o_test");
     assert(manager.EventLoop().poll_batch_size == 32);
     assert(manager.market_data().enabled);
+    assert(manager.market_data().allow_order_price_fallback);
     assert(manager.split().strategy == SplitStrategy::FixedSize);
     assert(manager.split().max_child_volume == 500);
 
@@ -160,6 +162,7 @@ TEST(to_log_string_includes_all_sections) {
         out << "market_data:\n";
         out << "  enabled: true\n";
         out << "  snapshot_shm_name: \"/yaml_snapshot\"\n";
+        out << "  allow_order_price_fallback: true\n";
         out << "active_strategy:\n";
         out << "  enabled: true\n";
         out << "  name: \"mean_revert\"\n";
@@ -207,6 +210,7 @@ TEST(to_log_string_includes_all_sections) {
     assert(log_text.find("[config] [shm] upstream_shm_name=/yaml_upstream") != std::string::npos);
     assert(log_text.find("[config] [event_loop] archive_terminal_orders=true") != std::string::npos);
     assert(log_text.find("[config] [market_data] snapshot_shm_name=/yaml_snapshot") != std::string::npos);
+    assert(log_text.find("[config] [market_data] allow_order_price_fallback=true") != std::string::npos);
     assert(log_text.find("[config] [active_strategy] name=mean_revert") != std::string::npos);
     assert(log_text.find("[config] [risk] duplicate_window_ns=1005") != std::string::npos);
     assert(log_text.find("[config] [split] strategy=twap") != std::string::npos);
@@ -231,7 +235,7 @@ TEST(bundled_account_configs_cover_all_keys) {
         assert_yaml_map_has_keys(event_loop,
                                  {"busy_polling", "poll_batch_size", "idle_sleep_us", "stats_interval_ms",
                                   "archive_terminal_orders", "terminal_archive_delay_ms", "pin_cpu", "cpu_core"});
-        assert_yaml_map_has_keys(root["market_data"], {"enabled", "snapshot_shm_name"});
+        assert_yaml_map_has_keys(root["market_data"], {"enabled", "snapshot_shm_name", "allow_order_price_fallback"});
         assert_yaml_map_has_keys(root["active_strategy"], {"enabled", "name", "signal_threshold"});
         assert_yaml_map_has_keys(root["risk"],
                                  {"max_order_value", "max_order_volume", "max_daily_turnover", "max_orders_per_second",

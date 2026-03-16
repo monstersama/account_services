@@ -113,6 +113,7 @@ bool write_config_file(const std::string& path, const Config& cfg) {
     out << "market_data:\n";
     out << "  enabled: " << (cfg.market_data.enabled ? "true" : "false") << "\n";
     out << "  snapshot_shm_name: \"" << cfg.market_data.snapshot_shm_name << "\"\n";
+    out << "  allow_order_price_fallback: " << (cfg.market_data.allow_order_price_fallback ? "true" : "false") << "\n";
     out << "active_strategy:\n";
     out << "  enabled: " << (cfg.active_strategy.enabled ? "true" : "false") << "\n";
     out << "  name: \"" << cfg.active_strategy.name << "\"\n";

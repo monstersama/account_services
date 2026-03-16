@@ -35,6 +35,7 @@ struct EventLoopConfig {
 struct MarketDataConfig {
     bool enabled = false;
     std::string snapshot_shm_name = "/signal_xshg_v2";
+    bool allow_order_price_fallback = false;
 };
 
 // 主动策略配置

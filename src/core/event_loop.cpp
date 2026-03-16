@@ -386,18 +386,22 @@ void EventLoop::handle_order_request(OrderIndex index, OrderRequest& request) {
             execution_engine_->start_session(index, active->request, active->strategy_id, active->submit_time_ns);
         if (start_result != ExecutionEngine::SessionStartResult::Started) {
             const bool rejected = start_result == ExecutionEngine::SessionStartResult::Unsupported ||
-                                  start_result == ExecutionEngine::SessionStartResult::MarketDataUnavailable;
+                                  start_result == ExecutionEngine::SessionStartResult::MarketDataUnavailable ||
+                                  start_result == ExecutionEngine::SessionStartResult::Unsplittable;
             order_book_.update_state(request.internal_order_id,
                                      rejected ? OrderState::TraderRejected : OrderState::TraderError);
+            const char* error_message = "failed to start execution session";
+            if (start_result == ExecutionEngine::SessionStartResult::Unsupported) {
+                error_message = "unsupported passive execution algo";
+            } else if (start_result == ExecutionEngine::SessionStartResult::MarketDataUnavailable) {
+                error_message = "managed execution requires ready market data";
+            } else if (start_result == ExecutionEngine::SessionStartResult::Unsplittable) {
+                error_message = "order is not splittable under current split config";
+            }
             (void)orders_shm_update_stage(orders_shm_, index, OrderSlotState::QueuePushFailed, now_ns());
-            ErrorStatus status = ACCT_MAKE_ERROR(
-                ErrorDomain::order, rejected ? ErrorCode::InvalidParam : ErrorCode::SplitFailed, "EventLoop",
-                (start_result == ExecutionEngine::SessionStartResult::Unsupported)
-                    ? "unsupported passive execution algo"
-                : (start_result == ExecutionEngine::SessionStartResult::MarketDataUnavailable)
-                    ? "managed execution requires ready market data"
-                    : "failed to start execution session",
-                0);
+            ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::order, rejected ? ErrorCode::InvalidParam
+                                                                              : ErrorCode::SplitFailed,
+                                                 "EventLoop", error_message, 0);
             record_error(status);
             ACCT_LOG_ERROR_STATUS(status);
         }

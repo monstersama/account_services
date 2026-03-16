@@ -164,7 +164,9 @@ void write_config_yaml(std::ostream& out, const Config& config) {
 
     out << "market_data:\n";
     out << "  enabled: " << (config.market_data.enabled ? "true" : "false") << "\n";
-    out << "  snapshot_shm_name: \"" << escape_yaml_string(config.market_data.snapshot_shm_name) << "\"\n\n";
+    out << "  snapshot_shm_name: \"" << escape_yaml_string(config.market_data.snapshot_shm_name) << "\"\n";
+    out << "  allow_order_price_fallback: " << (config.market_data.allow_order_price_fallback ? "true" : "false")
+        << "\n\n";
 
     out << "active_strategy:\n";
     out << "  enabled: " << (config.active_strategy.enabled ? "true" : "false") << "\n";
@@ -254,6 +256,8 @@ void write_config_log(std::ostream& out, const Config& config) {
 
     write_config_log_line(out, "market_data", "enabled", config.market_data.enabled);
     write_config_log_line(out, "market_data", "snapshot_shm_name", config.market_data.snapshot_shm_name);
+    write_config_log_line(out, "market_data", "allow_order_price_fallback",
+                          config.market_data.allow_order_price_fallback);
 
     write_config_log_line(out, "active_strategy", "enabled", config.active_strategy.enabled);
     write_config_log_line(out, "active_strategy", "name", config.active_strategy.name);
@@ -413,6 +417,9 @@ bool apply_value(Config& cfg, const std::string& key, const std::string& raw_val
     if (key == "market_data.snapshot_shm_name") {
         cfg.market_data.snapshot_shm_name = value;
         return true;
+    }
+    if (key == "market_data.allow_order_price_fallback") {
+        return parse_bool(value, cfg.market_data.allow_order_price_fallback);
     }
 
     if (key == "active_strategy.enabled") {
@@ -714,7 +721,8 @@ bool ConfigManager::load_from_file(const std::string& config_path) {
             return false;
         }
 
-        if (!parse_section(loaded, root, "market_data", {"enabled", "snapshot_shm_name"})) {
+        if (!parse_section(loaded, root, "market_data",
+                           {"enabled", "snapshot_shm_name", "allow_order_price_fallback"})) {
             return false;
         }
 
@@ -894,7 +902,8 @@ bool ConfigManager::validate() const {
         (void)report_config_error(ErrorCode::ConfigValidateFailed, "active_strategy requires market_data.enabled=true");
         return false;
     }
-    if (config_.split.strategy != SplitStrategy::None && !config_.market_data.enabled) {
+    if (config_.split.strategy != SplitStrategy::None && !config_.market_data.enabled &&
+        !config_.market_data.allow_order_price_fallback) {
         (void)report_config_error(ErrorCode::ConfigValidateFailed,
                                   "managed execution requires market_data.enabled=true");
         return false;

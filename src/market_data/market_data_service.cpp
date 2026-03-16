@@ -2,6 +2,7 @@
 
 #include <utility>
 
+#include "common/log.hpp"
 #include "common/security_identity.hpp"
 
 namespace acct_service {
@@ -24,10 +25,20 @@ bool MarketDataService::initialize() {
         return false;
     }
     if (!reader_.open(config_.snapshot_shm_name)) {
+        if (config_.allow_order_price_fallback) {
+            ACCT_LOG_WARN("MarketDataService",
+                          "market data reader open failed; managed execution will fall back to parent order price");
+            return true;
+        }
         return false;
     }
 
     ready_ = reader_.is_open() && reader_.header() != nullptr;
+    if (!ready_ && config_.allow_order_price_fallback) {
+        ACCT_LOG_WARN("MarketDataService",
+                      "market data reader is not ready; managed execution will fall back to parent order price");
+        return true;
+    }
     return ready_;
 }
 
@@ -40,6 +51,8 @@ void MarketDataService::close() noexcept {
 bool MarketDataService::is_enabled() const noexcept { return config_.enabled; }
 
 bool MarketDataService::is_ready() const noexcept { return ready_; }
+
+bool MarketDataService::allow_order_price_fallback() const noexcept { return config_.allow_order_price_fallback; }
 
 // 列出当前快照源中的全部 symbol，未 ready 时返回空集合。
 std::vector<std::string> MarketDataService::list_symbols() const {

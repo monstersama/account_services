@@ -12,6 +12,13 @@ namespace acct_service {
 
 namespace {
 
+InternalOrderId saturated_next_order_id(InternalOrderId order_id) noexcept {
+    if (order_id == std::numeric_limits<InternalOrderId>::max()) {
+        return order_id;
+    }
+    return order_id + 1;
+}
+
 bool is_terminal_state(OrderState status) {
     switch (status) {
         case OrderState::RiskControllerRejected:
@@ -128,6 +135,7 @@ bool OrderBook::add_order(const OrderEntry& entry) {
 
         orders_[index] = stored;
         id_to_index_[order_id] = index;
+        ensure_next_order_id_at_least(saturated_next_order_id(order_id));
 
         if (stored.request.broker_order_id.as_uint != 0) {
             broker_id_map_[stored.request.broker_order_id.as_uint] = order_id;
@@ -315,6 +323,28 @@ bool OrderBook::sync_managed_parent_view(InternalOrderId parent_id, const Manage
         }
 
         managed_parent_ids_.insert(parent_id);
+        const Volume next_volume_remain = (view.target_volume >= view.confirmed_traded_volume)
+                                              ? (view.target_volume - view.confirmed_traded_volume)
+                                              : 0;
+        const DPrice next_dprice_traded =
+            (view.confirmed_traded_volume > 0) ? (view.confirmed_traded_value / view.confirmed_traded_volume) : 0;
+        const OrderState current_state = parent->request.order_state.load(std::memory_order_acquire);
+
+        // 父单镜像没有任何对外可见变化时，不重复触发 ParentRefreshed 和业务日志。
+        if (parent->request.execution_algo == view.execution_algo &&
+            parent->request.execution_state == view.execution_state &&
+            parent->request.target_volume == view.target_volume &&
+            parent->request.working_volume == view.working_volume &&
+            parent->request.schedulable_volume == view.schedulable_volume &&
+            parent->request.volume_entrust == view.target_volume &&
+            parent->request.volume_traded == view.confirmed_traded_volume &&
+            parent->request.volume_remain == next_volume_remain &&
+            parent->request.dvalue_traded == view.confirmed_traded_value &&
+            parent->request.dfee_executed == view.confirmed_fee &&
+            parent->request.dprice_traded == next_dprice_traded && current_state == parent_state) {
+            return true;
+        }
+
         parent->request.execution_algo = view.execution_algo;
         parent->request.execution_state = view.execution_state;
         parent->request.target_volume = view.target_volume;
@@ -322,12 +352,10 @@ bool OrderBook::sync_managed_parent_view(InternalOrderId parent_id, const Manage
         parent->request.schedulable_volume = view.schedulable_volume;
         parent->request.volume_entrust = view.target_volume;
         parent->request.volume_traded = view.confirmed_traded_volume;
-        parent->request.volume_remain =
-            (view.target_volume >= view.confirmed_traded_volume) ? (view.target_volume - view.confirmed_traded_volume) : 0;
+        parent->request.volume_remain = next_volume_remain;
         parent->request.dvalue_traded = view.confirmed_traded_value;
         parent->request.dfee_executed = view.confirmed_fee;
-        parent->request.dprice_traded =
-            (view.confirmed_traded_volume > 0) ? (view.confirmed_traded_value / view.confirmed_traded_volume) : 0;
+        parent->request.dprice_traded = next_dprice_traded;
         parent->request.order_state.store(parent_state, std::memory_order_release);
         parent->last_update_ns = now_ns();
 

@@ -137,8 +137,8 @@ TEST(process_order_and_trade_response) {
     loop_cfg.idle_sleep_us = 50;
     loop_cfg.poll_batch_size = 32;
     loop_cfg.stats_interval_ms = 0;
-    EventLoop loop(
-        loop_cfg, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router, positions, risk);
+    EventLoop loop(loop_cfg, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router,
+                   positions, risk, nullptr, nullptr, nullptr);
 
     std::thread worker([&loop]() { loop.run(); });
 
@@ -235,8 +235,8 @@ TEST(delay_archive_allows_late_terminal_trade) {
     loop_cfg.stats_interval_ms = 0;
     loop_cfg.archive_terminal_orders = true;
     loop_cfg.terminal_archive_delay_ms = 80;
-    EventLoop loop(
-        loop_cfg, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router, positions, risk);
+    EventLoop loop(loop_cfg, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router,
+                   positions, risk, nullptr, nullptr, nullptr);
 
     std::thread worker([&loop]() { loop.run(); });
 
@@ -328,8 +328,8 @@ TEST(reject_second_buy_after_fund_reservation) {
     loop_cfg.idle_sleep_us = 50;
     loop_cfg.poll_batch_size = 32;
     loop_cfg.stats_interval_ms = 0;
-    EventLoop loop(
-        loop_cfg, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router, positions, risk);
+    EventLoop loop(loop_cfg, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router,
+                   positions, risk, nullptr, nullptr, nullptr);
 
     std::thread worker([&loop]() { loop.run(); });
 
