@@ -7,6 +7,7 @@
 #include "common/types.hpp"
 #include "core/config_manager.hpp"
 #include "order/order_book.hpp"
+#include "order/order_event_recorder.hpp"
 #include "order/order_router.hpp"
 #include "portfolio/position_manager.hpp"
 #include "risk/risk_manager.hpp"
@@ -43,7 +44,7 @@ public:
     EventLoop(const EventLoopConfig& config, upstream_shm_layout* upstream_shm, downstream_shm_layout* downstream_shm,
               trades_shm_layout* trades_shm, orders_shm_layout* orders_shm, OrderBook& OrderBook, order_router& router,
               PositionManager& positions, RiskManager& risk, const account_info* account_info = nullptr,
-              ExecutionEngine* execution_engine = nullptr);
+              ExecutionEngine* execution_engine = nullptr, OrderEventRecorder* order_event_recorder = nullptr);
 
     // 析构时会确保循环停止
     ~EventLoop();
@@ -120,12 +121,13 @@ private:
     trades_shm_layout* trades_shm_;          // 成交回报共享内存（交易->账户）
     orders_shm_layout* orders_shm_;          // 订单池共享内存（监控可见）
 
-    OrderBook& order_book_;                        // 订单簿组件
-    order_router& router_;                         // 路由组件
-    PositionManager& positions_;                   // 持仓/资金组件
-    RiskManager& risk_;                            // 风控组件
-    const account_info* account_info_ = nullptr;   // 账户费率快照（可为空）
-    ExecutionEngine* execution_engine_ = nullptr;  // 长期执行引擎（可为空）
+    OrderBook& order_book_;                               // 订单簿组件
+    order_router& router_;                                // 路由组件
+    PositionManager& positions_;                          // 持仓/资金组件
+    RiskManager& risk_;                                   // 风控组件
+    const account_info* account_info_ = nullptr;          // 账户费率快照（可为空）
+    ExecutionEngine* execution_engine_ = nullptr;         // 长期执行引擎（可为空）
+    OrderEventRecorder* order_event_recorder_ = nullptr;  // 独立订单业务日志 recorder（可为空）
 
     std::atomic<bool> running_{false};  // 运行状态标志
     event_loop_stats stats_;            // 运行统计

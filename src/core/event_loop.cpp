@@ -79,7 +79,7 @@ EventLoop::EventLoop(const EventLoopConfig& config, upstream_shm_layout* upstrea
                      downstream_shm_layout* downstream_shm, trades_shm_layout* trades_shm,
                      orders_shm_layout* orders_shm, OrderBook& OrderBook, order_router& router,
                      PositionManager& positions, RiskManager& risk, const account_info* account_info,
-                     ExecutionEngine* execution_engine)
+                     ExecutionEngine* execution_engine, OrderEventRecorder* order_event_recorder)
     : config_(config),
       upstream_shm_(upstream_shm),
       downstream_shm_(downstream_shm),
@@ -90,7 +90,8 @@ EventLoop::EventLoop(const EventLoopConfig& config, upstream_shm_layout* upstrea
       positions_(positions),
       risk_(risk),
       account_info_(account_info),
-      execution_engine_(execution_engine) {
+      execution_engine_(execution_engine),
+      order_event_recorder_(order_event_recorder) {
     order_book_.set_change_callback(
         [this](const OrderEntry& entry, order_book_event_t event) { on_order_book_changed(entry, event); });
 }
@@ -393,9 +394,9 @@ void EventLoop::handle_order_request(OrderIndex index, OrderRequest& request) {
                 ErrorDomain::order, rejected ? ErrorCode::InvalidParam : ErrorCode::SplitFailed, "EventLoop",
                 (start_result == ExecutionEngine::SessionStartResult::Unsupported)
                     ? "unsupported passive execution algo"
-                    : (start_result == ExecutionEngine::SessionStartResult::MarketDataUnavailable)
-                          ? "managed execution requires ready market data"
-                          : "failed to start execution session",
+                : (start_result == ExecutionEngine::SessionStartResult::MarketDataUnavailable)
+                    ? "managed execution requires ready market data"
+                    : "failed to start execution session",
                 0);
             record_error(status);
             ACCT_LOG_ERROR_STATUS(status);
@@ -446,6 +447,10 @@ void EventLoop::on_order_book_changed(const OrderEntry& entry, order_book_event_
                                                  "failed to sync order book snapshot to orders shm", 0);
         record_error(status_err);
         ACCT_LOG_ERROR_STATUS(status_err);
+    }
+
+    if (order_event_recorder_) {
+        order_event_recorder_->record_order_event(entry, event);
     }
 }
 

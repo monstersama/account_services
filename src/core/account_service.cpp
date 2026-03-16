@@ -64,8 +64,8 @@ bool AccountService::initialize(const std::string& config_path) {
         return false;
     }
 
-    if (!init_shared_memory() || !init_portfolio() || !init_risk_manager() || !init_order_components() ||
-        !init_market_data() || !init_execution_engine() || !init_event_loop()) {
+    if (!init_order_event_recorder() || !init_shared_memory() || !init_portfolio() || !init_risk_manager() ||
+        !init_order_components() || !init_market_data() || !init_execution_engine() || !init_event_loop()) {
         state_.store(ServiceState::Error, std::memory_order_release);
         flush_logger(200);
         cleanup();
@@ -162,6 +162,11 @@ void AccountService::print_stats() const {
                      static_cast<unsigned long long>(stats.total_checks), static_cast<unsigned long long>(stats.passed),
                      static_cast<unsigned long long>(stats.rejected));
     }
+
+    if (order_event_recorder_) {
+        std::fprintf(stderr, "[AccountService] business_log_dropped=%llu\n",
+                     static_cast<unsigned long long>(order_event_recorder_->dropped_count()));
+    }
 }
 
 void AccountService::print_loaded_config() const {
@@ -225,6 +230,24 @@ bool AccountService::init_shared_memory() {
         return false;
     }
 
+    return true;
+}
+
+// 初始化独立订单业务日志 recorder，避免高频事件挤占通用技术 logger。
+bool AccountService::init_order_event_recorder() {
+    order_event_recorder_ = std::make_unique<OrderEventRecorder>();
+    if (!order_event_recorder_) {
+        raise_service_error(
+            make_service_error(ErrorCode::ComponentUnavailable, "failed to create order event recorder"));
+        return false;
+    }
+
+    const acct_service::Config& cfg = config_manager_.get();
+    if (!order_event_recorder_->init(config_manager_.business_log(), cfg.account_id, cfg.trading_day)) {
+        raise_service_error(
+            make_service_error(ErrorCode::LoggerInitFailed, "failed to initialize order event recorder"));
+        return false;
+    }
     return true;
 }
 
@@ -309,7 +332,8 @@ bool AccountService::init_execution_engine() {
     }
 
     execution_engine_ = std::make_unique<ExecutionEngine>(config_manager_.split(), *order_book_, *order_router_,
-                                                          market_data_service_.get(), std::move(active_strategy));
+                                                          market_data_service_.get(), order_event_recorder_.get(),
+                                                          std::move(active_strategy));
     if (!execution_engine_) {
         raise_service_error(make_service_error(ErrorCode::ComponentUnavailable, "failed to create execution engine"));
         return false;
@@ -324,10 +348,10 @@ bool AccountService::init_event_loop() {
         return false;
     }
 
-    event_loop_ =
-        std::make_unique<EventLoop>(config_manager_.EventLoop(), upstream_shm_, downstream_shm_, trades_shm_,
-                                    orders_shm_, *order_book_, *order_router_, *position_manager_, *risk_manager_,
-                                    account_info_ ? &account_info_->info() : nullptr, execution_engine_.get());
+    event_loop_ = std::make_unique<EventLoop>(config_manager_.EventLoop(), upstream_shm_, downstream_shm_, trades_shm_,
+                                              orders_shm_, *order_book_, *order_router_, *position_manager_,
+                                              *risk_manager_, account_info_ ? &account_info_->info() : nullptr,
+                                              execution_engine_.get(), order_event_recorder_.get());
     if (!event_loop_) {
         raise_service_error(make_service_error(ErrorCode::ComponentUnavailable, "failed to initialize event loop"));
         return false;
@@ -412,6 +436,7 @@ void AccountService::cleanup() {
     market_data_service_.reset();
     order_router_.reset();
     order_book_.reset();
+    order_event_recorder_.reset();
     risk_manager_.reset();
 
     entrust_records_.reset();

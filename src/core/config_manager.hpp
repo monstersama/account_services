@@ -2,6 +2,7 @@
 
 #include <string>
 
+#include "common/business_log_config.hpp"
 #include "common/types.hpp"
 #include "execution/execution_config.hpp"
 #include "risk/risk_manager.hpp"
@@ -71,6 +72,7 @@ struct Config {
     RiskConfig risk;
     split_config split;
     LogConfig log;
+    BusinessLogConfig business_log;
     DBConfig db;
 };
 
@@ -102,6 +104,7 @@ public:
     const RiskConfig& risk() const noexcept;
     const split_config& split() const noexcept;
     const LogConfig& log() const noexcept;
+    const BusinessLogConfig& business_log() const noexcept;
     const DBConfig& db() const noexcept;
 
     // 热更新支持

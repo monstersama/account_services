@@ -95,8 +95,12 @@ endif()
 # order 核心库 (order_book, order_router, order_recovery)
 add_library(acct_order_core STATIC
     order/order_book.cpp
+    order/order_event_recorder.cpp
     order/order_recovery.cpp
     order/order_router.cpp
+)
+target_compile_definitions(acct_order_core PUBLIC
+    $<$<CONFIG:Debug>:ACCT_ENABLE_DEBUG_ORDER_TRACE>
 )
 target_include_directories(acct_order_core PUBLIC
     ${CMAKE_SOURCE_DIR}/src

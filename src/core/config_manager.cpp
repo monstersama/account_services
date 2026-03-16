@@ -196,6 +196,12 @@ void write_config_yaml(std::ostream& out, const Config& config) {
     out << "  async_logging: " << (config.log.async_logging ? "true" : "false") << "\n";
     out << "  async_queue_size: " << config.log.async_queue_size << "\n\n";
 
+    out << "business_log:\n";
+    out << "  enabled: " << (config.business_log.enabled ? "true" : "false") << "\n";
+    out << "  output_dir: \"" << escape_yaml_string(config.business_log.output_dir) << "\"\n";
+    out << "  queue_capacity: " << config.business_log.queue_capacity << "\n";
+    out << "  flush_interval_ms: " << config.business_log.flush_interval_ms << "\n\n";
+
     out << "db:\n";
     out << "  db_path: \"" << escape_yaml_string(config.db.db_path) << "\"\n";
     out << "  enable_persistence: " << (config.db.enable_persistence ? "true" : "false") << "\n";
@@ -274,6 +280,11 @@ void write_config_log(std::ostream& out, const Config& config) {
     write_config_log_line(out, "log", "log_level", config.log.log_level);
     write_config_log_line(out, "log", "async_logging", config.log.async_logging);
     write_config_log_line(out, "log", "async_queue_size", config.log.async_queue_size);
+
+    write_config_log_line(out, "business_log", "enabled", config.business_log.enabled);
+    write_config_log_line(out, "business_log", "output_dir", config.business_log.output_dir);
+    write_config_log_line(out, "business_log", "queue_capacity", config.business_log.queue_capacity);
+    write_config_log_line(out, "business_log", "flush_interval_ms", config.business_log.flush_interval_ms);
 
     write_config_log_line(out, "db", "db_path", config.db.db_path);
     write_config_log_line(out, "db", "enable_persistence", config.db.enable_persistence);
@@ -482,6 +493,25 @@ bool apply_value(Config& cfg, const std::string& key, const std::string& raw_val
         return true;
     }
 
+    if (key == "business_log.enabled") {
+        return parse_bool(value, cfg.business_log.enabled);
+    }
+    if (key == "business_log.output_dir") {
+        cfg.business_log.output_dir = value;
+        return true;
+    }
+    if (key == "business_log.queue_capacity") {
+        uint64_t parsed = 0;
+        if (!parse_u64(value, parsed)) {
+            return false;
+        }
+        cfg.business_log.queue_capacity = static_cast<std::size_t>(parsed);
+        return true;
+    }
+    if (key == "business_log.flush_interval_ms") {
+        return parse_u32(value, cfg.business_log.flush_interval_ms);
+    }
+
     if (key == "db.db_path") {
         cfg.db.db_path = value;
         return true;
@@ -640,7 +670,7 @@ bool ConfigManager::load_from_file(const std::string& config_path) {
     if (root && root.IsMap()) {
         if (!check_allowed_keys(root, "",
                                 {"account_id", "trading_day", "shm", "event_loop", "EventLoop", "market_data",
-                                 "active_strategy", "risk", "split", "log", "db"})) {
+                                 "active_strategy", "risk", "split", "log", "business_log", "db"})) {
             return false;
         }
 
@@ -706,6 +736,11 @@ bool ConfigManager::load_from_file(const std::string& config_path) {
         }
 
         if (!parse_section(loaded, root, "log", {"log_dir", "log_level", "async_logging", "async_queue_size"})) {
+            return false;
+        }
+
+        if (!parse_section(loaded, root, "business_log",
+                           {"enabled", "output_dir", "queue_capacity", "flush_interval_ms"})) {
             return false;
         }
 
@@ -875,6 +910,27 @@ bool ConfigManager::validate() const {
         return false;
     }
 
+    if (config_.business_log.enabled) {
+        if (config_.business_log.output_dir.empty()) {
+            (void)report_config_error(ErrorCode::ConfigValidateFailed, "business_log output_dir must be non-empty");
+            return false;
+        }
+        if (config_.business_log.queue_capacity < 2) {
+            (void)report_config_error(ErrorCode::ConfigValidateFailed, "business_log queue_capacity must be >= 2");
+            return false;
+        }
+        if (config_.business_log.queue_capacity >= static_cast<std::size_t>(UINT32_MAX)) {
+            (void)report_config_error(ErrorCode::ConfigValidateFailed,
+                                      "business_log queue_capacity must fit in uint32_t");
+            return false;
+        }
+        if (config_.business_log.flush_interval_ms == 0) {
+            (void)report_config_error(ErrorCode::ConfigValidateFailed,
+                                      "business_log flush_interval_ms must be non-zero");
+            return false;
+        }
+    }
+
     return true;
 }
 
@@ -897,6 +953,8 @@ const RiskConfig& ConfigManager::risk() const noexcept { return config_.risk; }
 const split_config& ConfigManager::split() const noexcept { return config_.split; }
 
 const LogConfig& ConfigManager::log() const noexcept { return config_.log; }
+
+const BusinessLogConfig& ConfigManager::business_log() const noexcept { return config_.business_log; }
 
 const DBConfig& ConfigManager::db() const noexcept { return config_.db; }
 

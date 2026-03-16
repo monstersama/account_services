@@ -199,7 +199,8 @@ public:
     // 保存父单上下文和统一账本依赖，供各算法派生类复用。
     ExecutionSession(OrderIndex parent_index, const OrderRequest& parent_request, StrategyId strategy_id,
                      PassiveExecutionAlgo execution_algo, OrderBook& order_book, order_router& order_router,
-                     MarketDataService* market_data_service, ActiveStrategy* active_strategy)
+                     MarketDataService* market_data_service, OrderEventRecorder* order_event_recorder,
+                     ActiveStrategy* active_strategy)
         : parent_index_(parent_index),
           parent_request_(parent_request),
           strategy_id_(strategy_id),
@@ -207,6 +208,7 @@ public:
           order_book_(order_book),
           order_router_(order_router),
           market_data_service_(market_data_service),
+          order_event_recorder_(order_event_recorder),
           active_strategy_(active_strategy) {}
 
     virtual ~ExecutionSession() = default;
@@ -250,6 +252,7 @@ public:
             ledger.final_cancelled_volume = ledger.unresolved_volume();
             ledger.finalized = true;
             failed_ = true;
+            emit_child_finalized_trace(ledger);
             on_child_finalized(ledger.child_order_id);
         }
     }
@@ -398,6 +401,38 @@ protected:
     // 判断当前是否还有未终态的活动子单。
     bool has_working_children() const noexcept { return working_volume() > 0; }
 
+    // 在调试构建里记录子单提交前的父单镜像和预算口径。
+    void emit_child_submit_attempt_trace(InternalOrderId child_order_id, Volume volume, DPrice price,
+                                         bool active_claimed) noexcept {
+        if (!order_event_recorder_) {
+            return;
+        }
+        order_event_recorder_->record_child_submit_attempt(
+            parent_request_, strategy_id_, execution_algo_, child_order_id, volume, price, derive_execution_state(),
+            parent_request_.volume_entrust, working_volume(), schedulable_volume(), active_claimed);
+    }
+
+    // 在调试构建里记录子单提交结果，方便区分正常派生与路由失败。
+    void emit_child_submit_result_trace(InternalOrderId child_order_id, bool success,
+                                        std::string_view reason) noexcept {
+        if (!order_event_recorder_) {
+            return;
+        }
+        order_event_recorder_->record_child_submit_result(parent_request_, strategy_id_, execution_algo_,
+                                                          child_order_id, success, reason);
+    }
+
+    // 在调试构建里记录子单终态结算结果，帮助追踪父单收敛路径。
+    void emit_child_finalized_trace(const child_execution_ledger& ledger) noexcept {
+        if (!order_event_recorder_) {
+            return;
+        }
+        order_event_recorder_->record_child_finalized(
+            parent_request_, strategy_id_, execution_algo_, ledger.child_order_id, ledger.order_state,
+            ledger.entrust_volume, ledger.confirmed_traded_volume, ledger.final_cancelled_volume, cancel_requested_,
+            derive_execution_state(), parent_request_.volume_entrust, working_volume(), schedulable_volume());
+    }
+
     // 以统一路径提交一笔内部子单，并把它登记进 child ledger。
     bool submit_child(Volume volume, DPrice price, bool active_claimed) {
         if (volume == 0 || price == 0) {
@@ -415,8 +450,10 @@ protected:
         child_entry.is_split_child = true;
         child_entry.parent_order_id = parent_request_.internal_order_id;
         child_entry.shm_order_index = kInvalidOrderIndex;
+        emit_child_submit_attempt_trace(child_entry.request.internal_order_id, volume, price, active_claimed);
 
         if (!order_router_.submit_internal_order(child_entry)) {
+            emit_child_submit_result_trace(child_entry.request.internal_order_id, false, "route_failed");
             failed_ = true;
             terminal_ = true;
             sync_parent_view();
@@ -428,6 +465,7 @@ protected:
         ledger.entrust_volume = volume;
         ledger.order_state = OrderState::TraderSubmitted;
         child_ledgers_.emplace(ledger.child_order_id, ledger);
+        emit_child_submit_result_trace(child_entry.request.internal_order_id, true, "submitted");
         return true;
     }
 
@@ -479,6 +517,7 @@ protected:
         if (cancel_requested_ && !has_working_children()) {
             last_active_publish_seq_no_ = 0;
         }
+        emit_child_finalized_trace(ledger);
     }
 
     // 根据当前账本和会话状态，推导父单在旧状态字段中应展示的进度。
@@ -542,6 +581,7 @@ protected:
     OrderBook& order_book_;
     order_router& order_router_;
     MarketDataService* market_data_service_ = nullptr;
+    OrderEventRecorder* order_event_recorder_ = nullptr;
     ActiveStrategy* active_strategy_ = nullptr;
     std::unordered_map<InternalOrderId, child_execution_ledger> child_ledgers_;
     uint64_t last_active_publish_seq_no_ = 0;
@@ -556,9 +596,9 @@ public:
     SequentialClipSession(OrderIndex parent_index, const OrderRequest& parent_request, StrategyId strategy_id,
                           PassiveExecutionAlgo execution_algo, const split_config& split_config, OrderBook& order_book,
                           order_router& order_router, MarketDataService* market_data_service,
-                          ActiveStrategy* active_strategy)
+                          OrderEventRecorder* order_event_recorder, ActiveStrategy* active_strategy)
         : ExecutionSession(parent_index, parent_request, strategy_id, execution_algo, order_book, order_router,
-                           market_data_service, active_strategy),
+                           market_data_service, order_event_recorder, active_strategy),
           clip_volume_(resolve_clip_volume(split_config)) {}
 
     // 顺序型算法的创建条件是 clip/display 口径非零。
@@ -620,9 +660,11 @@ public:
     // 使用固定 clip 逐笔释放预算，直到目标量完成或父单取消。
     FixedSizeSession(OrderIndex parent_index, const OrderRequest& parent_request, StrategyId strategy_id,
                      const split_config& split_config, OrderBook& order_book, order_router& order_router,
-                     MarketDataService* market_data_service, ActiveStrategy* active_strategy)
+                     MarketDataService* market_data_service, OrderEventRecorder* order_event_recorder,
+                     ActiveStrategy* active_strategy)
         : SequentialClipSession(parent_index, parent_request, strategy_id, PassiveExecutionAlgo::FixedSize,
-                                split_config, order_book, order_router, market_data_service, active_strategy) {}
+                                split_config, order_book, order_router, market_data_service, order_event_recorder,
+                                active_strategy) {}
 };
 
 class IcebergSession final : public SequentialClipSession {
@@ -630,9 +672,10 @@ public:
     // 首版 Iceberg 与 FixedSize 共享推进器，只保留独立会话类型和状态命名。
     IcebergSession(OrderIndex parent_index, const OrderRequest& parent_request, StrategyId strategy_id,
                    const split_config& split_config, OrderBook& order_book, order_router& order_router,
-                   MarketDataService* market_data_service, ActiveStrategy* active_strategy)
+                   MarketDataService* market_data_service, OrderEventRecorder* order_event_recorder,
+                   ActiveStrategy* active_strategy)
         : SequentialClipSession(parent_index, parent_request, strategy_id, PassiveExecutionAlgo::Iceberg, split_config,
-                                order_book, order_router, market_data_service, active_strategy) {}
+                                order_book, order_router, market_data_service, order_event_recorder, active_strategy) {}
 };
 
 class TwapSession final : public ExecutionSession {
@@ -640,9 +683,10 @@ public:
     // 记录 TWAP 的时间片计划和当前片节奏，按固定时钟持续推进。
     TwapSession(OrderIndex parent_index, const OrderRequest& parent_request, StrategyId strategy_id,
                 const split_config& split_config, TimestampNs start_time_ns, OrderBook& order_book,
-                order_router& order_router, MarketDataService* market_data_service, ActiveStrategy* active_strategy)
+                order_router& order_router, MarketDataService* market_data_service,
+                OrderEventRecorder* order_event_recorder, ActiveStrategy* active_strategy)
         : ExecutionSession(parent_index, parent_request, strategy_id, PassiveExecutionAlgo::TWAP, order_book,
-                           order_router, market_data_service, active_strategy),
+                           order_router, market_data_service, order_event_recorder, active_strategy),
           start_time_ns_(start_time_ns),
           interval_ns_(static_cast<TimestampNs>(split_config.interval_ms) * 1'000'000ULL),
           next_deadline_ns_(start_time_ns) {
@@ -751,23 +795,24 @@ private:
 };
 
 // 用统一执行会话工厂创建具体的被动算法实现。
-std::unique_ptr<ExecutionSession> create_execution_session(const split_config& split_config, OrderIndex parent_index,
-                                                           const OrderRequest& parent_request, StrategyId strategy_id,
-                                                           TimestampNs start_time_ns, OrderBook& order_book,
-                                                           order_router& order_router,
-                                                           MarketDataService* market_data_service,
-                                                           ActiveStrategy* active_strategy) {
+std::unique_ptr<ExecutionSession> create_execution_session(
+    const split_config& split_config, OrderIndex parent_index, const OrderRequest& parent_request,
+    StrategyId strategy_id, TimestampNs start_time_ns, OrderBook& order_book, order_router& order_router,
+    MarketDataService* market_data_service, OrderEventRecorder* order_event_recorder, ActiveStrategy* active_strategy) {
     const SplitStrategy strategy = resolve_execution_strategy(parent_request, split_config);
     switch (strategy) {
         case SplitStrategy::FixedSize:
             return std::make_unique<FixedSizeSession>(parent_index, parent_request, strategy_id, split_config,
-                                                      order_book, order_router, market_data_service, active_strategy);
+                                                      order_book, order_router, market_data_service,
+                                                      order_event_recorder, active_strategy);
         case SplitStrategy::Iceberg:
             return std::make_unique<IcebergSession>(parent_index, parent_request, strategy_id, split_config, order_book,
-                                                    order_router, market_data_service, active_strategy);
+                                                    order_router, market_data_service, order_event_recorder,
+                                                    active_strategy);
         case SplitStrategy::TWAP:
             return std::make_unique<TwapSession>(parent_index, parent_request, strategy_id, split_config, start_time_ns,
-                                                 order_book, order_router, market_data_service, active_strategy);
+                                                 order_book, order_router, market_data_service, order_event_recorder,
+                                                 active_strategy);
         case SplitStrategy::VWAP:
         case SplitStrategy::None:
         default:
@@ -776,12 +821,13 @@ std::unique_ptr<ExecutionSession> create_execution_session(const split_config& s
 }
 
 ExecutionEngine::ExecutionEngine(const split_config& split_config, OrderBook& order_book, order_router& order_router,
-                                 MarketDataService* market_data_service,
+                                 MarketDataService* market_data_service, OrderEventRecorder* order_event_recorder,
                                  std::unique_ptr<ActiveStrategy> active_strategy)
     : split_config_(split_config),
       order_book_(order_book),
       order_router_(order_router),
       market_data_service_(market_data_service),
+      order_event_recorder_(order_event_recorder),
       active_strategy_(std::move(active_strategy)) {}
 
 ExecutionEngine::~ExecutionEngine() = default;
@@ -801,32 +847,60 @@ ExecutionEngine::SessionStartResult ExecutionEngine::start_session(OrderIndex pa
                                                                    const OrderRequest& parent_request,
                                                                    StrategyId strategy_id, TimestampNs start_time_ns) {
     if (!should_manage(parent_request)) {
+        if (order_event_recorder_) {
+            order_event_recorder_->record_session_start_rejected(parent_request, strategy_id,
+                                                                 PassiveExecutionAlgo::None, "invalid_config");
+        }
         return SessionStartResult::InvalidConfig;
     }
     if (sessions_.find(parent_request.internal_order_id) != sessions_.end()) {
+        if (order_event_recorder_) {
+            order_event_recorder_->record_session_start_rejected(parent_request, strategy_id,
+                                                                 PassiveExecutionAlgo::None, "duplicate_session");
+        }
         return SessionStartResult::Duplicate;
     }
 
     const SplitStrategy strategy = resolve_execution_strategy(parent_request, split_config_);
+    const PassiveExecutionAlgo execution_algo = split_strategy_to_passive_execution_algo(strategy);
     if (!is_supported_session_strategy(strategy)) {
+        if (order_event_recorder_) {
+            order_event_recorder_->record_session_start_rejected(parent_request, strategy_id, execution_algo,
+                                                                 "unsupported_strategy");
+        }
         return SessionStartResult::Unsupported;
     }
     if (!market_data_service_ || !market_data_service_->is_ready()) {
+        if (order_event_recorder_) {
+            order_event_recorder_->record_session_start_rejected(parent_request, strategy_id, execution_algo,
+                                                                 "market_data_unavailable");
+        }
         return SessionStartResult::MarketDataUnavailable;
     }
 
     std::unique_ptr<ExecutionSession> session =
         create_execution_session(split_config_, parent_index, parent_request, strategy_id, start_time_ns, order_book_,
-                                 order_router_, market_data_service_, active_strategy_.get());
+                                 order_router_, market_data_service_, order_event_recorder_, active_strategy_.get());
     if (!session || !session->is_valid()) {
+        if (order_event_recorder_) {
+            order_event_recorder_->record_session_start_rejected(parent_request, strategy_id, execution_algo,
+                                                                 "invalid_session");
+        }
         return SessionStartResult::InvalidConfig;
     }
 
     if (!order_book_.mark_managed_parent(parent_request.internal_order_id)) {
+        if (order_event_recorder_) {
+            order_event_recorder_->record_session_start_rejected(parent_request, strategy_id, execution_algo,
+                                                                 "mark_parent_failed");
+        }
         return SessionStartResult::InvalidConfig;
     }
 
     sessions_.emplace(parent_request.internal_order_id, std::move(session));
+    if (order_event_recorder_) {
+        order_event_recorder_->record_session_started(parent_request, strategy_id, execution_algo);
+    }
     sessions_.at(parent_request.internal_order_id)->tick(start_time_ns);
     return SessionStartResult::Started;
 }

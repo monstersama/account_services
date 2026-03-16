@@ -6,6 +6,7 @@
 #include "execution/execution_config.hpp"
 #include "market_data/market_data_service.hpp"
 #include "order/order_book.hpp"
+#include "order/order_event_recorder.hpp"
 #include "order/order_router.hpp"
 #include "strategy/active_strategy.hpp"
 
@@ -25,7 +26,8 @@ public:
     };
 
     ExecutionEngine(const split_config& split_config, OrderBook& order_book, order_router& order_router,
-                    MarketDataService* market_data_service, std::unique_ptr<ActiveStrategy> active_strategy);
+                    MarketDataService* market_data_service, OrderEventRecorder* order_event_recorder,
+                    std::unique_ptr<ActiveStrategy> active_strategy);
     ~ExecutionEngine();
 
     ExecutionEngine(const ExecutionEngine&) = delete;
@@ -38,8 +40,8 @@ public:
     bool has_active_strategy() const noexcept;
 
     // 为受管父单创建执行会话；调用方根据结果决定拒绝还是错误。
-    SessionStartResult start_session(OrderIndex parent_index, const OrderRequest& parent_request, StrategyId strategy_id,
-                                     TimestampNs start_time_ns);
+    SessionStartResult start_session(OrderIndex parent_index, const OrderRequest& parent_request,
+                                     StrategyId strategy_id, TimestampNs start_time_ns);
 
     // 推进所有活跃会话：先尝试主动覆盖，再在应发时点回落到被动 TWAP。
     void tick(TimestampNs now_ns_value);
@@ -52,6 +54,7 @@ private:
     OrderBook& order_book_;
     order_router& order_router_;
     MarketDataService* market_data_service_ = nullptr;
+    OrderEventRecorder* order_event_recorder_ = nullptr;
     std::unique_ptr<ActiveStrategy> active_strategy_;
     std::unordered_map<InternalOrderId, std::unique_ptr<ExecutionSession>> sessions_;
 };
