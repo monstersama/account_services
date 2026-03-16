@@ -172,6 +172,24 @@ qemu-x86_64-static -g 1234 ./build/src/acct_service_main --config ./config/defau
 
 以下事项来自当前项目结构与实现评估，作为后续迭代清单：
 
+- [ ] P0：补齐 managed execution 的重启恢复闭环  
+  当前恢复逻辑只恢复 `DownstreamQueued / DownstreamDequeued` 的普通订单，受管父单不会恢复执行会话，`is_split_child / parent_order_id` 也不会从 `orders_shm` 重建。需要补齐父单会话最小状态持久化、父子关系恢复、未拆剩余量恢复，以及恢复后继续拆单和父单撤单的完整链路。
+
+- [ ] P0：补齐 managed 拆单的资金与持仓闭环  
+  managed 父单进入执行引擎后会绕过现有 `reserve_order_resources()` 路径，后续子单也不再做资金冻结/资源占用闭环。需要明确是“父单整单预冻结”还是“子单逐笔冻结”，并保证成交结算失败时不会出现资金未扣减但持仓已更新的不一致状态。
+
+- [ ] P1：收紧拆单参数约束与运行时校验  
+  当前 `TWAP` 切片在 `max_child_count` 截断后，可能生成超过 `max_child_volume` 的子单；`min_child_volume` 和 `randomize_factor` 也还没有形成稳定约束语义。需要统一这些配置字段的真实含义，在不可满足时明确拒单，而不是生成越界切片。
+
+- [ ] P1：扩展拆单指令参数与幂等语义  
+  现有 API 逐单只能传 `passive_exec_algo`，`valid_sec` 仍未生效，缺少逐单 clip、interval、deadline、cancel policy、幂等键/客户端请求 ID 等执行参数。需要补齐外部下单协议，避免拆单指令只能依赖服务级默认配置，且无法做安全重试。
+
+- [ ] P1：增强拆单链路可观测性  
+  当前监控快照未暴露 `parent_order_id / is_split_child`，外部无法稳定还原父子单关系，也无法直接判断父单剩余未拆量与执行恢复状态。需要把父子关系和必要的受管执行元数据纳入稳定观测面，降低线上排障成本。
+
+- [ ] P1：补齐拆单恢复与异常路径测试  
+  现有测试覆盖了在线拆单、父单撤单扇出和父单镜像刷新，但还缺少 managed 父单重启恢复、恢复后继续拆片、恢复后父单撤单、资金冻结/结算闭环、以及越界切片拒单等关键回归用例。
+
 - [ ] P1：收敛进程级信号处理副作用  
   `event_loop` 内部直接注册信号处理并依赖全局活动指针，建议将信号注册下沉到进程入口层，循环层只保留可控停止接口。
 
