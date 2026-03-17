@@ -216,6 +216,13 @@ public:
     // 返回供 ExecutionEngine 直接复用的行情服务实例。
     MarketDataService* service() { return &market_data_service_; }
 
+    // 在测试运行期间覆盖同一标的的最新盘口/预测，验证子单提交前会重新读取快照。
+    void publish_snapshot(const snapshot_shm::LobSnapshot& snapshot, float signal = 0.0F, uint32_t flags = 0,
+                          snapshot_shm::SnapshotPredictionState state = snapshot_shm::SnapshotPredictionState::kNone) {
+        assert(snapshot_shm_writer_publish_with_state(writer_.get(), 0, &snapshot, signal, flags,
+                                                      static_cast<uint8_t>(state)) == 1);
+    }
+
 private:
     // 构造最小市场数据配置，避免每个测试重复拼装。
     static MarketDataConfig make_market_data_config(const std::string& snapshot_path, bool allow_order_price_fallback) {
@@ -667,6 +674,89 @@ TEST(cancelled_parent_stops_future_twap_slices) {
     worker.join();
 }
 
+TEST(twap_refreshes_child_price_when_market_data_changes_between_slices) {
+    ManagedMarketDataFixture market_data_fixture("acct_exec_engine_twap_quote_refresh", 0.0F, 0,
+                                                 snapshot_shm::SnapshotPredictionState::kNone);
+    auto upstream = make_upstream_shm();
+    auto downstream = make_downstream_shm();
+    auto trades = make_trades_shm();
+    auto orders_shm = make_orders_shm();
+    auto positions_shm = make_positions_shm();
+
+    PositionManager positions(positions_shm.get());
+    assert(positions.initialize(1));
+
+    RiskConfig risk_config;
+    risk_config.enable_position_check = false;
+    risk_config.enable_price_limit_check = false;
+    risk_config.enable_duplicate_check = false;
+    RiskManager risk(positions, risk_config);
+
+    auto book = std::make_unique<OrderBook>();
+    split_config split_config{};
+    split_config.strategy = SplitStrategy::None;
+    split_config.max_child_volume = 40;
+    split_config.min_child_volume = 1;
+    split_config.max_child_count = 4;
+    split_config.interval_ms = 1;
+    order_router router(*book, downstream.get(), orders_shm.get(), upstream.get());
+    ExecutionEngine execution_engine(split_config, *book, router, market_data_fixture.service(), nullptr, nullptr);
+
+    EventLoopConfig loop_config{};
+    loop_config.busy_polling = false;
+    loop_config.idle_sleep_us = 50;
+    loop_config.poll_batch_size = 32;
+    loop_config.stats_interval_ms = 0;
+    EventLoop loop(loop_config, upstream.get(), downstream.get(), trades.get(), orders_shm.get(), *book, router,
+                   positions, risk, nullptr, &execution_engine);
+
+    std::thread worker([&loop]() { loop.run(); });
+
+    OrderRequest request = make_managed_order(904, 100, PassiveExecutionAlgo::TWAP);
+    OrderIndex parent_index = kInvalidOrderIndex;
+    assert(orders_shm_append(orders_shm.get(), request, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy,
+                             now_ns(), parent_index));
+    assert(upstream->upstream_order_queue.try_push(parent_index));
+
+    assert(wait_until([&downstream]() { return downstream->order_queue.size() > 0; }, 1500));
+
+    OrderIndex first_child_index = kInvalidOrderIndex;
+    assert(downstream->order_queue.try_pop(first_child_index));
+
+    order_slot_snapshot first_child_snapshot{};
+    assert(orders_shm_read_snapshot(orders_shm.get(), first_child_index, first_child_snapshot));
+    assert(first_child_snapshot.request.dprice_entrust == 999);
+
+    snapshot_shm::LobSnapshot refreshed_snapshot = make_snapshot();
+    refreshed_snapshot.bids[0].price = 1002;
+    refreshed_snapshot.asks[0].price = 1003;
+    market_data_fixture.publish_snapshot(refreshed_snapshot);
+
+    TradeResponse first_finished{};
+    first_finished.internal_order_id = first_child_snapshot.request.internal_order_id;
+    first_finished.internal_security_id = InternalSecurityId("XSHE_000001");
+    first_finished.trade_side = TradeSide::Buy;
+    first_finished.new_state = OrderState::Finished;
+    first_finished.volume_traded = first_child_snapshot.request.volume_entrust;
+    first_finished.dprice_traded = first_child_snapshot.request.dprice_entrust;
+    first_finished.dvalue_traded =
+        static_cast<DValue>(first_finished.volume_traded) * static_cast<DValue>(first_finished.dprice_traded);
+    first_finished.recv_time_ns = now_ns();
+    assert(trades->response_queue.try_push(first_finished));
+
+    assert(wait_until([&downstream]() { return downstream->order_queue.size() > 0; }, 1500));
+
+    OrderIndex second_child_index = kInvalidOrderIndex;
+    assert(downstream->order_queue.try_pop(second_child_index));
+
+    order_slot_snapshot second_child_snapshot{};
+    assert(orders_shm_read_snapshot(orders_shm.get(), second_child_index, second_child_snapshot));
+    assert(second_child_snapshot.request.dprice_entrust == 1003);
+
+    loop.stop();
+    worker.join();
+}
+
 TEST(fixed_size_managed_parent_releases_next_clip) {
     ManagedMarketDataFixture market_data_fixture("acct_exec_engine_fixed_size", 0.0F, 0,
                                                  snapshot_shm::SnapshotPredictionState::kNone);
@@ -1038,6 +1128,7 @@ int main() {
     RUN_TEST(managed_child_advances_shared_upstream_order_id_sequence);
     RUN_TEST(active_strategy_respects_volume_decision_and_keeps_market_price);
     RUN_TEST(cancelled_parent_stops_future_twap_slices);
+    RUN_TEST(twap_refreshes_child_price_when_market_data_changes_between_slices);
     RUN_TEST(fixed_size_managed_parent_releases_next_clip);
     RUN_TEST(iceberg_enters_managed_execution_session);
     RUN_TEST(vwap_is_rejected_without_falling_back_to_legacy_splitter);

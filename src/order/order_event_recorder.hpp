@@ -50,20 +50,22 @@ public:
                                      PassiveExecutionAlgo execution_algo, InternalOrderId child_order_id,
                                      Volume requested_volume, DPrice price, ExecutionState execution_state,
                                      Volume target_volume, Volume working_volume, Volume schedulable_volume,
-                                     bool active_strategy_claimed) noexcept;
+                                     bool active_strategy_claimed, std::string_view detail) noexcept;
 
     // 记录子单提交结果，便于区分路由失败与正常派生。
     void record_child_submit_result(const OrderRequest& parent_request, StrategyId strategy_id,
                                     PassiveExecutionAlgo execution_algo, InternalOrderId child_order_id,
-                                    OrderIndex shm_order_index, bool success, std::string_view reason) noexcept;
+                                    OrderIndex shm_order_index, DPrice entrust_price, bool success,
+                                    std::string_view reason) noexcept;
 
     // 记录子单终态结算后的账本摘要，供调试构建追踪父子单收敛过程。
     void record_child_finalized(const OrderRequest& parent_request, StrategyId strategy_id,
                                 PassiveExecutionAlgo execution_algo, InternalOrderId child_order_id,
                                 OrderIndex shm_order_index, OrderState order_state, Volume entrust_volume,
-                                Volume traded_volume, Volume cancelled_volume, bool cancel_requested,
-                                ExecutionState execution_state, Volume target_volume, Volume working_volume,
-                                Volume schedulable_volume) noexcept;
+                                DPrice entrust_price, Volume traded_volume, DPrice traded_price,
+                                DValue traded_value, DValue fee_executed, Volume cancelled_volume,
+                                bool cancel_requested, ExecutionState execution_state, Volume target_volume,
+                                Volume working_volume, Volume schedulable_volume) noexcept;
 
 private:
     struct Impl;

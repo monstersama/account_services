@@ -23,7 +23,7 @@ enable_testing()
 # API 版本 (libacct_order.so) - 必须在 configure_file 之前定义
 set(ACCT_API_VERSION_MAJOR 1)
 set(ACCT_API_VERSION_MINOR 1)
-set(ACCT_API_VERSION_PATCH 1)
+set(ACCT_API_VERSION_PATCH 2)
 set(ACCT_API_VERSION "${ACCT_API_VERSION_MAJOR}.${ACCT_API_VERSION_MINOR}.${ACCT_API_VERSION_PATCH}")
 
 # 生成版本头文件
@@ -47,6 +47,6 @@ include_directories(
 add_subdirectory(src)
 add_subdirectory(src/api)
 add_subdirectory(gateway)
-# add_subdirectory(test)
+add_subdirectory(test)
 # add_subdirectory(examples)
 add_subdirectory(tools)
