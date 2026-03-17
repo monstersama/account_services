@@ -47,6 +47,6 @@ include_directories(
 add_subdirectory(src)
 add_subdirectory(src/api)
 add_subdirectory(gateway)
-# add_subdirectory(test)
+add_subdirectory(test)
 # add_subdirectory(examples)
 add_subdirectory(tools)

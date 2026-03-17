@@ -81,7 +81,7 @@ struct OrderEventRecord {
     bool cancel_requested = false;
     SecurityId security_id{};
     InternalSecurityId internal_security_id{};
-    FixedString<96> detail{};
+    FixedString<160> detail{};
 };
 
 // 统一把订单枚举渲染成稳定的文本值，便于文件检索和下游解析。
@@ -632,6 +632,7 @@ void OrderEventRecorder::record_session_started(const OrderRequest& parent_reque
     record.execution_algo = execution_algo;
     record.execution_state = ExecutionState::Running;
     record.volume_entrust = parent_request.volume_entrust;
+    record.dprice_entrust = parent_request.dprice_entrust;
     record.target_volume = parent_request.target_volume;
     record.working_volume = parent_request.working_volume;
     record.schedulable_volume = parent_request.schedulable_volume;
@@ -663,6 +664,7 @@ void OrderEventRecorder::record_session_start_rejected(const OrderRequest& paren
     record.trade_side = parent_request.trade_side;
     record.market = parent_request.market;
     record.passive_execution_algo = parent_request.passive_execution_algo;
+    record.dprice_entrust = parent_request.dprice_entrust;
     record.execution_algo = execution_algo;
     record.security_id = parent_request.security_id;
     record.internal_security_id = parent_request.internal_security_id;
@@ -681,7 +683,7 @@ void OrderEventRecorder::record_child_submit_attempt(const OrderRequest& parent_
                                                      InternalOrderId child_order_id, Volume requested_volume,
                                                      DPrice price, ExecutionState execution_state, Volume target_volume,
                                                      Volume working_volume, Volume schedulable_volume,
-                                                     bool active_strategy_claimed) noexcept {
+                                                     bool active_strategy_claimed, std::string_view detail) noexcept {
 #if defined(ACCT_ENABLE_DEBUG_ORDER_TRACE)
     if (!impl_) {
         return;
@@ -709,6 +711,7 @@ void OrderEventRecorder::record_child_submit_attempt(const OrderRequest& parent_
     record.active_strategy_claimed = active_strategy_claimed;
     record.security_id = parent_request.security_id;
     record.internal_security_id = parent_request.internal_security_id;
+    record.detail.assign(detail);
     (void)impl_->try_enqueue(record);
 #else
     (void)parent_request;
@@ -722,12 +725,13 @@ void OrderEventRecorder::record_child_submit_attempt(const OrderRequest& parent_
     (void)working_volume;
     (void)schedulable_volume;
     (void)active_strategy_claimed;
+    (void)detail;
 #endif
 }
 
 void OrderEventRecorder::record_child_submit_result(const OrderRequest& parent_request, StrategyId strategy_id,
                                                     PassiveExecutionAlgo execution_algo, InternalOrderId child_order_id,
-                                                    OrderIndex shm_order_index, bool success,
+                                                    OrderIndex shm_order_index, DPrice entrust_price, bool success,
                                                     std::string_view reason) noexcept {
 #if defined(ACCT_ENABLE_DEBUG_ORDER_TRACE)
     if (!impl_) {
@@ -745,6 +749,7 @@ void OrderEventRecorder::record_child_submit_result(const OrderRequest& parent_r
     record.order_type = OrderType::New;
     record.trade_side = parent_request.trade_side;
     record.market = parent_request.market;
+    record.dprice_entrust = entrust_price;
     record.is_split_child = true;
     record.execution_algo = execution_algo;
     record.success = success;
@@ -758,6 +763,7 @@ void OrderEventRecorder::record_child_submit_result(const OrderRequest& parent_r
     (void)execution_algo;
     (void)child_order_id;
     (void)shm_order_index;
+    (void)entrust_price;
     (void)success;
     (void)reason;
 #endif
@@ -766,10 +772,11 @@ void OrderEventRecorder::record_child_submit_result(const OrderRequest& parent_r
 void OrderEventRecorder::record_child_finalized(const OrderRequest& parent_request, StrategyId strategy_id,
                                                 PassiveExecutionAlgo execution_algo, InternalOrderId child_order_id,
                                                 OrderIndex shm_order_index, OrderState order_state,
-                                                Volume entrust_volume, Volume traded_volume, Volume cancelled_volume,
-                                                bool cancel_requested, ExecutionState execution_state,
-                                                Volume target_volume, Volume working_volume,
-                                                Volume schedulable_volume) noexcept {
+                                                Volume entrust_volume, DPrice entrust_price, Volume traded_volume,
+                                                DPrice traded_price, DValue traded_value, DValue fee_executed,
+                                                Volume cancelled_volume, bool cancel_requested,
+                                                ExecutionState execution_state, Volume target_volume,
+                                                Volume working_volume, Volume schedulable_volume) noexcept {
 #if defined(ACCT_ENABLE_DEBUG_ORDER_TRACE)
     if (!impl_) {
         return;
@@ -791,7 +798,11 @@ void OrderEventRecorder::record_child_finalized(const OrderRequest& parent_reque
     record.execution_algo = execution_algo;
     record.execution_state = execution_state;
     record.volume_entrust = entrust_volume;
+    record.dprice_entrust = entrust_price;
     record.volume_traded = traded_volume;
+    record.dprice_traded = traded_price;
+    record.dvalue_traded = traded_value;
+    record.dfee_executed = fee_executed;
     record.volume_remain =
         (entrust_volume >= traded_volume + cancelled_volume) ? (entrust_volume - traded_volume - cancelled_volume) : 0;
     record.target_volume = target_volume;
@@ -810,7 +821,11 @@ void OrderEventRecorder::record_child_finalized(const OrderRequest& parent_reque
     (void)shm_order_index;
     (void)order_state;
     (void)entrust_volume;
+    (void)entrust_price;
     (void)traded_volume;
+    (void)traded_price;
+    (void)traded_value;
+    (void)fee_executed;
     (void)cancelled_volume;
     (void)cancel_requested;
     (void)execution_state;

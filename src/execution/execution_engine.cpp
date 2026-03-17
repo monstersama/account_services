@@ -1,6 +1,7 @@
 #include "execution/execution_engine.hpp"
 
 #include <algorithm>
+#include <cstdio>
 #include <limits>
 #include <memory>
 #include <utility>
@@ -102,6 +103,72 @@ Volume resolve_clip_volume(const split_config& split_config) noexcept {
 // 判断一个盘口档位是否可以作为定价输入。
 bool is_valid_level(const snapshot_shm::SnapshotLevel& level) noexcept { return level.price != 0 && level.volume != 0; }
 
+enum class SubmitPriceSource : uint8_t {
+    Market = 0,
+    ParentMarketDataUnavailable = 1,
+    ParentInvalidMarketLevel = 2,
+};
+
+struct submit_price_trace_context {
+    SubmitPriceSource source = SubmitPriceSource::Market;
+    uint64_t market_data_seq = 0;
+    uint64_t publish_seq_no = 0;
+    DPrice best_bid = 0;
+    DPrice best_ask = 0;
+};
+
+// 从行情视图中提炼子单定价诊断字段，方便把提交时看到的盘口版本写进 debug trace。
+submit_price_trace_context make_submit_price_trace_context(const MarketDataView& market_data_view,
+                                                           SubmitPriceSource source) noexcept {
+    submit_price_trace_context context{};
+    context.source = source;
+    context.market_data_seq = market_data_view.seq;
+    context.publish_seq_no = market_data_view.prediction.publish_seq_no;
+    const snapshot_shm::LobSnapshot& snapshot = market_data_view.snapshot;
+    context.best_bid = (snapshot.total_bid_levels > 0) ? snapshot.bids[0].price : 0;
+    context.best_ask = (snapshot.total_ask_levels > 0) ? snapshot.asks[0].price : 0;
+    return context;
+}
+
+// 把定价来源压成单行 detail，便于现场从子单日志直接判断是否真的消费到了新行情。
+std::string_view format_submit_price_trace_detail(const submit_price_trace_context& context, char* buffer,
+                                                  std::size_t buffer_size) noexcept {
+    if (!buffer || buffer_size == 0) {
+        return {};
+    }
+
+    int written = 0;
+    switch (context.source) {
+        case SubmitPriceSource::Market:
+            written = std::snprintf(buffer, buffer_size,
+                                    "price_src=market md_seq=%llu pub_seq=%llu bid1=%llu ask1=%llu",
+                                    static_cast<unsigned long long>(context.market_data_seq),
+                                    static_cast<unsigned long long>(context.publish_seq_no),
+                                    static_cast<unsigned long long>(context.best_bid),
+                                    static_cast<unsigned long long>(context.best_ask));
+            break;
+        case SubmitPriceSource::ParentMarketDataUnavailable:
+            written = std::snprintf(buffer, buffer_size, "price_src=parent reason=md_unavailable");
+            break;
+        case SubmitPriceSource::ParentInvalidMarketLevel:
+            written = std::snprintf(buffer, buffer_size,
+                                    "price_src=parent reason=invalid_level md_seq=%llu pub_seq=%llu bid1=%llu ask1=%llu",
+                                    static_cast<unsigned long long>(context.market_data_seq),
+                                    static_cast<unsigned long long>(context.publish_seq_no),
+                                    static_cast<unsigned long long>(context.best_bid),
+                                    static_cast<unsigned long long>(context.best_ask));
+            break;
+    }
+
+    if (written <= 0) {
+        buffer[0] = '\0';
+        return {};
+    }
+
+    const std::size_t detail_size = std::min<std::size_t>(static_cast<std::size_t>(written), buffer_size - 1);
+    return std::string_view(buffer, detail_size);
+}
+
 // 复用旧 TWAP 的切片口径，预先生成每个时间片应消耗的预算。
 bool build_twap_slice_plan(const OrderRequest& parent_request, const split_config& split_config,
                            std::vector<Volume>& out_slice_volumes) {
@@ -174,6 +241,7 @@ struct child_execution_ledger {
     InternalOrderId child_order_id = 0;
     OrderIndex shm_order_index = kInvalidOrderIndex;
     Volume entrust_volume = 0;
+    DPrice entrust_price = 0;
     Volume confirmed_traded_volume = 0;
     DValue confirmed_traded_value = 0;
     DValue confirmed_fee = 0;
@@ -194,6 +262,17 @@ struct child_execution_ledger {
         return entrust_volume - known;
     }
 };
+
+// 用账本中的累计成交额/量回推成交均价，和订单簿上的 child 聚合口径保持一致。
+DPrice average_traded_price(const child_execution_ledger& ledger) noexcept {
+    if (ledger.confirmed_traded_volume == 0) {
+        return 0;
+    }
+    if (ledger.confirmed_traded_value == 0) {
+        return 0;
+    }
+    return ledger.confirmed_traded_value / ledger.confirmed_traded_volume;
+}
 
 class ExecutionSession {
 public:
@@ -324,21 +403,26 @@ protected:
     }
 
     // 先尝试按行情定价；若启用了调试回退，则在行情缺失或脏数据时改用父单委托价。
-    bool resolve_submit_price(MarketDataView& out_view, bool& has_market_data_view, DPrice& out_price) {
+    bool resolve_submit_price(MarketDataView& out_view, bool& has_market_data_view, DPrice& out_price,
+                              submit_price_trace_context& out_trace_context) {
         has_market_data_view = false;
+        out_trace_context = submit_price_trace_context{};
         if (read_market_data_view(out_view)) {
             has_market_data_view = true;
+            out_trace_context = make_submit_price_trace_context(out_view, SubmitPriceSource::Market);
             if (resolve_market_price(out_view, out_price)) {
                 return true;
             }
             if (!allow_order_price_fallback()) {
                 return false;
             }
+            out_trace_context.source = SubmitPriceSource::ParentInvalidMarketLevel;
             log_order_price_fallback_once("invalid_market_level");
         } else {
             if (!allow_order_price_fallback()) {
                 return false;
             }
+            out_trace_context.source = SubmitPriceSource::ParentMarketDataUnavailable;
             log_order_price_fallback_once("market_data_unavailable");
         }
 
@@ -453,23 +537,27 @@ protected:
 
     // 在调试构建里记录子单提交前的父单镜像和预算口径。
     void emit_child_submit_attempt_trace(InternalOrderId child_order_id, Volume volume, DPrice price,
-                                         bool active_claimed) noexcept {
+                                         bool active_claimed,
+                                         const submit_price_trace_context& price_trace_context) noexcept {
         if (!order_event_recorder_) {
             return;
         }
+        char detail_buffer[160];
         order_event_recorder_->record_child_submit_attempt(
             parent_request_, strategy_id_, execution_algo_, child_order_id, volume, price, derive_execution_state(),
-            parent_request_.volume_entrust, working_volume(), schedulable_volume(), active_claimed);
+            parent_request_.volume_entrust, working_volume(), schedulable_volume(), active_claimed,
+            format_submit_price_trace_detail(price_trace_context, detail_buffer, sizeof(detail_buffer)));
     }
 
     // 在调试构建里记录子单提交结果，方便区分正常派生与路由失败。
     void emit_child_submit_result_trace(InternalOrderId child_order_id, OrderIndex shm_order_index, bool success,
-                                        std::string_view reason) noexcept {
+                                        DPrice entrust_price, std::string_view reason) noexcept {
         if (!order_event_recorder_) {
             return;
         }
         order_event_recorder_->record_child_submit_result(parent_request_, strategy_id_, execution_algo_,
-                                                          child_order_id, shm_order_index, success, reason);
+                                                          child_order_id, shm_order_index, entrust_price, success,
+                                                          reason);
     }
 
     // 在调试构建里记录子单终态结算结果，帮助追踪父单收敛路径。
@@ -478,14 +566,15 @@ protected:
             return;
         }
         order_event_recorder_->record_child_finalized(
-            parent_request_, strategy_id_, execution_algo_, ledger.child_order_id, ledger.shm_order_index,
-            ledger.order_state, ledger.entrust_volume, ledger.confirmed_traded_volume, ledger.final_cancelled_volume,
-            cancel_requested_, derive_execution_state(), parent_request_.volume_entrust, working_volume(),
-            schedulable_volume());
+            parent_request_, strategy_id_, execution_algo_, ledger.child_order_id, ledger.shm_order_index, ledger.order_state,
+            ledger.entrust_volume, ledger.entrust_price, ledger.confirmed_traded_volume, average_traded_price(ledger),
+            ledger.confirmed_traded_value, ledger.confirmed_fee, ledger.final_cancelled_volume, cancel_requested_,
+            derive_execution_state(), parent_request_.volume_entrust, working_volume(), schedulable_volume());
     }
 
     // 以统一路径提交一笔内部子单，并把它登记进 child ledger。
-    bool submit_child(Volume volume, DPrice price, bool active_claimed) {
+    bool submit_child(Volume volume, DPrice price, bool active_claimed,
+                      const submit_price_trace_context& price_trace_context) {
         if (volume == 0 || price == 0) {
             return false;
         }
@@ -500,11 +589,12 @@ protected:
         child_entry.is_split_child = true;
         child_entry.parent_order_id = parent_request_.internal_order_id;
         child_entry.shm_order_index = kInvalidOrderIndex;
-        emit_child_submit_attempt_trace(child_entry.request.internal_order_id, volume, price, active_claimed);
+        emit_child_submit_attempt_trace(child_entry.request.internal_order_id, volume, price, active_claimed,
+                                        price_trace_context);
 
         if (!order_router_.submit_internal_order(child_entry)) {
-            emit_child_submit_result_trace(child_entry.request.internal_order_id, child_entry.shm_order_index, false,
-                                           "route_failed");
+            emit_child_submit_result_trace(child_entry.request.internal_order_id, child_entry.shm_order_index,
+                                           child_entry.request.dprice_entrust, false, "route_failed");
             failed_ = true;
             terminal_ = true;
             sync_parent_view();
@@ -515,15 +605,17 @@ protected:
         ledger.child_order_id = child_entry.request.internal_order_id;
         ledger.shm_order_index = child_entry.shm_order_index;
         ledger.entrust_volume = volume;
+        ledger.entrust_price = price;
         ledger.order_state = OrderState::TraderSubmitted;
         child_ledgers_.emplace(ledger.child_order_id, ledger);
-        emit_child_submit_result_trace(child_entry.request.internal_order_id, child_entry.shm_order_index, true,
-                                       "submitted");
+        emit_child_submit_result_trace(child_entry.request.internal_order_id, child_entry.shm_order_index,
+                                       child_entry.request.dprice_entrust, true, "submitted");
         return true;
     }
 
     // 在当前预算窗口内先询问主动策略，命中后直接生成一笔内部子单。
-    bool try_active_submit(const MarketDataView& market_data_view, DPrice market_price, Volume budget_volume) {
+    bool try_active_submit(const MarketDataView& market_data_view, DPrice market_price, Volume budget_volume,
+                           const submit_price_trace_context& price_trace_context) {
         if (!active_strategy_ || budget_volume == 0) {
             return false;
         }
@@ -541,7 +633,7 @@ protected:
             return false;
         }
 
-        return submit_child(decision.volume, market_price, true);
+        return submit_child(decision.volume, market_price, true, price_trace_context);
     }
 
     // 当子单终态落地后，由派生类决定如何推进后续算法步骤。
@@ -695,13 +787,15 @@ public:
         MarketDataView market_data_view{};
         bool has_market_data_view = false;
         DPrice market_price = 0;
-        if (!resolve_submit_price(market_data_view, has_market_data_view, market_price)) {
+        submit_price_trace_context price_trace_context{};
+        if (!resolve_submit_price(market_data_view, has_market_data_view, market_price, price_trace_context)) {
             sync_parent_view();
             return;
         }
 
-        if (!(has_market_data_view && try_active_submit(market_data_view, market_price, budget_volume))) {
-            (void)submit_child(budget_volume, market_price, false);
+        if (!(has_market_data_view &&
+              try_active_submit(market_data_view, market_price, budget_volume, price_trace_context))) {
+            (void)submit_child(budget_volume, market_price, false, price_trace_context);
         }
         sync_parent_view();
     }
@@ -788,16 +882,18 @@ public:
             MarketDataView market_data_view{};
             bool has_market_data_view = false;
             DPrice market_price = 0;
-            if (!resolve_submit_price(market_data_view, has_market_data_view, market_price)) {
+            submit_price_trace_context price_trace_context{};
+            if (!resolve_submit_price(market_data_view, has_market_data_view, market_price, price_trace_context)) {
                 sync_parent_view();
                 return;
             }
 
             if (!slice_consumed_ && has_market_data_view) {
-                slice_consumed_ = try_active_submit(market_data_view, market_price, budget_volume);
+                slice_consumed_ =
+                    try_active_submit(market_data_view, market_price, budget_volume, price_trace_context);
             }
             if (!slice_consumed_ && now_ns_value >= next_deadline_ns_) {
-                slice_consumed_ = submit_child(budget_volume, market_price, false);
+                slice_consumed_ = submit_child(budget_volume, market_price, false, price_trace_context);
             }
         }
 
