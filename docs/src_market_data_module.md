@@ -63,6 +63,7 @@
 - `close()`
 - `is_enabled()`
 - `is_ready()`
+- `allow_order_price_fallback()`
 - `read(internal_security_id, out_view)`
 
 ## 4. 当前使用方式
@@ -83,9 +84,11 @@
 - 买单：优先取卖一
 - 卖单：优先取买一
 - 若对手档无效，则回退到同侧顶档
-- 若没有有效盘口，不发子单
+- 若没有有效盘口：
+  - `allow_order_price_fallback=false` 时，不发子单
+  - `allow_order_price_fallback=true` 时，回退到父单委托价
 
-所以当前 `market_data` 不只是“主动策略的 prediction 输入”，也是受管执行子单的实际定价输入。
+所以当前 `market_data` 不只是“主动策略的 prediction 输入”，也是 managed execution 子单定价链路的首选输入。
 
 ## 5. 运行流程
 
@@ -95,9 +98,11 @@
 2. 调用 `initialize()`
 3. 若 `market_data.enabled=false`，模块进入 no-op 模式
 4. 若 `market_data.enabled=true`
-   - 打开 `snapshot_shm_name`
-   - 校验 reader 已成功打开
-   - 标记服务 `ready`
+   - 尝试打开 `snapshot_shm_name`
+   - reader 打开成功且 header 就绪时，标记服务 `ready`
+   - reader 打不开或未 ready 时：
+     - `allow_order_price_fallback=false`：初始化失败
+     - `allow_order_price_fallback=true`：记录告警并允许上层继续运行
 
 ### 5.2 单标的读取
 
@@ -109,6 +114,8 @@
    - `MarketDataView::snapshot`
    - `PredictionView`
 6. 返回给执行引擎或主动策略
+
+若服务未 ready，则 `read()` 直接返回失败，由上层决定是拒绝 managed execution 还是按父单价 fallback。
 
 ## 6. 依赖与边界
 
@@ -141,11 +148,13 @@
 
 - `market_data.enabled`
 - `market_data.snapshot_shm_name`
+- `market_data.allow_order_price_fallback`
 
 校验约束：
 
 - 仅当 `enabled=true` 时，`snapshot_shm_name` 必须非空
-- 若启用了 managed execution 默认策略（`split.strategy != none`），也要求 `market_data.enabled=true`
+- 当 `enabled=true` 且 `allow_order_price_fallback=false` 时，managed execution 依赖可用的 reader
+- 当 `enabled=true` 且 `allow_order_price_fallback=true` 时，reader 不可用会退化为“允许继续运行，但 managed child 可能回退到父单价”
 
 ## 8. 维护提示
 

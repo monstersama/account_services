@@ -16,12 +16,12 @@
 
 ## 2. 核心职责
 
-- 解析配置文件和命令行覆盖项，形成运行配置快照。
+- 加载 YAML 配置，并由 `ConfigManager` 提供可选的命令行覆盖能力。
 - 初始化日志与五类共享内存映射。
 - 初始化持仓、账户信息、成交记录和委托记录。
 - 创建 `RiskManager`、`OrderBook`、`order_router`、`ExecutionEngine` 和 `EventLoop`。
-- 驱动上游订单消费、下游成交回报处理、统计输出和可选归档。
-- 统一收敛错误并把关键错误提升为停服/退出决策。
+- 驱动上游订单消费、成交回报处理、统计输出和可选归档。
+- 统一收敛错误并把关键错误提升为停服 / 退出决策。
 
 ## 3. 关键类型与角色
 
@@ -60,6 +60,7 @@
 
 - 同时接受 `event_loop.*` 和 `EventLoop.*` 两种配置键路径。
 - `validate()` 只做基础校验，例如 `account_id != 0`、`trading_day` 合法、SHM 名非空、`poll_batch_size > 0`。
+- `ConfigManager::parse_command_line()` 具备比当前主程序更完整的命令行覆盖能力。
 
 ### `AccountService`
 
@@ -75,6 +76,8 @@
 - `init_portfolio()`
 - `init_risk_manager()`
 - `init_order_components()`
+- `init_market_data()`
+- `init_execution_engine()`
 - `init_event_loop()`
 - `cleanup()`
 - `raise_service_error()`
@@ -111,6 +114,13 @@
 
 ### 4.1 启动顺序
 
+当前 `acct_service_main` 的 CLI 入口只支持：
+
+- `--config <path>`
+- 位置参数形式的配置路径
+
+启动顺序：
+
 1. `main.cpp` 解析 `--config` 或位置参数配置路径。
 2. 创建 `AccountService`。
 3. `AccountService::initialize()` 依次执行：
@@ -121,7 +131,7 @@
    - 初始化 `portfolio` 组件
    - 初始化 `RiskManager`
    - 初始化 `OrderBook` 与 `order_router`
-    - 恢复下游在途订单
+   - 恢复下游在途订单
    - 初始化 `MarketDataService`
    - 初始化 `ExecutionEngine`
    - 创建 `EventLoop`
@@ -144,7 +154,12 @@
    - 对新单调用 `RiskManager`
    - 风控通过后：
      - managed execution 订单进入 `ExecutionEngine`
-     - 普通订单冻结必要资源并调 `order_router` 发往下游
+     - 普通订单仅在买单路径预冻结资金，然后调 `order_router` 发往下游
+
+需要注意：
+
+- 当前只冻结买单资金，不冻结卖单仓位。
+- managed execution 父单会先进入 `TraderPending`，普通新单成功路由后直接进入 `TraderSubmitted`。
 
 ### 4.3 下游回报处理
 
@@ -155,7 +170,7 @@
 3. 对买卖方向分别调用 `PositionManager`：
    - 买单：结算买入资金、必要时建档证券行、增加持仓
    - 卖单：结算卖出资金、扣减持仓
-4. 若订单进入终态，释放剩余冻结资源。
+4. 若订单进入终态，释放剩余冻结的买单资金。
 5. 若启用了终态延迟归档，将订单加入 `pending_archive_deadlines_ns_`。
 
 ### 4.4 订单镜像同步
@@ -168,7 +183,7 @@
 
 这让 `orders_shm` 同时承担：
 
-- 策略侧提交入口
+- 用户指令提交入口
 - 监控侧只读镜像
 - 重启恢复时的状态来源
 
@@ -195,7 +210,7 @@
 - `src/shm`
   - SHM 打开、头部校验、订单池辅助函数
 - `src/portfolio`
-  - 资金/持仓、账户信息、成交/委托记录
+  - 资金 / 持仓、账户信息、成交 / 委托记录
 - `src/risk`
   - 风控规则链
 - `src/order`
@@ -221,4 +236,4 @@
 
 - 修改初始化顺序时，优先检查 `AccountService::initialize()` 和这份文档的启动链路是否一致。
 - 修改订单进入或回报处理路径时，优先同步 `EventLoop` 相关章节，并检查 [订单处理流程图](order_flowchart.md) 是否需要更新。
-- 如果把新的运行期状态交给 `core` 管理，应优先考虑是否应该落在 `ServiceState`、`event_loop_stats` 还是下游模块自身的状态对象中。
+- 若主程序 CLI 行为变化，需同时检查 `src/main.cpp` 与这份文档中“ConfigManager 能力”和“当前入口行为”的区分是否仍然准确。

@@ -52,23 +52,25 @@
 - `internal_order_id`：账户服务内部订单 ID，必须保留。
 - `type`：`New` 或 `Cancel`。
 - `orig_internal_order_id`：撤单时的原订单 ID。
-- `trade_side/order_market/volume/price/security_id`：新单必填。
+- `trade_side / order_market / volume / price / security_id`：新单必填。
 
 ### broker_event
 
 - `internal_order_id`：回报关联键。
-- `kind`：事件语义（受理/拒绝/成交/完成）。
-- `volume_traded/price_traded/value_traded/fee`：成交类事件填写。
+- `kind`：事件语义（受理 / 拒绝 / 成交 / 完成）。
+- `volume_traded / price_traded / value_traded / fee`：成交类事件填写。
 
 ## gateway 状态映射
 
-网关将 `broker_event.kind` 映射为 `trade_response.new_status`：
+网关将 `broker_event.kind` 映射为 `TradeResponse.new_state`：
 
-- `BrokerAccepted` -> `order_status_t::BrokerAccepted`
-- `BrokerRejected` -> `order_status_t::BrokerRejected`
-- `MarketRejected` -> `order_status_t::MarketRejected`
-- `Trade` -> `order_status_t::MarketAccepted`
-- `Finished` -> `order_status_t::Finished`
+- `BrokerAccepted` -> `OrderState::BrokerAccepted`
+- `BrokerRejected` -> `OrderState::BrokerRejected`
+- `MarketRejected` -> `OrderState::MarketRejected`
+- `Trade` -> `OrderState::MarketAccepted`
+- `Finished` -> `OrderState::Finished`
+
+映射实现位于 `gateway/src/response_mapper.cpp`。未知事件不会继续下发，而是直接被网关丢弃。
 
 ## 外部仓库接入方式
 

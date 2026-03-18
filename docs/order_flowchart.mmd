@@ -1,7 +1,7 @@
 %%{init: {'theme': 'base', 'themeVariables': {'background': '#ffffff', 'textColor': '#111827', 'lineColor': '#374151', 'fontSize': '18px', 'fontFamily': '"Microsoft YaHei","PingFang SC","Noto Sans SC",sans-serif', 'edgeLabelBackground': '#ffffff'}}}%%
 %% 订单处理流程图 - 主流程图
 graph TD
-    Start[策略触发订单] --> StrategySubmit[策略提交订单]
+    Start[用户触发指令] --> StrategySubmit[用户提交指令]
 
     StrategySubmit --> SHM0[写入订单池共享内存<br/>orders_shm]
     SHM0 --> SHM1[写入上游共享内存<br/>index_queue]
@@ -15,7 +15,7 @@ graph TD
     RiskCheck -->|通过| RiskAccepted[风控接受<br/>冻结资金/持仓]
     RiskCheck -->|拒绝| RiskRejected[风控拒绝<br/>更新状态为RiskControllerRejected]
 
-    RiskRejected --> EndReject[订单终止<br/>通知策略]
+    RiskRejected --> EndReject[订单终止<br/>回写用户指令状态]
 
     RiskAccepted --> ExecCheck{受管执行算法?}
 
@@ -35,12 +35,12 @@ graph TD
     BrokerCheck -->|接受| MarketCheck{市场检查}
     BrokerCheck -->|拒绝| BrokerReject[柜台拒绝<br/>更新状态为BrokerRejected]
 
-    BrokerReject --> EndReject2[订单终止<br/>通知策略]
+    BrokerReject --> EndReject2[订单终止<br/>回写用户指令状态]
 
     MarketCheck -->|接受| MarketAccepted[市场接受<br/>进入撮合队列]
     MarketCheck -->|拒绝| MarketReject[市场拒绝<br/>更新状态为MarketRejected]
 
-    MarketReject --> EndReject3[订单终止<br/>通知策略]
+    MarketReject --> EndReject3[订单终止<br/>回写用户指令状态]
 
     MarketAccepted --> Matching[市场撮合]
 

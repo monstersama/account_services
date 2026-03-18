@@ -15,11 +15,11 @@ graph LR
     BrokerReject --> Log4[记录错误日志<br/>包含柜台错误码]
     MarketReject --> Log5[记录错误日志<br/>包含市场错误码]
 
-    Log1 --> Notify1[通知上游策略<br/>通过共享内存]
-    Log2 --> Notify2[通知上游策略<br/>通过共享内存]
-    Log3 --> Notify3[通知上游策略<br/>通过共享内存]
-    Log4 --> Notify4[通知上游策略<br/>通过共享内存]
-    Log5 --> Notify5[通知上游策略<br/>通过共享内存]
+    Log1 --> Notify1[回写用户指令状态<br/>通过共享内存]
+    Log2 --> Notify2[回写用户指令状态<br/>通过共享内存]
+    Log3 --> Notify3[回写用户指令状态<br/>通过共享内存]
+    Log4 --> Notify4[回写用户指令状态<br/>通过共享内存]
+    Log5 --> Notify5[回写用户指令状态<br/>通过共享内存]
 
     Notify1 --> Cleanup1[清理资源<br/>解冻资金/持仓]
     Notify2 --> Cleanup2[清理资源<br/>解冻资金/持仓]

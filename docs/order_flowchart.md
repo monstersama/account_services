@@ -1,332 +1,222 @@
 # 订单处理流程图
 
-本文档展示量化交易账户服务中订单的完整生命周期流程图。系统是一个高性能低延时的订单处理服务，负责接收策略订单、进行风控检查、把普通订单或执行引擎生成的内部子单路由到交易进程，并处理成交回报。
+本文档展示账户服务当前实现下的订单生命周期。重点是把主链路、状态转换和组件分工与 `src/core/event_loop.cpp`、`src/order/order_router.cpp`、`src/execution/execution_engine.cpp` 的现状对齐。
 
 ## 系统概述
 
-账户服务接收上游策略用户发出到共享内存中的订单，读取后先经过风控模块验证。普通订单直接发送到下游；执行算法订单则交给 `ExecutionEngine` 逐步生成内部子单，再统一发送到下游。服务同时维护订单池镜像、父单执行态和成交回报回流。
+账户服务从共享内存读取用户提交指令对应的订单索引，统一由 `EventLoop` 编排风控、执行引擎、订单路由和成交回报处理。普通订单与 managed execution 父单共用同一条订单镜像和回报链路，但进入 `downstream_shm` 的方式不同：
 
-### 主要模块
-- **订单簿 (order_book)**：管理活跃订单，生成内部订单ID
-- **风控管理器 (risk_manager)**：多维度风险控制检查
-- **执行引擎 (execution_engine)**：托管 `FixedSize / Iceberg / TWAP` 执行会话并生成内部子单
-- **行情模块 (market_data)**：提供盘口与 prediction，供执行引擎定价和主动策略决策
-- **订单路由器 (order_router)**：将订单发送到下游交易进程
-- **持仓管理器 (position_manager)**：管理账户资金和持仓
-- **事件循环 (event_loop)**：主处理循环，协调各模块工作
+- 普通订单：风控通过后由 `order_router::route_order()` 直接下发
+- managed execution 父单：由 `ExecutionEngine` 持续生成内部子单，再通过 `order_router::submit_internal_order()` 下发
+
+当前实现还需要注意：
+
+- 成交回报走 `trades_shm->response_queue`
+- 当前只冻结买单资金，不冻结卖单仓位
+- 普通新单成功后直接进入 `TraderSubmitted`
+- `TraderPending` 主要用于受管父单和内部撤单 / 子单初始化
 
 ## 1. 主流程图：订单完整生命周期
 
 ```mermaid
 graph TD
-    %% 主流程图：订单生命周期
-    Start[策略触发订单] --> StrategySubmit[策略提交订单]
+    Start[用户触发指令] --> OrdersPool[写入 orders_shm 槽位]
+    OrdersPool --> UpstreamQ[推入 upstream_order_queue]
 
-    StrategySubmit --> SHM0[写入订单池共享内存<br/>orders_shm]
-    SHM0 --> SHM1[写入上游共享内存<br/>index_queue]
+    UpstreamQ --> EventLoop[EventLoop 读取订单]
+    EventLoop --> Register[OrderBook 登记 / 必要时分配内部订单号]
+    Register --> RiskPending[状态 -> RiskControllerPending]
+    RiskPending --> RiskCheck{RiskManager 检查}
 
-    SHM1 --> EventLoop[事件循环处理]
+    RiskCheck -->|拒绝| RiskRejected[状态 -> RiskControllerRejected<br/>slot stage -> RiskRejected]
+    RiskRejected --> EndReject[订单终止]
 
-    EventLoop --> OrderBook[订单簿登记<br/>生成内部订单ID]
+    RiskCheck -->|通过| RiskAccepted[状态 -> RiskControllerAccepted]
+    RiskAccepted --> ManagedCheck{ExecutionEngine.should_manage?}
 
-    OrderBook --> RiskCheck{风控检查}
+    ManagedCheck -->|否| ReserveBuy[仅买单预冻结资金]
+    ReserveBuy --> RouteNormal[order_router::route_order]
 
-    RiskCheck -->|通过| RiskAccepted[风控接受<br/>冻结资金/持仓]
-    RiskCheck -->|拒绝| RiskRejected[风控拒绝<br/>更新状态为RiskControllerRejected]
+    ManagedCheck -->|是| ParentPending[父单状态 -> TraderPending]
+    ParentPending --> ExecEngine[ExecutionEngine.start_session / tick]
+    ExecEngine --> Pricing[优先读取盘口定价<br/>允许时可回退到父单价]
+    Pricing --> SubmitChild[submit_internal_order / 内部撤单]
 
-    RiskRejected --> EndReject[订单终止<br/>通知策略]
+    RouteNormal --> DownstreamQ[写入 downstream_shm.order_queue]
+    SubmitChild --> DownstreamQ
 
-    RiskAccepted --> ExecCheck{受管执行算法?}
+    DownstreamQ --> Trader[交易进程 / gateway]
+    Trader --> Broker[券商柜台 / 交易所]
+    Broker --> TradeResponse[TradeResponse / broker_event]
+    TradeResponse --> TradesQ[写入 trades_shm.response_queue]
 
-    ExecCheck -->|是| ExecEngine[执行引擎<br/>生成内部子订单]
-    ExecCheck -->|否| Router[订单路由器]
+    TradesQ --> EventLoopResp[EventLoop 读取成交回报]
+    EventLoopResp --> OrderUpdate[更新 OrderBook 状态与成交累计]
+    OrderUpdate --> PositionUpdate[更新资金 / 持仓]
+    PositionUpdate --> ReleaseBuy[终态释放剩余买单冻结资金]
+    ReleaseBuy --> Archive{启用终态归档?}
 
-    ExecEngine --> MarketData[读取行情/盘口]
-    MarketData --> ExecEngine
-    ExecEngine --> Router
-
-    Router --> SHM2[写入下游共享内存<br/>index_queue]
-
-    SHM2 --> TraderProcess[交易进程处理]
-
-    TraderProcess --> BrokerCheck{柜台检查}
-
-    BrokerCheck -->|接受| MarketCheck{市场检查}
-    BrokerCheck -->|拒绝| BrokerReject[柜台拒绝<br/>更新状态为BrokerRejected]
-
-    BrokerReject --> EndReject2[订单终止<br/>通知策略]
-
-    MarketCheck -->|接受| MarketAccepted[市场接受<br/>进入撮合队列]
-    MarketCheck -->|拒绝| MarketReject[市场拒绝<br/>更新状态为MarketRejected]
-
-    MarketReject --> EndReject3[订单终止<br/>通知策略]
-
-    MarketAccepted --> Matching[市场撮合]
-
-    Matching --> TradeResponse[成交回报]
-
-    TradeResponse --> SHM3[写入下游共享内存<br/>response_queue]
-
-    SHM3 --> EventLoop2[事件循环处理成交]
-
-    EventLoop2 --> UpdateOrder[更新订单状态<br/>成交数量/金额]
-
-    UpdateOrder --> PositionUpdate[更新持仓管理器]
-
-    PositionUpdate --> CompleteCheck{订单完成?<br/>volume_traded >= volume_entrust}
-
-    CompleteCheck -->|是| OrderFinished[订单完成<br/>状态更新为Finished<br/>归档]
-    CompleteCheck -->|否| WaitMore[等待更多成交]
-
-    WaitMore --> Matching
-
-    OrderFinished --> End[订单生命周期结束]
+    Archive -->|否| End[订单生命周期结束]
+    Archive -->|是| DelayArchive[立即或延迟归档]
+    DelayArchive --> End
 ```
 
 ### 流程说明
-1. **订单接收**：策略先写订单池共享内存，再通过上游SPSC索引队列发送订单索引
-2. **风控检查**：多层次风控规则检查，包括资金、持仓、价格限制等
-3. **资金/持仓冻结**：风控通过后冻结相应资金或持仓
-4. **执行会话**：受管执行算法由 `ExecutionEngine` 按预算持续生成内部子单
-5. **行情定价**：managed child 发单前必须读取盘口并生成市场派生价格
-6. **路由发送**：通过下游共享内存索引队列发送到交易进程
-7. **交易处理**：交易进程与券商柜台交互，提交订单到交易所
-8. **成交回报**：处理市场成交回报，更新订单状态和成交信息
-9. **持仓更新**：根据成交结果更新账户持仓和资金
-10. **订单完成**：订单全部成交后归档，生命周期结束
+
+1. **订单接收**：用户先写 `orders_shm`，再把槽位索引推入 `upstream_shm->upstream_order_queue`。
+2. **统一调度**：`EventLoop` 是当前主调度中心，负责协调订单簿、风控、执行引擎、路由器和持仓管理器。
+3. **风控检查**：当前默认规则包括资金、持仓、单笔金额、单笔数量、价格限制、重复单、速率限制。
+4. **资源冻结**：风控通过后仅在买单路径调用 `freeze_fund()`；卖单仓位冻结能力存在，但当前主路径没有接入。
+5. **managed execution**：受管父单先进入 `TraderPending`，再由 `ExecutionEngine` 按预算持续生成子单。
+6. **行情定价**：managed child 优先按盘口派生价格；若 `allow_order_price_fallback=true` 且行情不可用或盘口无效，可回退到父单 `dprice_entrust`。
+7. **回报处理**：交易进程 / gateway 把 `TradeResponse` 写入 `trades_shm->response_queue`，再由 `EventLoop` 批量消费。
+8. **结算与归档**：成交回报驱动订单状态、资金、持仓和终态资源释放；终态归档当前是内存归档和 orders_shm terminal 写回，不是统一数据库归档链路。
 
 ## 2. 状态转换图：订单状态机
 
 ```mermaid
 stateDiagram-v2
-    [*] --> StrategySubmitted: 策略提交订单
+    [*] --> StrategySubmitted: 用户提交指令
     StrategySubmitted --> RiskControllerPending: 进入风控队列
-
-    state RiskControllerPending {
-        [*] --> Checking
-        Checking --> Accepted: 风控通过
-        Checking --> Rejected: 风控拒绝
-    }
 
     RiskControllerPending --> RiskControllerAccepted: 风控通过
     RiskControllerPending --> RiskControllerRejected: 风控拒绝
 
-    RiskControllerAccepted --> TraderPending: 进入交易队列
-    TraderPending --> TraderSubmitted: 发送到交易进程
+    RiskControllerAccepted --> TraderSubmitted: 普通新单路由成功
+    RiskControllerAccepted --> TraderPending: 受管父单 / 内部撤单初始化
 
-    state TraderSubmitted {
-        [*] --> Waiting
-        Waiting --> BrokerAccepted: 柜台接受
-        Waiting --> BrokerRejected: 柜台拒绝
-        Waiting --> TraderError: 交易进程错误
-    }
+    TraderPending --> TraderSubmitted: 子单或撤单写入下游队列
 
     TraderSubmitted --> BrokerAccepted: 柜台接受
     TraderSubmitted --> BrokerRejected: 柜台拒绝
     TraderSubmitted --> TraderError: 交易进程错误
 
-    BrokerAccepted --> MarketAccepted: 市场接受
+    BrokerAccepted --> MarketAccepted: 市场接受 / 成交回报
     BrokerAccepted --> MarketRejected: 市场拒绝
 
-    MarketAccepted --> Finished: 订单完成
+    MarketAccepted --> MarketAccepted: 部分成交继续等待
+    MarketAccepted --> Finished: 剩余数量归零或完成回报
 
-    RiskControllerRejected --> [*]: 订单终止
-    BrokerRejected --> [*]: 订单终止
-    MarketRejected --> [*]: 订单终止
-    TraderError --> [*]: 订单终止
-    Finished --> [*]: 订单生命周期结束
+    RiskControllerRejected --> [*]
+    BrokerRejected --> [*]
+    MarketRejected --> [*]
+    TraderError --> [*]
+    Finished --> [*]
 ```
 
 ### 状态说明
+
 | 状态 | 枚举值 | 说明 |
 |------|--------|------|
-| `StrategySubmitted` | 0x12 | 策略已提交订单 |
+| `StrategySubmitted` | 0x12 | 用户已提交指令 |
 | `RiskControllerPending` | 0x20 | 风控待处理 |
 | `RiskControllerRejected` | 0x21 | 风控拒绝 |
 | `RiskControllerAccepted` | 0x22 | 风控通过 |
-| `TraderPending` | 0x30 | 交易进程待处理 |
-| `TraderRejected` | 0x31 | 交易进程拒绝 |
-| `TraderSubmitted` | 0x32 | 交易进程已提交 |
+| `TraderPending` | 0x30 | 受管父单 / 内部撤单 / 内部子单初始化阶段 |
+| `TraderRejected` | 0x31 | 交易侧拒绝 |
+| `TraderSubmitted` | 0x32 | 已写入下游队列并等待交易回报 |
 | `TraderError` | 0x33 | 交易进程错误 |
 | `BrokerRejected` | 0x41 | 柜台拒绝 |
 | `BrokerAccepted` | 0x42 | 柜台接受 |
 | `MarketRejected` | 0x51 | 市场拒绝 |
-| `MarketAccepted` | 0x52 | 市场接受 |
+| `MarketAccepted` | 0x52 | 市场接受 / 已有成交回报 |
 | `Finished` | 0x62 | 订单完成 |
 
-**风控拒绝原因**：资金不足、持仓不足、超过单笔限额、超过日限额、价格超出范围、证券不允许、账户冻结、重复订单等。
+**当前风控拒绝原因**：资金不足、持仓不足、价格超限、单笔金额超限、单笔数量超限、重复单、速率限制。
 
-**市场接受后**：订单进入交易所撮合队列，等待成交回报，可能部分成交或全部成交。
+**关于 `TraderPending`**：普通新单不经过这个状态；它主要用于受管父单进入执行会话，以及内部构造的撤单 / 子单在真正下游前的初始化阶段。
 
-## 3. 组件交互图：系统架构
+## 3. 组件交互图：当前架构
 
 ```mermaid
 graph TB
-    %% 外部系统
-    Strategy[策略进程] --> UpstreamSHM[上游共享内存<br/>SPSC索引队列]
-    Strategy --> OrdersSHM[订单池共享内存<br/>orders_shm]
+    UserInstruction[用户指令] --> OrdersSHM[orders_shm]
+    UserInstruction --> UpstreamSHM[upstream_order_queue]
 
-    UpstreamSHM --> AccountService[账户服务]
-
-    %% 账户服务内部组件
-    subgraph "账户服务 (Account Service)"
-        EventLoop[事件循环<br/>event_loop]
-        OrderBook[订单簿<br/>order_book]
-        RiskManager[风控管理器<br/>risk_manager]
-        ExecutionEngine[执行引擎<br/>execution_engine]
-        MarketData[行情模块<br/>market_data]
-        OrderRouter[订单路由器<br/>order_router]
-        PositionManager[持仓管理器<br/>position_manager]
-
-        EventLoop --> OrderBook
-        OrderBook --> RiskManager
-        RiskManager --> ExecutionEngine
-        ExecutionEngine --> MarketData
-        ExecutionEngine --> OrderRouter
-        OrderRouter --> DownstreamSHM
-        PositionManager --> RiskManager
-        PositionManager --> OrderBook
+    subgraph AccountService[账户服务]
+        EventLoop[EventLoop]
+        OrderBook[OrderBook]
+        RiskManager[RiskManager]
+        ExecutionEngine[ExecutionEngine]
+        MarketData[MarketDataService]
+        OrderRouter[order_router]
+        PositionManager[PositionManager]
     end
 
-    AccountService --> DownstreamSHM[下游共享内存<br/>SPSC索引队列]
-    AccountService --> OrdersSHM
+    UpstreamSHM --> EventLoop
+    EventLoop --> OrderBook
+    EventLoop --> RiskManager
+    EventLoop --> ExecutionEngine
+    EventLoop --> OrderRouter
+    EventLoop --> PositionManager
+    ExecutionEngine --> MarketData
+    ExecutionEngine --> OrderRouter
+    OrderRouter --> DownstreamSHM[downstream_shm.order_queue]
 
-    DownstreamSHM --> Trader[交易进程<br/>Trader Process]
+    DownstreamSHM --> Trader[交易进程 / gateway]
+    Trader --> TradesSHM[trades_shm.response_queue]
+    TradesSHM --> EventLoop
 
-    Trader --> Broker[券商柜台<br/>Broker API]
-
-    Broker --> Exchange[交易所<br/>Exchange]
-
-    Exchange --> TradeResponse[成交回报<br/>Trade Response]
-
-    TradeResponse --> DownstreamSHM
-
-    DownstreamSHM --> AccountService
-
-    %% 数据存储和监控
-    OrdersSHM --> Monitor[监控系统<br/>Monitoring]
-    AccountService --> PositionSHM[持仓共享内存<br/>监控可见]
-
-    PositionSHM --> Monitor[监控系统<br/>Monitoring]
-
-    AccountService --> Database[(数据库<br/>PostgreSQL/MySQL)]
-
-    Database --> AccountService
+    OrdersSHM --> Monitor[observer / monitor]
+    PositionManager --> PositionsSHM[positions_shm]
+    PositionsSHM --> Monitor
 ```
 
 ### 架构说明
-- **上游通信**：策略进程通过“订单池 + SPSC索引队列”发送订单，实现低延迟与可监控
-- **内部处理**：事件循环协调各模块，订单依次经过订单簿、风控、执行引擎/路由器
-- **下游通信**：通过共享内存索引队列将订单发送到交易进程，并通过回报队列接收成交
-- **外部集成**：与券商柜台、交易所交互，支持数据库持久化和监控系统
 
-## 4. 错误处理流程图
+- `EventLoop` 才是当前运行期的中心调度者。
+- `OrderBook`、`RiskManager`、`ExecutionEngine`、`order_router` 不是串行互相调用链，而是由 `EventLoop` 按订单类型和回报类型统一编排。
+- `downstream_shm` 只负责账户服务到交易进程的订单索引下发。
+- `trades_shm` 才是交易进程回写 `TradeResponse` 的通道。
 
-```mermaid
-graph LR
-    Error[错误发生] --> ErrorType{错误类型}
+## 4. 当前错误处理要点
 
-    ErrorType -->|风控拒绝| RiskReject[更新状态为<br/>RiskControllerRejected]
-    ErrorType -->|交易进程拒绝| TraderReject[更新状态为<br/>TraderRejected]
-    ErrorType -->|交易进程错误| TraderError[更新状态为<br/>TraderError]
-    ErrorType -->|柜台拒绝| BrokerReject[更新状态为<br/>BrokerRejected]
-    ErrorType -->|市场拒绝| MarketReject[更新状态为<br/>MarketRejected]
+当前实现不是一条统一的“记录日志 -> 回写用户指令状态 -> 解冻 -> 数据库归档”总线，实际行为更分散：
 
-    RiskReject --> Log1[记录错误日志<br/>包含拒绝原因]
-    TraderReject --> Log2[记录错误日志<br/>包含错误代码]
-    TraderError --> Log3[记录错误日志<br/>包含异常信息]
-    BrokerReject --> Log4[记录错误日志<br/>包含柜台错误码]
-    MarketReject --> Log5[记录错误日志<br/>包含市场错误码]
+1. **风控拒绝**：更新订单状态为 `RiskControllerRejected`，并把订单槽位阶段更新为 `RiskRejected`。
+2. **路由失败**：普通买单路径会释放已经预冻结的资金，订单状态更新为 `TraderError`。
+3. **成交终态**：终态回报会释放剩余买单冻结资金；撤单终态还会尝试释放原单剩余冻结资金。
+4. **归档**：当前归档主要是 `orders_shm` terminal 写回和 `OrderBook::archive_order()`，不是统一数据库归档流程。
+5. **用户指令可见性**：上游观察当前主要依赖 `orders_shm` 镜像同步，而不是独立的“错误通知消息总线”。
 
-    Log1 --> Notify1[通知上游策略<br/>通过共享内存]
-    Log2 --> Notify2[通知上游策略<br/>通过共享内存]
-    Log3 --> Notify3[通知上游策略<br/>通过共享内存]
-    Log4 --> Notify4[通知上游策略<br/>通过共享内存]
-    Log5 --> Notify5[通知上游策略<br/>通过共享内存]
+## 5. 关键数据结构
 
-    Notify1 --> Cleanup1[清理资源<br/>解冻资金/持仓]
-    Notify2 --> Cleanup2[清理资源<br/>解冻资金/持仓]
-    Notify3 --> Cleanup3[清理资源<br/>解冻资金/持仓]
-    Notify4 --> Cleanup4[清理资源<br/>解冻资金/持仓]
-    Notify5 --> Cleanup5[清理资源<br/>解冻资金/持仓]
+### 订单请求 (`OrderRequest`)
 
-    Cleanup1 --> Archive1[订单归档<br/>保存到数据库]
-    Cleanup2 --> Archive2[订单归档<br/>保存到数据库]
-    Cleanup3 --> Archive3[订单归档<br/>保存到数据库]
-    Cleanup4 --> Archive4[订单归档<br/>保存到数据库]
-    Cleanup5 --> Archive5[订单归档<br/>保存到数据库]
-
-    Archive1 --> Done1[处理完成]
-    Archive2 --> Done2[处理完成]
-    Archive3 --> Done3[处理完成]
-    Archive4 --> Done4[处理完成]
-    Archive5 --> Done5[处理完成]
-```
-
-### 错误处理策略
-1. **错误分类**：根据错误来源分类（风控、交易进程、柜台、市场）
-2. **状态更新**：更新订单状态为相应的拒绝状态
-3. **日志记录**：详细记录错误原因、错误码和上下文信息
-4. **策略通知**：通过共享内存通知上游策略进程
-5. **资源清理**：解冻已冻结的资金或持仓
-6. **订单归档**：将订单保存到数据库供后续分析
-
-## 关键数据结构
-
-### 订单请求 (`order_request`)
-- 192字节大小，3个缓存行对齐（64字节对齐）
-- 包含完整订单信息：ID、类型、方向、市场、价格、数量等
-- 原子状态字段，支持多线程安全访问
-- 定义在 [include/order/order_request.hpp](../include/order/order_request.hpp)
+- 包含订单 ID、类型、方向、市场、价格、数量、执行态和成交累计字段
+- 定义在 [`src/order/order_request.hpp`](../src/order/order_request.hpp)
 
 ### 共享内存布局 (`shm_layout`)
-- **订单池共享内存**：订单镜像数组（可被外部监控读取）
-- **上游共享内存**：策略→账户服务（索引队列）
-- **下游共享内存**：账户服务→交易进程（索引队列）
-- **成交回报共享内存**：交易进程→账户服务（回报队列）
-- **持仓共享内存**：持仓信息（可被外部监控读取）
-- 定义在 [include/shm/shm_layout.hpp](../include/shm/shm_layout.hpp)
 
-## 性能特性
+- **订单池共享内存**：订单镜像数组，供用户指令提交方和监控读取
+- **上游共享内存**：用户指令 -> 账户服务（索引队列）
+- **下游共享内存**：账户服务 -> 交易进程（索引队列）
+- **成交回报共享内存**：交易进程 -> 账户服务（回报队列）
+- **持仓共享内存**：持仓信息，供监控读取
+- 定义在 [`src/shm/shm_layout.hpp`](../src/shm/shm_layout.hpp)
 
-1. **低延迟设计**：
-   - 共享内存SPSC队列通信
-   - 缓存行对齐数据结构
-   - 原子操作和无锁设计
+## 6. 当前实现特征
 
-2. **高吞吐量**：
-   - 批量订单处理支持
-   - 高效的事件循环
-   - 并行风控检查
+1. **低延迟链路**：
+   - `orders_shm + upstream/downstream/trades` 共享内存队列
+   - 批量轮询与事件循环
+   - 订单镜像与回报处理分离
+
+2. **风控模型**：
+   - 当前是顺序短路检查，不是并行风控
+   - 默认规则链按配置顺序执行
 
 3. **系统容量**：
    - 日内订单池容量：1,048,576
    - 最大持仓数量：8,192
-   - 索引队列容量：65,536（上游/下游）
+   - 上游 / 下游索引队列容量：65,536
 
-## 使用说明
+## 7. 维护说明
 
-### 查看流程图
-1. **在线查看**：在支持Mermaid的Markdown查看器（如GitHub、GitLab、VS Code等）中打开本文件
-2. **生成图片**：使用Mermaid CLI生成PNG/SVG图片：
-   ```bash
-   npm install -g @mermaid-js/mermaid-cli
-   mmdc -i docs/order_flowchart.mmd -o docs/images/order_flow.png
-   ```
-
-### 源码位置
-- Mermaid源代码：`docs/order_flowchart.mmd`
-- Markdown文档：`docs/order_flowchart.md`
-- 相关代码：`include/` 目录下的各个头文件
-
-## 维护说明
-
-1. **保持同步**：当订单处理逻辑变更时，需要同步更新流程图
-2. **状态枚举**：确保状态转换图与 `order_status_t` 枚举保持一致
-3. **组件接口**：组件交互图应反映实际的模块依赖关系
-4. **错误处理**：错误处理流程图需涵盖所有可能的错误路径
+1. 当订单进入路径或回报路径变化时，优先同步本文件中的主流程图、状态图和错误处理说明。
+2. 当 managed execution 的定价或 fallback 规则变化时，需同时检查本文件和 `docs/src_execution_module.md`。
+3. 当共享内存通道职责变化时，需重新核对 `orders_shm / downstream_shm / trades_shm / positions_shm` 的职责描述。
 
 ---
 
-*最后更新：2026-02-02*
-*基于代码版本：41f0205*
+*最后更新：2026-03-17*

@@ -10,7 +10,7 @@
 
 `VWAP` 已接入统一入口，但当前明确返回 unsupported。
 
-它处在：
+它位于：
 
 - `src/core/EventLoop`
 - `src/order/order_router`
@@ -109,18 +109,20 @@
 
 ### 4.2 子单价格如何生成
 
-当前所有 managed execution 子单都必须先读取最新行情，再生成市场派生价格。
+当前 managed execution 子单会先尝试读取最新行情，再生成市场派生价格。
 
 规则固定为：
 
 - 买单：优先取卖一，卖一无效时回退到买一
 - 卖单：优先取买一，买一无效时回退到卖一
-- 若没有有效盘口，不发子单
+- 若盘口无效：
+  - `allow_order_price_fallback=false` 时，不发子单
+  - `allow_order_price_fallback=true` 时，回退到父单 `dprice_entrust`
 
 也就是说：
 
-- 只要有有效盘口，managed child 就直接使用盘口派生价
-- 父单 `dprice_entrust` 仅在行情不可用且启用 fallback 时才会被复用
+- 只要有有效盘口，managed child 直接使用盘口派生价
+- 只有在行情缺失或顶档无效且显式启用 fallback 时，才会复用父单委托价
 
 ### 4.3 主动策略与价格
 
@@ -129,29 +131,32 @@
 - 是否在当前预算窗口内发单
 - 要消耗多少预算
 
-实际子单价格仍由执行引擎统一按行情派生，不允许主动策略绕开行情定价规则。
+实际子单价格仍由执行引擎统一按行情或 fallback 规则生成，不允许主动策略绕开定价链路。
 
 ## 5. 运行流程
 
 ### 5.1 何时进入会话
 
-1. `EventLoop::handle_order_request()` 完成基础校验和风控
+1. `EventLoop::handle_order_request()` 完成基础校验和风控。
 2. 若 `ExecutionEngine::should_manage(request)` 为真：
-   - 不再进入普通 `order_router::route_order()`
+   - 父单状态先推进到 `TraderPending`
    - 直接调用 `ExecutionEngine::start_session(...)`
-3. 后续由 `ExecutionEngine` 负责在多个 `tick()` 中逐步生成子单
+   - 不再走普通 `order_router::route_order()`
+3. 后续由 `ExecutionEngine` 在多个 `tick()` 中逐步生成子单。
 
 ### 5.2 会话创建条件
 
 当前受管父单除了算法支持外，还要求：
 
-- `MarketDataService` 已初始化且 `ready`
 - 对应算法的配置参数有效
+- 满足以下其一：
+  - `MarketDataService` 已初始化且 `ready`
+  - `allow_order_price_fallback=true`
 
-如果行情模块未就绪：
+如果行情模块未就绪且 fallback 也未开启：
 
 - managed execution 订单会被拒绝
-- 不会回退到“按父单价直接发普通单”
+- 不会回退到普通单直发路径
 
 ### 5.3 顺序型算法推进
 
@@ -160,7 +165,8 @@
 1. 刷新父单状态和取消请求
 2. 若仍有在途子单，则继续等待
 3. 若可释放预算，先尝试主动策略
-4. 主动策略无动作时，按市场派生价格发送一笔默认 clip/display 子单
+4. 主动策略无动作时，尝试按行情派生价格发一笔子单
+5. 若行情不可用但已启用 fallback，则按父单委托价发子单
 
 ### 5.4 TWAP 推进
 
@@ -171,7 +177,7 @@
 3. 若当前片仍存在：
    - 读取最新行情
    - 先尝试主动策略
-   - 若到片末仍无主动子单，再按市场派生价格回落被动子单
+   - 若到片末仍无主动子单，再按行情或 fallback 规则发被动子单
 4. 本片子单全部终态后推进到下一个时间片
 
 ### 5.5 回报与预算释放
@@ -211,8 +217,9 @@
 ### 与 `src/market_data`
 
 - 行情模块同时提供盘口快照和 prediction
-- 执行引擎读取盘口生成 managed child 价格
+- 执行引擎优先读取盘口生成 managed child 价格
 - 主动策略读取 prediction 做时机判断
+- 若配置允许，执行引擎可在行情不可用时回退到父单价
 
 ## 7. 维护提示
 

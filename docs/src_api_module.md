@@ -66,13 +66,21 @@
 - `acct_init_ex()`
 - `acct_destroy()`
 - `acct_new_order()`
+- `acct_new_order_ex()`
 - `acct_send_order()`
 - `acct_submit_order()`
+- `acct_submit_order_ex()`
 - `acct_cancel_order()`
 - `acct_queue_size()`
 - `acct_strerror()`
 - `acct_version()`
 - `acct_cleanup_shm()`
+
+关键扩展类型：
+
+- `acct_init_options_t`
+- `acct_order_exec_options_t`
+- `acct_passive_exec_algo_t`
 
 关键特点：
 
@@ -83,6 +91,7 @@
   - `orders_shm_name`
   - `trading_day`
   - `create_if_not_exist`
+- 允许通过 `_ex` 接口为单笔订单指定 `passive_exec_algo`
 
 ### 3.2 初始化流程
 
@@ -97,23 +106,24 @@
 4. 用 `SHMManager` 打开：
    - 上游 SHM
    - 带交易日后缀的 `orders_shm`
-5. 当允许创建且遇到 `ShmResizeFailed` / `ShmHeaderInvalid` 时，可尝试 `unlink + recreate`
+5. 当允许创建且遇到 `ShmResizeFailed` / `ShmHeaderInvalid` 时，当前实现仍可能尝试 `unlink + recreate`
 
 ### 3.3 下单与撤单数据流
 
 #### 直接提交路径
 
-1. 调用 `acct_submit_order(...)`
+1. 调用 `acct_submit_order(...)` 或 `acct_submit_order_ex(...)`
 2. 校验 `security_id / side / market / volume`
-3. 构造 `InternalSecurityId`
-4. 从 `upstream_shm->header.next_order_id` 分配内部订单 ID
-5. 构造 `OrderRequest`
-6. 写入 `orders_shm`，阶段记为 `UpstreamQueued`
-7. 把 `OrderIndex` 推入上游队列
+3. 解析 `acct_order_exec_options_t.passive_exec_algo`
+4. 构造 `InternalSecurityId`
+5. 从 `upstream_shm->header.next_order_id` 分配内部订单 ID
+6. 构造 `OrderRequest`
+7. 写入 `orders_shm`，阶段记为 `UpstreamQueued`
+8. 把 `OrderIndex` 推入上游队列
 
 #### 两阶段提交路径
 
-1. `acct_new_order(...)` 只创建并缓存订单到 `acct_context::cached_orders`
+1. `acct_new_order(...)` / `acct_new_order_ex(...)` 只创建并缓存订单到 `acct_context::cached_orders`
 2. `acct_send_order(order_id)` 再把缓存订单真正入队
 
 适用场景：
@@ -126,7 +136,20 @@
 2. 调 `OrderRequest::init_cancel(...)`
 3. 复用相同的 `enqueue_order(...)` 路径写入订单池并推送上游索引
 
-### 3.4 与主服务的关系
+### 3.4 被动执行算法透传
+
+`_ex` 接口支持的逐单被动执行算法：
+
+- `ACCT_PASSIVE_EXEC_DEFAULT`
+- `ACCT_PASSIVE_EXEC_NONE`
+- `ACCT_PASSIVE_EXEC_FIXED_SIZE`
+- `ACCT_PASSIVE_EXEC_TWAP`
+- `ACCT_PASSIVE_EXEC_VWAP`
+- `ACCT_PASSIVE_EXEC_ICEBERG`
+
+这一步只负责把 ABI 枚举转成内部 `PassiveExecutionAlgo`，真正是否进入 managed execution 由账户服务侧的 `EventLoop` 和 `ExecutionEngine` 决定。
+
+### 3.5 与主服务的关系
 
 `order_api` 不直接调用 `AccountService` 或 `EventLoop`，它与主服务之间通过共享内存解耦：
 
@@ -165,7 +188,7 @@
 
 ### 4.3 读取流程
 
-1. `acct_orders_mon_open()` 只读打开带交易日后缀的 `orders_shm`
+1. `acct_orders_mon_open()` 通过 `basecore_shm_bridge::open_reader(...)` 只读打开带交易日后缀的 `orders_shm`
 2. 校验 `OrdersHeader`
 3. `acct_orders_mon_info()` 返回：
    - 容量
@@ -210,13 +233,15 @@
 - 读取前后检查行锁 `locked`
 - 若发现并发写冲突，返回 `ACCT_POS_MON_ERR_RETRY`
 
+打开共享内存时，当前实现同样通过 `basecore_shm_bridge::open_reader(...)` 统一收口读端行为，而不是把底层 `shm_open/mmap` 细节直接暴露给调用方。
+
 ## 6. 依赖与边界
 
 ### 依赖其他模块
 
 - `src/shm`
   - `order_api` 使用 `SHMManager`
-  - 监控 API 直接使用 `shm_open/mmap` 和 `shm_layout`
+  - 监控 API 使用 `basecore_shm_bridge` 和 `shm_layout`
 - `src/order`
   - `order_api` 构造内部 `OrderRequest`
 - `src/common`
@@ -245,7 +270,7 @@
 
 - 若修改 `OrderRequest` 内部字段，不要直接把内部布局泄露到 C ABI；优先考虑是否需要扩展稳定快照结构。
 - 若修改 `orders_shm` 或 `positions_shm` 头部校验规则，必须同步检查监控 API 的打开逻辑。
-- 若调整下单默认 SHM 名称或交易日策略，需要同步更新：
+- 若调整下单默认 SHM 名称、交易日策略或 `_ex` 接口选项，需要同步更新：
   - `order_api`
   - 监控 API
   - 相关使用文档

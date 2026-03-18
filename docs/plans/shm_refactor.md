@@ -27,7 +27,7 @@
    - CLI 增加 `--orders-shm`、`--trading-day`
 6. C API 扩展（`include/api/order_api.h`、`src/api/order_api.cpp`）：
    - 新增 `acct_init_ex(const acct_init_options_t* opts, acct_ctx_t* out_ctx)`
-   - `acct_init` 保留为兼容包装（默认值路径），推荐策略侧改用 `acct_init_ex` 显式传 `trading_day`
+   - `acct_init` 保留为兼容包装（默认值路径），推荐用户指令入口改用 `acct_init_ex` 显式传 `trading_day`
 7. `order_entry` 扩展（`src/order/order_book.hpp`）：
    - 增加 `order_index_t shm_order_index`，作为 `internal_order_id -> order_slot` 的稳定映射
 
@@ -105,7 +105,7 @@
 8. `src/order/order_router.hpp` 与 `src/order/order_router.cpp`：下游发送索引、内部生成订单写池。
 9. `gateway/src/gateway_config.hpp` 与 `gateway/src/gateway_config.cpp`：新增参数。
 10. `gateway/src/main.cpp` 与 `gateway/src/gateway_loop.hpp` 与 `gateway/src/gateway_loop.cpp`：打开订单池并按索引消费。
-11. `include/api/order_api.h` 与 `src/api/order_api.cpp`：`acct_init_ex`、策略侧写池+推索引。
+11. `include/api/order_api.h` 与 `src/api/order_api.cpp`：`acct_init_ex`、用户指令侧写池+推索引。
 12. `docs/order_flowchart.md` 与 `docs/order_architecture.mmd` 与 `gateway/docs/gateway_design.md`：更新数据流与监控协议。
 13. `test/test_shm_manager.cpp`、`test/test_order_api.cpp`、`test/test_event_loop.cpp`、`test/test_gateway_loop.cpp`、`test/test_config_manager.cpp`：补充与改造测试。
 

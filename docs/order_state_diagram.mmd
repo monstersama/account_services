@@ -1,58 +1,48 @@
 %%{init: {'theme': 'base', 'themeVariables': {'background': '#ffffff', 'textColor': '#111827', 'lineColor': '#374151', 'fontSize': '18px', 'fontFamily': '"Microsoft YaHei","PingFang SC","Noto Sans SC",sans-serif', 'edgeLabelBackground': '#ffffff', 'noteBkgColor': '#fef3c7', 'noteBorderColor': '#b45309', 'noteTextColor': '#111827'}}}%%
-%% 订单状态机
+%% 订单状态机 - 当前实现
 stateDiagram-v2
-    [*] --> StrategySubmitted: 策略提交订单
+    [*] --> StrategySubmitted: 用户提交指令
     StrategySubmitted --> RiskControllerPending: 进入风控队列
-
-    state RiskControllerPending {
-        [*] --> Checking
-        Checking --> Accepted: 风控通过
-        Checking --> Rejected: 风控拒绝
-    }
 
     RiskControllerPending --> RiskControllerAccepted: 风控通过
     RiskControllerPending --> RiskControllerRejected: 风控拒绝
 
-    RiskControllerAccepted --> TraderPending: 进入交易队列
-    TraderPending --> TraderSubmitted: 发送到交易进程
+    RiskControllerAccepted --> TraderSubmitted: 普通新单路由成功
+    RiskControllerAccepted --> TraderPending: 受管父单 / 内部撤单初始化
 
-    state TraderSubmitted {
-        [*] --> Waiting
-        Waiting --> BrokerAccepted: 柜台接受
-        Waiting --> BrokerRejected: 柜台拒绝
-        Waiting --> TraderError: 交易进程错误
-    }
+    TraderPending --> TraderSubmitted: 子单或撤单写入下游队列
 
     TraderSubmitted --> BrokerAccepted: 柜台接受
     TraderSubmitted --> BrokerRejected: 柜台拒绝
     TraderSubmitted --> TraderError: 交易进程错误
 
-    BrokerAccepted --> MarketAccepted: 市场接受
+    BrokerAccepted --> MarketAccepted: 市场接受 / 成交回报
     BrokerAccepted --> MarketRejected: 市场拒绝
 
-    MarketAccepted --> Finished: 订单完成
+    MarketAccepted --> MarketAccepted: 部分成交继续等待
+    MarketAccepted --> Finished: 剩余数量归零或权威完成回报
 
-    RiskControllerRejected --> [*]: 订单终止
-    BrokerRejected --> [*]: 订单终止
-    MarketRejected --> [*]: 订单终止
-    TraderError --> [*]: 订单终止
-    Finished --> [*]: 订单生命周期结束
+    RiskControllerRejected --> [*]
+    BrokerRejected --> [*]
+    MarketRejected --> [*]
+    TraderError --> [*]
+    Finished --> [*]
 
     note right of RiskControllerRejected
-        风控拒绝原因：
+        当前默认风控拒因：
         - 资金不足
         - 持仓不足
-        - 超过单笔限额
-        - 超过日限额
-        - 价格超出范围
-        - 证券不允许
-        - 账户冻结
-        - 重复订单
+        - 价格超限
+        - 单笔金额超限
+        - 单笔数量超限
+        - 重复单
+        - 速率限制
     end note
 
-    note right of MarketAccepted
-        市场接受后：
-        - 进入撮合队列
-        - 等待成交回报
-        - 可能部分成交或全部成交
+    note right of TraderPending
+        `TraderPending` 不是普通新单的必经状态。
+        当前主要出现在：
+        - 受管执行父单进入执行会话
+        - 内部生成的撤单请求
+        - 执行引擎生成的内部子单初始化
     end note

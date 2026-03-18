@@ -1,10 +1,8 @@
 %%{init: {'theme': 'base', 'themeVariables': {'background': '#ffffff', 'textColor': '#111827', 'lineColor': '#374151', 'fontSize': '18px', 'fontFamily': '"Microsoft YaHei","PingFang SC","Noto Sans SC",sans-serif', 'edgeLabelBackground': '#ffffff'}}}%%
-%% 组件交互图 - 系统架构
+%% 组件交互图 - 当前实现
 graph TB
-    Strategy[策略进程] --> UpstreamSHM[上游共享内存<br/>SPSC索引队列]
-    Strategy --> OrdersSHM[订单池共享内存<br/>orders_shm]
-
-    UpstreamSHM --> AccountService[账户服务]
+    UserInstruction[用户指令] --> OrdersSHM[订单池共享内存<br/>orders_shm]
+    UserInstruction --> UpstreamSHM[上游共享内存<br/>upstream_order_queue]
 
     subgraph "账户服务 (Account Service)"
         EventLoop[事件循环<br/>event_loop]
@@ -14,41 +12,35 @@ graph TB
         MarketData[行情模块<br/>market_data]
         OrderRouter[订单路由器<br/>order_router]
         PositionManager[持仓管理器<br/>position_manager]
+        OrdersMirror[订单镜像回写<br/>orders_shm]
 
+        UpstreamSHM --> EventLoop
         EventLoop --> OrderBook
-        OrderBook --> RiskManager
-        RiskManager --> ExecutionEngine
+        EventLoop --> RiskManager
+        EventLoop --> ExecutionEngine
+        EventLoop --> OrderRouter
+        EventLoop --> PositionManager
+        EventLoop --> OrdersMirror
+
+        RiskManager -.读取资金/持仓.-> PositionManager
         ExecutionEngine --> MarketData
         ExecutionEngine --> OrderRouter
+        ExecutionEngine --> OrderBook
         OrderRouter --> DownstreamSHM
-        PositionManager --> RiskManager
-        PositionManager --> OrderBook
     end
 
-    AccountService --> DownstreamSHM[下游共享内存<br/>SPSC索引队列]
-
-    DownstreamSHM --> Trader[交易进程<br/>Trader Process]
-    Trader --> OrdersSHM
-
+    DownstreamSHM[下游共享内存<br/>downstream order_queue] --> Trader[交易进程<br/>Trader Process]
     Trader --> Broker[券商柜台<br/>Broker API]
-
     Broker --> Exchange[交易所<br/>Exchange]
+    Exchange --> BrokerEvent[broker_event / 成交回报]
+    BrokerEvent --> TradesSHM[成交回报共享内存<br/>trades_shm.response_queue]
+    TradesSHM --> EventLoop
 
-    Exchange --> TradeResponse[成交回报<br/>Trade Response]
+    OrdersSHM --> Monitor[订单监控 / observer]
+    PositionSHM[持仓共享内存<br/>positions_shm] --> Monitor
+    EventLoop --> PositionSHM
 
-    TradeResponse --> DownstreamSHM
-
-    DownstreamSHM --> AccountService
-
-    AccountService --> OrdersSHM
-    AccountService --> PositionSHM[持仓共享内存<br/>监控可见]
-
-    OrdersSHM --> Monitor[监控系统<br/>Monitoring]
-    PositionSHM --> Monitor[监控系统<br/>Monitoring]
-
-    AccountService --> Database[(数据库<br/>PostgreSQL/MySQL)]
-
-    Database --> AccountService
+    AccountDB[(数据库)] <-->|启动加载/可选持久化| EventLoop
 
     classDef external fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#111827,font-size:16px
     classDef service fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px,color:#111827,font-size:16px
@@ -57,7 +49,7 @@ graph TB
 
     linkStyle default stroke:#374151,stroke-width:2px
 
-    class Strategy,Trader,Broker,Exchange,Monitor external
-    class AccountService service
-    class EventLoop,OrderBook,RiskManager,ExecutionEngine,MarketData,OrderRouter,PositionManager component
-    class UpstreamSHM,DownstreamSHM,OrdersSHM,PositionSHM,Database storage
+    class UserInstruction,Trader,Broker,Exchange,Monitor external
+    class EventLoop service
+    class OrderBook,RiskManager,ExecutionEngine,MarketData,OrderRouter,PositionManager,OrdersMirror component
+    class OrdersSHM,UpstreamSHM,DownstreamSHM,TradesSHM,PositionSHM,AccountDB storage
