@@ -163,8 +163,8 @@ const char* to_string(OrderState state) noexcept {
     switch (state) {
         case OrderState::NotSet:
             return "not_set";
-        case OrderState::StrategySubmitted:
-            return "strategy_submitted";
+        case OrderState::UserSubmitted:
+            return "user_submitted";
         case OrderState::RiskControllerPending:
             return "risk_pending";
         case OrderState::RiskControllerRejected:

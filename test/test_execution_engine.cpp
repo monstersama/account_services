@@ -142,7 +142,7 @@ OrderRequest make_managed_order(InternalOrderId order_id, Volume volume, Passive
     request.init_new("000001", InternalSecurityId("XSHE_000001"), order_id, trade_side, Market::SZ, volume, price,
                      93000000);
     request.passive_execution_algo = algo;
-    request.order_state.store(OrderState::StrategySubmitted, std::memory_order_relaxed);
+    request.order_state.store(OrderState::UserSubmitted, std::memory_order_relaxed);
     return request;
 }
 
@@ -300,7 +300,7 @@ TEST(twap_falls_back_without_active_strategy) {
 
     OrderRequest request = make_managed_order(900, 100, PassiveExecutionAlgo::TWAP);
     OrderIndex parent_index = kInvalidOrderIndex;
-    assert(orders_shm_append(orders_shm.get(), request, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy,
+    assert(orders_shm_append(orders_shm.get(), request, OrderSlotState::UpstreamQueued, order_slot_source_t::User,
                              now_ns(), parent_index));
     assert(upstream->upstream_order_queue.try_push(parent_index));
 
@@ -362,7 +362,7 @@ TEST(sell_twap_uses_best_bid_without_parent_price_floor) {
 
     OrderRequest request = make_managed_order(910, 100, PassiveExecutionAlgo::TWAP, TradeSide::Sell, 1000);
     OrderIndex parent_index = kInvalidOrderIndex;
-    assert(orders_shm_append(orders_shm.get(), request, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy,
+    assert(orders_shm_append(orders_shm.get(), request, OrderSlotState::UpstreamQueued, order_slot_source_t::User,
                              now_ns(), parent_index));
     assert(upstream->upstream_order_queue.try_push(parent_index));
 
@@ -426,7 +426,7 @@ TEST(managed_child_advances_shared_upstream_order_id_sequence) {
     OrderRequest first_request = make_managed_order(first_parent_id, 100, PassiveExecutionAlgo::TWAP);
     OrderIndex first_parent_index = kInvalidOrderIndex;
     assert(orders_shm_append(orders_shm.get(), first_request, OrderSlotState::UpstreamQueued,
-                             order_slot_source_t::Strategy, now_ns(), first_parent_index));
+                             order_slot_source_t::User, now_ns(), first_parent_index));
     assert(upstream->upstream_order_queue.try_push(first_parent_index));
 
     assert(wait_until([&downstream]() { return downstream->order_queue.size() > 0; }, 1500));
@@ -444,7 +444,7 @@ TEST(managed_child_advances_shared_upstream_order_id_sequence) {
     OrderRequest second_request = make_managed_order(second_parent_id, 100, PassiveExecutionAlgo::TWAP);
     OrderIndex second_parent_index = kInvalidOrderIndex;
     assert(orders_shm_append(orders_shm.get(), second_request, OrderSlotState::UpstreamQueued,
-                             order_slot_source_t::Strategy, now_ns(), second_parent_index));
+                             order_slot_source_t::User, now_ns(), second_parent_index));
     assert(upstream->upstream_order_queue.try_push(second_parent_index));
 
     assert(wait_until(
@@ -506,7 +506,7 @@ TEST(twap_uses_active_strategy_with_fresh_prediction) {
 
     OrderRequest request = make_managed_order(901, 100, PassiveExecutionAlgo::TWAP);
     OrderIndex parent_index = kInvalidOrderIndex;
-    assert(orders_shm_append(orders_shm.get(), request, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy,
+    assert(orders_shm_append(orders_shm.get(), request, OrderSlotState::UpstreamQueued, order_slot_source_t::User,
                              now_ns(), parent_index));
     assert(upstream->upstream_order_queue.try_push(parent_index));
 
@@ -570,7 +570,7 @@ TEST(active_strategy_respects_volume_decision_and_keeps_market_price) {
 
     OrderRequest request = make_managed_order(902, 100, PassiveExecutionAlgo::TWAP);
     OrderIndex parent_index = kInvalidOrderIndex;
-    assert(orders_shm_append(orders_shm.get(), request, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy,
+    assert(orders_shm_append(orders_shm.get(), request, OrderSlotState::UpstreamQueued, order_slot_source_t::User,
                              now_ns(), parent_index));
     assert(upstream->upstream_order_queue.try_push(parent_index));
 
@@ -629,7 +629,7 @@ TEST(cancelled_parent_stops_future_twap_slices) {
 
     OrderRequest request = make_managed_order(903, 100, PassiveExecutionAlgo::TWAP);
     OrderIndex parent_index = kInvalidOrderIndex;
-    assert(orders_shm_append(orders_shm.get(), request, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy,
+    assert(orders_shm_append(orders_shm.get(), request, OrderSlotState::UpstreamQueued, order_slot_source_t::User,
                              now_ns(), parent_index));
     assert(upstream->upstream_order_queue.try_push(parent_index));
 
@@ -714,7 +714,7 @@ TEST(twap_refreshes_child_price_when_market_data_changes_between_slices) {
 
     OrderRequest request = make_managed_order(904, 100, PassiveExecutionAlgo::TWAP);
     OrderIndex parent_index = kInvalidOrderIndex;
-    assert(orders_shm_append(orders_shm.get(), request, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy,
+    assert(orders_shm_append(orders_shm.get(), request, OrderSlotState::UpstreamQueued, order_slot_source_t::User,
                              now_ns(), parent_index));
     assert(upstream->upstream_order_queue.try_push(parent_index));
 
@@ -797,7 +797,7 @@ TEST(fixed_size_managed_parent_releases_next_clip) {
 
     OrderRequest request = make_managed_order(904, 100, PassiveExecutionAlgo::FixedSize);
     OrderIndex parent_index = kInvalidOrderIndex;
-    assert(orders_shm_append(orders_shm.get(), request, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy,
+    assert(orders_shm_append(orders_shm.get(), request, OrderSlotState::UpstreamQueued, order_slot_source_t::User,
                              now_ns(), parent_index));
     assert(upstream->upstream_order_queue.try_push(parent_index));
 
@@ -891,7 +891,7 @@ TEST(iceberg_enters_managed_execution_session) {
 
     OrderRequest request = make_managed_order(905, 90, PassiveExecutionAlgo::Iceberg);
     OrderIndex parent_index = kInvalidOrderIndex;
-    assert(orders_shm_append(orders_shm.get(), request, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy,
+    assert(orders_shm_append(orders_shm.get(), request, OrderSlotState::UpstreamQueued, order_slot_source_t::User,
                              now_ns(), parent_index));
     assert(upstream->upstream_order_queue.try_push(parent_index));
 
@@ -955,7 +955,7 @@ TEST(vwap_is_rejected_without_falling_back_to_legacy_splitter) {
 
     OrderRequest request = make_managed_order(906, 100, PassiveExecutionAlgo::VWAP);
     OrderIndex parent_index = kInvalidOrderIndex;
-    assert(orders_shm_append(orders_shm.get(), request, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy,
+    assert(orders_shm_append(orders_shm.get(), request, OrderSlotState::UpstreamQueued, order_slot_source_t::User,
                              now_ns(), parent_index));
     assert(upstream->upstream_order_queue.try_push(parent_index));
 
@@ -1043,7 +1043,7 @@ TEST(unsplittable_runtime_config_logs_not_splittable_message) {
 
     OrderRequest request = make_managed_order(908, 100, PassiveExecutionAlgo::TWAP);
     OrderIndex parent_index = kInvalidOrderIndex;
-    assert(orders_shm_append(orders_shm.get(), request, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy,
+    assert(orders_shm_append(orders_shm.get(), request, OrderSlotState::UpstreamQueued, order_slot_source_t::User,
                              now_ns(), parent_index));
     assert(upstream->upstream_order_queue.try_push(parent_index));
 
@@ -1101,7 +1101,7 @@ TEST(twap_falls_back_to_order_price_when_market_levels_invalid_and_fallback_enab
 
     OrderRequest request = make_managed_order(909, 100, PassiveExecutionAlgo::TWAP);
     OrderIndex parent_index = kInvalidOrderIndex;
-    assert(orders_shm_append(orders_shm.get(), request, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy,
+    assert(orders_shm_append(orders_shm.get(), request, OrderSlotState::UpstreamQueued, order_slot_source_t::User,
                              now_ns(), parent_index));
     assert(upstream->upstream_order_queue.try_push(parent_index));
 

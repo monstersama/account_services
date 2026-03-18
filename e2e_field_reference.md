@@ -106,7 +106,7 @@
 | `order_state` | 含义 |
 | --- | --- |
 | `not_set` | 未初始化 |
-| `strategy_submitted` | 策略/API 已提交到服务 |
+| `user_submitted` | 用户/API 已提交到服务 |
 | `risk_pending` | 等待风控处理 |
 | `risk_rejected` | 被风控拒绝 |
 | `risk_accepted` | 通过风控 |
@@ -236,7 +236,7 @@ CSV 里 `status` 保存的是十进制原始数值；内部文档里通常同时
 
 | 十进制 | 十六进制 | 状态名 | 含义 |
 | --- | --- | --- | --- |
-| `18` | `0x12` | `StrategySubmitted` | 策略/API 已提交 |
+| `18` | `0x12` | `UserSubmitted` | 用户/API 已提交 |
 | `32` | `0x20` | `RiskControllerPending` | 等待风控 |
 | `33` | `0x21` | `RiskControllerRejected` | 风控拒绝 |
 | `34` | `0x22` | `RiskControllerAccepted` | 风控通过 |

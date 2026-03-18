@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-03-18
+
+### Changed
+
+- 将初始订单状态 `StrategySubmitted` 重命名为 `UserSubmitted`，并把事件文本 `strategy_submitted` 同步改为 `user_submitted`，避免与内部 `strategy` 语义混淆。
+- 将上游订单来源 `Strategy` 重命名为 `User`，同步更新监控 API 常量 `ACCT_MON_SOURCE_USER`、相关测试和文档，保持状态码与来源码数值不变。
+
 ## [1.1.2] - 2026-03-17
 
 ### Fixed

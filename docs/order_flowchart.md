@@ -76,8 +76,8 @@ graph TD
 
 ```mermaid
 stateDiagram-v2
-    [*] --> StrategySubmitted: 用户提交指令
-    StrategySubmitted --> RiskControllerPending: 进入风控队列
+    [*] --> UserSubmitted: 用户提交指令
+    UserSubmitted --> RiskControllerPending: 进入风控队列
 
     RiskControllerPending --> RiskControllerAccepted: 风控通过
     RiskControllerPending --> RiskControllerRejected: 风控拒绝
@@ -108,7 +108,7 @@ stateDiagram-v2
 
 | 状态 | 枚举值 | 说明 |
 |------|--------|------|
-| `StrategySubmitted` | 0x12 | 用户已提交指令 |
+| `UserSubmitted` | 0x12 | 用户已提交指令 |
 | `RiskControllerPending` | 0x20 | 风控待处理 |
 | `RiskControllerRejected` | 0x21 | 风控拒绝 |
 | `RiskControllerAccepted` | 0x22 | 风控通过 |

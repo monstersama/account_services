@@ -1,8 +1,8 @@
 %%{init: {'theme': 'base', 'themeVariables': {'background': '#ffffff', 'textColor': '#111827', 'lineColor': '#374151', 'fontSize': '18px', 'fontFamily': '"Microsoft YaHei","PingFang SC","Noto Sans SC",sans-serif', 'edgeLabelBackground': '#ffffff', 'noteBkgColor': '#fef3c7', 'noteBorderColor': '#b45309', 'noteTextColor': '#111827'}}}%%
 %% 订单状态机 - 当前实现
 stateDiagram-v2
-    [*] --> StrategySubmitted: 用户提交指令
-    StrategySubmitted --> RiskControllerPending: 进入风控队列
+    [*] --> UserSubmitted: 用户提交指令
+    UserSubmitted --> RiskControllerPending: 进入风控队列
 
     RiskControllerPending --> RiskControllerAccepted: 风控通过
     RiskControllerPending --> RiskControllerRejected: 风控拒绝

@@ -1,9 +1,9 @@
 %%{init: {'theme': 'base', 'themeVariables': {'background': '#ffffff', 'textColor': '#111827', 'lineColor': '#374151', 'fontSize': '18px', 'fontFamily': '"Microsoft YaHei","PingFang SC","Noto Sans SC",sans-serif', 'edgeLabelBackground': '#ffffff'}}}%%
 %% 订单处理流程图 - 主流程图
 graph TD
-    Start[用户触发指令] --> StrategySubmit[用户提交指令]
+    Start[用户触发指令] --> UserSubmit[用户提交指令]
 
-    StrategySubmit --> SHM0[写入订单池共享内存<br/>orders_shm]
+    UserSubmit --> SHM0[写入订单池共享内存<br/>orders_shm]
     SHM0 --> SHM1[写入上游共享内存<br/>index_queue]
 
     SHM1 --> EventLoop[事件循环处理]
@@ -70,7 +70,7 @@ graph TD
 
     linkStyle default stroke:#374151,stroke-width:2px
 
-    class Start,StrategySubmit,SHM0,SHM1,EventLoop,OrderBook,RiskAccepted,ExecEngine,MarketData,Router,SHM2,TraderProcess,MarketAccepted,Matching,TradeResponse,SHM3,EventLoop2,UpdateOrder,PositionUpdate,OrderFinished,End normal
+    class Start,UserSubmit,SHM0,SHM1,EventLoop,OrderBook,RiskAccepted,ExecEngine,MarketData,Router,SHM2,TraderProcess,MarketAccepted,Matching,TradeResponse,SHM3,EventLoop2,UpdateOrder,PositionUpdate,OrderFinished,End normal
     class RiskCheck,ExecCheck,BrokerCheck,MarketCheck,CompleteCheck decision
     class RiskRejected,EndReject,BrokerReject,EndReject2,MarketReject,EndReject3 reject
     class SHM0,SHM1,SHM2,SHM3 external

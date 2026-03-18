@@ -335,8 +335,8 @@ ACCT_API acct_error_t acct_send_order(acct_ctx_t ctx, uint32_t order_id) {
         return api_error(ACCT_ERR_ORDER_NOT_FOUND, ErrorCode::OrderNotFound, "acct_send_order order not cached");
     }
 
-    it->second.order_state.store(OrderState::StrategySubmitted, std::memory_order_release);
-    const acct_error_t rc = enqueue_order(context, it->second, order_slot_source_t::Strategy, nullptr);
+    it->second.order_state.store(OrderState::UserSubmitted, std::memory_order_release);
+    const acct_error_t rc = enqueue_order(context, it->second, order_slot_source_t::User, nullptr);
     if (rc != ACCT_OK) {
         return rc;
     }
@@ -383,9 +383,9 @@ ACCT_API acct_error_t acct_submit_order_ex(acct_ctx_t ctx, const char* security_
                                  build_rc)) {
         return build_rc;
     }
-    request.order_state.store(OrderState::StrategySubmitted, std::memory_order_release);
+    request.order_state.store(OrderState::UserSubmitted, std::memory_order_release);
 
-    const acct_error_t rc = enqueue_order(context, request, order_slot_source_t::Strategy, nullptr);
+    const acct_error_t rc = enqueue_order(context, request, order_slot_source_t::User, nullptr);
     if (rc != ACCT_OK) {
         return rc;
     }
@@ -416,9 +416,9 @@ ACCT_API acct_error_t acct_cancel_order(acct_ctx_t ctx, uint32_t orig_order_id, 
 
     OrderRequest request;
     request.init_cancel(static_cast<InternalOrderId>(cancel_id), md_time, static_cast<InternalOrderId>(orig_order_id));
-    request.order_state.store(OrderState::StrategySubmitted, std::memory_order_release);
+    request.order_state.store(OrderState::UserSubmitted, std::memory_order_release);
 
-    const acct_error_t rc = enqueue_order(context, request, order_slot_source_t::Strategy, nullptr);
+    const acct_error_t rc = enqueue_order(context, request, order_slot_source_t::User, nullptr);
     if (rc != ACCT_OK) {
         return rc;
     }

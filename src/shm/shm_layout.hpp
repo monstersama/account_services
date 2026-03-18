@@ -82,7 +82,7 @@ enum class OrderSlotState : uint8_t {
 
 enum class order_slot_source_t : uint8_t {
     Unknown = 0,
-    Strategy = 1,
+    User = 1,
     AccountInternal = 2,
 };
 

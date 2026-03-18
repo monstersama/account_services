@@ -37,7 +37,7 @@ OrderRequest make_buy_order(InternalOrderId order_id, Volume volume) {
     OrderRequest req;
     req.init_new(
         "000001", InternalSecurityId("XSHE_000001"), order_id, TradeSide::Buy, Market::SZ, volume, 1000, 93000000);
-    req.order_state.store(OrderState::StrategySubmitted, std::memory_order_relaxed);
+    req.order_state.store(OrderState::UserSubmitted, std::memory_order_relaxed);
     return req;
 }
 

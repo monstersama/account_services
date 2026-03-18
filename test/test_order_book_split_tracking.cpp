@@ -23,7 +23,7 @@ OrderEntry make_new_entry(InternalOrderId order_id, Volume volume, bool is_split
     OrderEntry entry{};
     entry.request.init_new("000001", InternalSecurityId("XSHE_000001"), order_id, TradeSide::Buy, Market::SZ, volume,
                            1000, 93000000);
-    entry.request.order_state.store(OrderState::StrategySubmitted, std::memory_order_relaxed);
+    entry.request.order_state.store(OrderState::UserSubmitted, std::memory_order_relaxed);
     entry.submit_time_ns = now_ns();
     entry.last_update_ns = entry.submit_time_ns;
     entry.strategy_id = static_cast<StrategyId>(1);

@@ -367,10 +367,10 @@ TEST(initialize_and_run_processes_orders) {
     OrderRequest req;
     req.init_new("000001", InternalSecurityId("XSHE_000001"), static_cast<InternalOrderId>(5001), TradeSide::Buy,
                  Market::SZ, static_cast<Volume>(100), static_cast<DPrice>(1000), 93000000);
-    req.order_state.store(OrderState::StrategySubmitted, std::memory_order_relaxed);
+    req.order_state.store(OrderState::UserSubmitted, std::memory_order_relaxed);
 
     OrderIndex upstream_index = kInvalidOrderIndex;
-    assert(orders_shm_append(orders, req, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy, now_ns(),
+    assert(orders_shm_append(orders, req, OrderSlotState::UpstreamQueued, order_slot_source_t::User, now_ns(),
                              upstream_index));
     assert(upstream->upstream_order_queue.try_push(upstream_index));
 
@@ -498,7 +498,7 @@ TEST(restart_recovers_downstream_active_orders) {
                                 93000000);
         non_downstream.order_state.store(OrderState::TraderSubmitted, std::memory_order_relaxed);
         OrderIndex non_downstream_index = kInvalidOrderIndex;
-        assert(orders_shm_append(orders, non_downstream, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy,
+        assert(orders_shm_append(orders, non_downstream, OrderSlotState::UpstreamQueued, order_slot_source_t::User,
                                  now_ns(), non_downstream_index));
 
         OrderRequest terminal_downstream;

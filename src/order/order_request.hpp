@@ -33,7 +33,7 @@ enum class Market : uint8_t {
 
 enum class OrderState : uint8_t {
     NotSet = 0,
-    StrategySubmitted = 0x12,
+    UserSubmitted = 0x12,
     RiskControllerPending = 0x20,
     RiskControllerRejected = 0x21,
     RiskControllerAccepted = 0x22,

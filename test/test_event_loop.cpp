@@ -101,7 +101,7 @@ OrderRequest make_order(InternalOrderId order_id, Volume volume) {
     OrderRequest req;
     req.init_new("000001", InternalSecurityId("XSHE_000001"), order_id, TradeSide::Buy, Market::SZ, volume, 1000,
                  93000000);
-    req.order_state.store(OrderState::StrategySubmitted, std::memory_order_relaxed);
+    req.order_state.store(OrderState::UserSubmitted, std::memory_order_relaxed);
     return req;
 }
 
@@ -145,7 +145,7 @@ TEST(process_order_and_trade_response) {
     const InternalOrderId order_id = 500;
     OrderRequest req = make_order(order_id, 100);
     OrderIndex order_index = kInvalidOrderIndex;
-    assert(orders_shm_append(orders_shm.get(), req, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy,
+    assert(orders_shm_append(orders_shm.get(), req, OrderSlotState::UpstreamQueued, order_slot_source_t::User,
                              now_ns(), order_index));
     assert(upstream->upstream_order_queue.try_push(order_index));
 
@@ -243,7 +243,7 @@ TEST(delay_archive_allows_late_terminal_trade) {
     const InternalOrderId order_id = 700;
     OrderRequest req = make_order(order_id, 100);
     OrderIndex order_index = kInvalidOrderIndex;
-    assert(orders_shm_append(orders_shm.get(), req, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy,
+    assert(orders_shm_append(orders_shm.get(), req, OrderSlotState::UpstreamQueued, order_slot_source_t::User,
                              now_ns(), order_index));
     assert(upstream->upstream_order_queue.try_push(order_index));
 
@@ -337,9 +337,9 @@ TEST(reject_second_buy_after_fund_reservation) {
     OrderRequest second = make_order(801, 50);
     OrderIndex first_index = kInvalidOrderIndex;
     OrderIndex second_index = kInvalidOrderIndex;
-    assert(orders_shm_append(orders_shm.get(), first, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy,
+    assert(orders_shm_append(orders_shm.get(), first, OrderSlotState::UpstreamQueued, order_slot_source_t::User,
                              now_ns(), first_index));
-    assert(orders_shm_append(orders_shm.get(), second, OrderSlotState::UpstreamQueued, order_slot_source_t::Strategy,
+    assert(orders_shm_append(orders_shm.get(), second, OrderSlotState::UpstreamQueued, order_slot_source_t::User,
                              now_ns(), second_index));
     assert(upstream->upstream_order_queue.try_push(first_index));
     assert(upstream->upstream_order_queue.try_push(second_index));

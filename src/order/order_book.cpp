@@ -48,7 +48,7 @@ int status_progress_rank(OrderState status) {
             return 3;
         case OrderState::RiskControllerPending:
             return 2;
-        case OrderState::StrategySubmitted:
+        case OrderState::UserSubmitted:
             return 1;
         default:
             return 0;

@@ -57,7 +57,7 @@ typedef enum {
 // ============ 订单来源 ============
 typedef enum {
     ACCT_MON_SOURCE_UNKNOWN = 0,           // 未知
-    ACCT_MON_SOURCE_STRATEGY = 1,          // 策略/API 提交
+    ACCT_MON_SOURCE_USER = 1,              // 用户提交
     ACCT_MON_SOURCE_ACCOUNT_INTERNAL = 2,  // 账户服务内部生成（拆单/内部撤单等）
 } acct_mon_order_source_t;
 

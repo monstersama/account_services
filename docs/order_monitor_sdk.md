@@ -201,7 +201,7 @@ if (acct_orders_mon_info(ctx, &info) == ACCT_MON_OK) {
 | 数值 | 枚举 | 含义 |
 | --- | --- | --- |
 | `0` | `ACCT_MON_SOURCE_UNKNOWN` | 未知来源 |
-| `1` | `ACCT_MON_SOURCE_STRATEGY` | 策略/API 提交 |
+| `1` | `ACCT_MON_SOURCE_USER` | 用户/API 提交 |
 | `2` | `ACCT_MON_SOURCE_ACCOUNT_INTERNAL` | 账户服务内部生成（拆单/内部撤单等） |
 
 ### 6.5 `order_type` 取值
@@ -225,7 +225,7 @@ if (acct_orders_mon_info(ctx, &info) == ACCT_MON_OK) {
 
 | 数值（十六进制） | 状态 |
 | --- | --- |
-| `0x12` | StrategySubmitted |
+| `0x12` | UserSubmitted |
 | `0x20` | RiskControllerPending |
 | `0x21` | RiskControllerRejected |
 | `0x22` | RiskControllerAccepted |

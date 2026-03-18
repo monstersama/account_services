@@ -102,7 +102,7 @@ order_status.compare_exchange_strong(
 
 **状态转换流程**:
 ```
-StrategySubmitted -> RiskControllerPending -> RiskControllerAccepted -> TraderPending -> ...
+UserSubmitted -> RiskControllerPending -> RiskControllerAccepted -> TraderPending -> ...
                                             -> RiskControllerRejected (终止)
 ```
 
