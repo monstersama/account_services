@@ -1,14 +1,6 @@
 ---
 name: cpp-modern-features
-user-invocable: false
 description: Use when modern C++ features from C++11/14/17/20/23 including auto, lambdas, range-based loops, structured bindings, concepts, and C++23 error-handling and diagnostic tools such as std::expected and std::stacktrace.
-allowed-tools:
-  - Read
-  - Write
-  - Edit
-  - Grep
-  - Glob
-  - Bash
 ---
 
 # Modern C++ Features

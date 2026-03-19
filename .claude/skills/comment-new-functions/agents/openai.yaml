@@ -1,0 +1,4 @@
+interface:
+  display_name: "Comment New Functions"
+  short_description: "Add comments for new functions and key implementation steps."
+  default_prompt: "Ensure every new function has a concise comment and annotate important steps with brief intent comments."

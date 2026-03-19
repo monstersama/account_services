@@ -1,0 +1,4 @@
+interface:
+  display_name: "Prioritize HFT Performance"
+  short_description: "Prioritize low-latency HFT engineering guardrails."
+  default_prompt: "Use $prioritize-hft-performance to implement or review latency-sensitive account_services changes with lock-free, zero-copy, cache-aware, and zero-overhead priorities."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Enforce C++ RAII"
+  short_description: "Enforce RAII and C++ engineering best practices."
+  default_prompt: "Ensure new or modified C++ code follows RAII ownership and production-grade engineering practices before finalizing changes."

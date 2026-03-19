@@ -1,0 +1,4 @@
+interface:
+  display_name: "Modern C++ Features"
+  short_description: "Apply modern C++11/14/17/20/23 features effectively."
+  default_prompt: "Use $cpp-modern-features to apply modern C++11/14/17/20/23 language and library features, including concepts, ranges, and std::expected, while updating account_services code."

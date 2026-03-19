@@ -1,14 +1,6 @@
 ---
 name: cpp-modern-features
-user-invocable: false
-description: Use when modern C++ features from C++11/14/17/20 including auto, lambdas, range-based loops, structured bindings, and concepts.
-allowed-tools:
-  - Read
-  - Write
-  - Edit
-  - Grep
-  - Glob
-  - Bash
+description: Use when modern C++ features from C++11/14/17/20/23 including auto, lambdas, range-based loops, structured bindings, concepts, and C++23 error-handling and diagnostic tools such as std::expected and std::stacktrace.
 ---
 
 # Modern C++ Features
@@ -16,7 +8,12 @@ allowed-tools:
 Modern C++ (C++11 and beyond) introduced significant improvements that make
 C++ more expressive, safer, and easier to use. This skill covers essential
 modern features including type inference, lambda expressions, range-based
-loops, smart initialization, and the latest C++20 additions.
+loops, smart initialization, and the latest C++23 additions.
+
+If the task involves recoverable failures, explicit error propagation,
+diagnostic capture, or replacing sentinel values and out-parameters, also read
+[references/cpp23-error-handling.md](references/cpp23-error-handling.md)
+before editing code.
 
 ## Auto Type Inference
 
@@ -580,6 +577,24 @@ void ranges_examples() {
 }
 ```
 
+## C++23 Error Handling and Diagnostics
+
+C++23 adds library tools that make failure handling more explicit and
+diagnostics easier to preserve in modern codebases.
+
+- Use `std::expected<T, E>` for recoverable failures where callers should see
+  the error payload instead of inferring meaning from `bool`, sentinel values,
+  or output parameters.
+- Keep the error type `E` small and semantic. Prefer enums or lightweight
+  structs, and translate them to log strings or protocol errors at boundaries.
+- Use `std::stacktrace` when you need structured diagnostics at failure,
+  logging, or exception-translation boundaries.
+- Use `std::unreachable()` only for paths already proven impossible; reaching
+  it is undefined behavior.
+
+For patterns and examples, see
+[references/cpp23-error-handling.md](references/cpp23-error-handling.md).
+
 ## Best Practices
 
 1. Use `auto` for complex types and iterators but keep simple types explicit
@@ -592,6 +607,14 @@ void ranges_examples() {
 8. Use concepts to constrain templates and improve error messages
 9. Leverage ranges for composable, lazy operations on sequences
 10. Use `const auto&` for range-based loops with large objects
+11. Use `std::expected<T, E>` for recoverable domain failures when callers need
+    actionable error details
+12. Keep `expected` error payloads compact and convert them to verbose strings
+    only at API or logging boundaries
+13. Capture `std::stacktrace` at error-reporting boundaries rather than on the
+    happy path
+14. Keep exception-based and `expected`-based error handling boundaries explicit
+    within a subsystem
 
 ## Common Pitfalls
 
@@ -605,6 +628,15 @@ void ranges_examples() {
 8. Assuming ranges views create copies instead of providing lazy views
 9. Moving from objects that will be used again later
 10. Not marking move constructors and assignments as `noexcept`
+11. Using `std::optional` where callers actually need to know why an operation
+    failed
+12. Putting heavyweight heap-owning types in the error channel of
+    `std::expected` on hot paths
+13. Mixing routine exceptions and `std::expected` in the same layer without a
+    clear translation boundary
+14. Assuming `std::stacktrace` support is identical across every compiler and
+    standard library combination
+15. Calling `std::unreachable()` on a path that can actually execute
 
 ## When to Use Modern C++ Features
 
@@ -619,11 +651,16 @@ Use modern C++ features when you need:
 - Code that's easier to maintain and refactor
 - Better compiler error messages with concepts
 - Lazy evaluation and composition with ranges
+- Explicit recoverable error propagation without sentinel values
+- Structured failure diagnostics and stack traces at subsystem boundaries
 - Migration from older C++ codebases to modern standards
 
 ## Resources
 
+- [C++ Core Guidelines](https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines#r-resource-management)
 - [C++ Reference](https://en.cppreference.com/)
+- [std::expected](https://en.cppreference.com/w/cpp/utility/expected)
+- [std::stacktrace](https://en.cppreference.com/w/cpp/utility/basic_stacktrace)
 - [Modern C++ Tutorial](https://changkun.de/modern-cpp/)
 - [Effective Modern C++](https://www.oreilly.com/library/view/effective-modern-c/9781491908419/)
 - [C++20 Ranges](https://www.modernescpp.com/index.php/c-20-ranges-library)
