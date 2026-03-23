@@ -4,19 +4,80 @@
 
 #include <algorithm>
 #include <cctype>
+#include <charconv>
 #include <climits>
 #include <cstdint>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
 
 #include "common/error.hpp"
 #include "common/log.hpp"
+#include "common/types.hpp"
 
 namespace acct_service {
 
 namespace {
+
+enum class ConfigValueParseError {
+    InvalidBool,
+    InvalidU32,
+    InvalidU64,
+    InvalidI32,
+    InvalidDouble,
+    InvalidSplitStrategy,
+    InvalidTradingDay,
+    OutOfRange,
+    UnknownKey,
+};
+
+template <typename T>
+struct ConfigValueParseResult {
+    T value{};
+    ConfigValueParseError error = ConfigValueParseError::UnknownKey;
+    bool ok = false;
+
+    explicit operator bool() const noexcept { return ok; }
+    const T& operator*() const noexcept { return value; }
+};
+
+using ConfigValueApplyError = std::optional<ConfigValueParseError>;
+
+template <typename T>
+ConfigValueParseResult<T> make_parse_success(T value) {
+    return ConfigValueParseResult<T>{value, ConfigValueParseError::UnknownKey, true};
+}
+
+template <typename T>
+ConfigValueParseResult<T> make_parse_failure(ConfigValueParseError error) {
+    return ConfigValueParseResult<T>{{}, error, false};
+}
+
+const char* config_value_parse_error_message(ConfigValueParseError error) noexcept {
+    switch (error) {
+        case ConfigValueParseError::InvalidBool:
+            return "invalid boolean value";
+        case ConfigValueParseError::InvalidU32:
+            return "invalid uint32 value";
+        case ConfigValueParseError::InvalidU64:
+            return "invalid uint64 value";
+        case ConfigValueParseError::InvalidI32:
+            return "invalid int32 value";
+        case ConfigValueParseError::InvalidDouble:
+            return "invalid double value";
+        case ConfigValueParseError::InvalidSplitStrategy:
+            return "invalid split strategy";
+        case ConfigValueParseError::InvalidTradingDay:
+            return "invalid trading day";
+        case ConfigValueParseError::OutOfRange:
+            return "numeric value out of range";
+        case ConfigValueParseError::UnknownKey:
+            return "unknown key";
+    }
+    return "invalid value";
+}
 
 bool report_config_error(ErrorCode code, std::string_view message) {
     ErrorStatus status = ACCT_MAKE_ERROR(ErrorDomain::config, code, "ConfigManager", message, 0);
@@ -33,92 +94,112 @@ std::string trim_copy(std::string s) {
     return s;
 }
 
-bool parse_bool(std::string value, bool& out) {
-    value = trim_copy(std::move(value));
+std::string_view trim_view(std::string_view value) {
+    const auto is_space = [](unsigned char c) { return std::isspace(c) != 0; };
+    while (!value.empty() && is_space(static_cast<unsigned char>(value.front()))) {
+        value.remove_prefix(1);
+    }
+    while (!value.empty() && is_space(static_cast<unsigned char>(value.back()))) {
+        value.remove_suffix(1);
+    }
+    return value;
+}
+
+template <typename T>
+ConfigValueParseResult<T> parse_integral(std::string_view raw_value, ConfigValueParseError error) {
+    std::string_view value = trim_view(raw_value);
+    if (value.empty()) {
+        return make_parse_failure<T>(error);
+    }
+
+    if (!value.empty() && value.front() == '+') {
+        value.remove_prefix(1);
+    }
+    if (value.empty()) {
+        return make_parse_failure<T>(error);
+    }
+
+    T parsed{};
+    const char* begin = value.data();
+    const char* end = begin + value.size();
+    const auto [ptr, ec] = std::from_chars(begin, end, parsed);
+
+    if (ec == std::errc{} && ptr == end) {
+        return make_parse_success(parsed);
+    }
+    if (ec == std::errc::result_out_of_range) {
+        return make_parse_failure<T>(ConfigValueParseError::OutOfRange);
+    }
+    return make_parse_failure<T>(error);
+}
+
+ConfigValueParseResult<bool> parse_bool(std::string_view raw_value) {
+    std::string value = trim_copy(std::string(raw_value));
     std::transform(value.begin(), value.end(), value.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
     if (value == "1" || value == "true" || value == "yes" || value == "on") {
-        out = true;
-        return true;
+        return make_parse_success(true);
     }
     if (value == "0" || value == "false" || value == "no" || value == "off") {
-        out = false;
-        return true;
+        return make_parse_success(false);
     }
-    return false;
+    return make_parse_failure<bool>(ConfigValueParseError::InvalidBool);
 }
 
-bool parse_u32(const std::string& value, uint32_t& out) {
+ConfigValueParseResult<uint32_t> parse_u32(std::string_view value) {
+    return parse_integral<uint32_t>(value, ConfigValueParseError::InvalidU32);
+}
+
+ConfigValueParseResult<uint64_t> parse_u64(std::string_view value) {
+    return parse_integral<uint64_t>(value, ConfigValueParseError::InvalidU64);
+}
+
+ConfigValueParseResult<int> parse_i32(std::string_view value) {
+    return parse_integral<int>(value, ConfigValueParseError::InvalidI32);
+}
+
+ConfigValueParseResult<double> parse_double(std::string_view raw_value) {
+    const std::string value = trim_copy(std::string(raw_value));
+    if (value.empty()) {
+        return make_parse_failure<double>(ConfigValueParseError::InvalidDouble);
+    }
+
+    std::size_t consumed = 0;
     try {
-        const unsigned long long parsed = std::stoull(trim_copy(value));
-        if (parsed > UINT32_MAX) {
-            return false;
+        const double parsed = std::stod(value, &consumed);
+        if (consumed != value.size()) {
+            return make_parse_failure<double>(ConfigValueParseError::InvalidDouble);
         }
-        out = static_cast<uint32_t>(parsed);
-        return true;
+        return make_parse_success(parsed);
+    } catch (const std::out_of_range&) {
+        return make_parse_failure<double>(ConfigValueParseError::OutOfRange);
     } catch (...) {
-        return false;
+        return make_parse_failure<double>(ConfigValueParseError::InvalidDouble);
     }
 }
 
-bool parse_u64(const std::string& value, uint64_t& out) {
-    try {
-        out = static_cast<uint64_t>(std::stoull(trim_copy(value)));
-        return true;
-    } catch (...) {
-        return false;
-    }
-}
-
-bool parse_i32(const std::string& value, int& out) {
-    try {
-        const long long parsed = std::stoll(trim_copy(value));
-        if (parsed < static_cast<long long>(INT_MIN) || parsed > static_cast<long long>(INT_MAX)) {
-            return false;
-        }
-        out = static_cast<int>(parsed);
-        return true;
-    } catch (...) {
-        return false;
-    }
-}
-
-bool parse_double(const std::string& value, double& out) {
-    try {
-        out = std::stod(trim_copy(value));
-        return true;
-    } catch (...) {
-        return false;
-    }
-}
-
-bool parse_split_strategy(std::string value, SplitStrategy& out) {
-    value = trim_copy(std::move(value));
+ConfigValueParseResult<SplitStrategy> parse_split_strategy(std::string_view raw_value) {
+    std::string value = trim_copy(std::string(raw_value));
     std::transform(value.begin(), value.end(), value.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
     if (value == "none") {
-        out = SplitStrategy::None;
-        return true;
+        return make_parse_success(SplitStrategy::None);
     }
     if (value == "fixed" || value == "fixed_size" || value == "fixedsize") {
-        out = SplitStrategy::FixedSize;
-        return true;
+        return make_parse_success(SplitStrategy::FixedSize);
     }
     if (value == "twap") {
-        out = SplitStrategy::TWAP;
-        return true;
+        return make_parse_success(SplitStrategy::TWAP);
     }
     if (value == "vwap") {
-        out = SplitStrategy::VWAP;
-        return true;
+        return make_parse_success(SplitStrategy::VWAP);
     }
     if (value == "iceberg") {
-        out = SplitStrategy::Iceberg;
-        return true;
+        return make_parse_success(SplitStrategy::Iceberg);
     }
-    return false;
+    return make_parse_failure<SplitStrategy>(ConfigValueParseError::InvalidSplitStrategy);
 }
 
 const char* split_strategy_to_string(SplitStrategy strategy) {
@@ -295,7 +376,7 @@ void write_config_log(std::ostream& out, const Config& config) {
     write_config_log_line(out, "db", "sync_interval_ms", config.db.sync_interval_ms);
 }
 
-bool is_valid_trading_day_value(std::string_view trading_day) {
+bool is_valid_trading_day_value(std::string_view trading_day) noexcept {
     if (trading_day.size() != 8) {
         return false;
     }
@@ -338,199 +419,193 @@ std::string escape_yaml_string(std::string_view value) {
 
 std::string escape_log_value(std::string_view value) { return escape_yaml_string(value); }
 
-bool apply_value(Config& cfg, const std::string& key, const std::string& raw_value) {
-    const std::string value = trim_copy(raw_value);
+template <typename T, typename U>
+ConfigValueApplyError assign_parsed(ConfigValueParseResult<T> parsed, U& out) {
+    if (!parsed) {
+        return parsed.error;
+    }
+    out = static_cast<U>(*parsed);
+    return std::nullopt;
+}
+
+ConfigValueApplyError apply_value(Config& cfg, std::string_view key, std::string_view raw_value) {
+    const std::string value = trim_copy(std::string(raw_value));
 
     if (key == "account_id") {
-        uint32_t parsed = 0;
-        if (!parse_u32(value, parsed)) {
-            return false;
+        const auto parsed = parse_u32(value);
+        if (!parsed) {
+            return parsed.error;
         }
-        cfg.account_id = static_cast<AccountId>(parsed);
-        return true;
+        cfg.account_id = static_cast<AccountId>(*parsed);
+        return std::nullopt;
     }
     if (key == "trading_day") {
         if (!is_valid_trading_day_value(value)) {
-            return false;
+            return ConfigValueParseError::InvalidTradingDay;
         }
         cfg.trading_day = value;
-        return true;
+        return std::nullopt;
     }
 
     if (key == "shm.upstream_shm_name") {
         cfg.shm.upstream_shm_name = value;
-        return true;
+        return std::nullopt;
     }
     if (key == "shm.downstream_shm_name") {
         cfg.shm.downstream_shm_name = value;
-        return true;
+        return std::nullopt;
     }
     if (key == "shm.trades_shm_name") {
         cfg.shm.trades_shm_name = value;
-        return true;
+        return std::nullopt;
     }
     if (key == "shm.orders_shm_name") {
         cfg.shm.orders_shm_name = value;
-        return true;
+        return std::nullopt;
     }
     if (key == "shm.positions_shm_name") {
         cfg.shm.positions_shm_name = value;
-        return true;
+        return std::nullopt;
     }
     if (key == "shm.create_if_not_exist") {
-        return parse_bool(value, cfg.shm.create_if_not_exist);
+        return assign_parsed(parse_bool(value), cfg.shm.create_if_not_exist);
     }
 
     if (key == "event_loop.busy_polling" || key == "EventLoop.busy_polling") {
-        return parse_bool(value, cfg.EventLoop.busy_polling);
+        return assign_parsed(parse_bool(value), cfg.EventLoop.busy_polling);
     }
     if (key == "event_loop.poll_batch_size" || key == "EventLoop.poll_batch_size") {
-        return parse_u32(value, cfg.EventLoop.poll_batch_size);
+        return assign_parsed(parse_u32(value), cfg.EventLoop.poll_batch_size);
     }
     if (key == "event_loop.idle_sleep_us" || key == "EventLoop.idle_sleep_us") {
-        return parse_u32(value, cfg.EventLoop.idle_sleep_us);
+        return assign_parsed(parse_u32(value), cfg.EventLoop.idle_sleep_us);
     }
     if (key == "event_loop.stats_interval_ms" || key == "EventLoop.stats_interval_ms") {
-        return parse_u32(value, cfg.EventLoop.stats_interval_ms);
+        return assign_parsed(parse_u32(value), cfg.EventLoop.stats_interval_ms);
     }
     if (key == "event_loop.archive_terminal_orders" || key == "EventLoop.archive_terminal_orders") {
-        return parse_bool(value, cfg.EventLoop.archive_terminal_orders);
+        return assign_parsed(parse_bool(value), cfg.EventLoop.archive_terminal_orders);
     }
     if (key == "event_loop.terminal_archive_delay_ms" || key == "EventLoop.terminal_archive_delay_ms") {
-        return parse_u32(value, cfg.EventLoop.terminal_archive_delay_ms);
+        return assign_parsed(parse_u32(value), cfg.EventLoop.terminal_archive_delay_ms);
     }
     if (key == "event_loop.pin_cpu" || key == "EventLoop.pin_cpu") {
-        return parse_bool(value, cfg.EventLoop.pin_cpu);
+        return assign_parsed(parse_bool(value), cfg.EventLoop.pin_cpu);
     }
     if (key == "event_loop.cpu_core" || key == "EventLoop.cpu_core") {
-        int parsed = -1;
-        if (!parse_i32(value, parsed)) {
-            return false;
-        }
-        cfg.EventLoop.cpu_core = parsed;
-        return true;
+        return assign_parsed(parse_i32(value), cfg.EventLoop.cpu_core);
     }
 
     if (key == "market_data.enabled") {
-        return parse_bool(value, cfg.market_data.enabled);
+        return assign_parsed(parse_bool(value), cfg.market_data.enabled);
     }
     if (key == "market_data.snapshot_shm_name") {
         cfg.market_data.snapshot_shm_name = value;
-        return true;
+        return std::nullopt;
     }
     if (key == "market_data.allow_order_price_fallback") {
-        return parse_bool(value, cfg.market_data.allow_order_price_fallback);
+        return assign_parsed(parse_bool(value), cfg.market_data.allow_order_price_fallback);
     }
 
     if (key == "active_strategy.enabled") {
-        return parse_bool(value, cfg.active_strategy.enabled);
+        return assign_parsed(parse_bool(value), cfg.active_strategy.enabled);
     }
     if (key == "active_strategy.name") {
         cfg.active_strategy.name = value;
-        return true;
+        return std::nullopt;
     }
     if (key == "active_strategy.signal_threshold") {
-        return parse_double(value, cfg.active_strategy.signal_threshold);
+        return assign_parsed(parse_double(value), cfg.active_strategy.signal_threshold);
     }
 
     if (key == "risk.max_order_value") {
-        return parse_u64(value, cfg.risk.max_order_value);
+        return assign_parsed(parse_u64(value), cfg.risk.max_order_value);
     }
     if (key == "risk.max_order_volume") {
-        return parse_u64(value, cfg.risk.max_order_volume);
+        return assign_parsed(parse_u64(value), cfg.risk.max_order_volume);
     }
     if (key == "risk.max_daily_turnover") {
-        return parse_u64(value, cfg.risk.max_daily_turnover);
+        return assign_parsed(parse_u64(value), cfg.risk.max_daily_turnover);
     }
     if (key == "risk.max_orders_per_second") {
-        return parse_u32(value, cfg.risk.max_orders_per_second);
+        return assign_parsed(parse_u32(value), cfg.risk.max_orders_per_second);
     }
     if (key == "risk.enable_price_limit_check") {
-        return parse_bool(value, cfg.risk.enable_price_limit_check);
+        return assign_parsed(parse_bool(value), cfg.risk.enable_price_limit_check);
     }
     if (key == "risk.enable_duplicate_check") {
-        return parse_bool(value, cfg.risk.enable_duplicate_check);
+        return assign_parsed(parse_bool(value), cfg.risk.enable_duplicate_check);
     }
     if (key == "risk.enable_fund_check") {
-        return parse_bool(value, cfg.risk.enable_fund_check);
+        return assign_parsed(parse_bool(value), cfg.risk.enable_fund_check);
     }
     if (key == "risk.enable_position_check") {
-        return parse_bool(value, cfg.risk.enable_position_check);
+        return assign_parsed(parse_bool(value), cfg.risk.enable_position_check);
     }
     if (key == "risk.duplicate_window_ns") {
-        return parse_u64(value, cfg.risk.duplicate_window_ns);
+        return assign_parsed(parse_u64(value), cfg.risk.duplicate_window_ns);
     }
 
     if (key == "split.strategy") {
-        return parse_split_strategy(value, cfg.split.strategy);
+        return assign_parsed(parse_split_strategy(value), cfg.split.strategy);
     }
     if (key == "split.max_child_volume") {
-        return parse_u64(value, cfg.split.max_child_volume);
+        return assign_parsed(parse_u64(value), cfg.split.max_child_volume);
     }
     if (key == "split.min_child_volume") {
-        return parse_u64(value, cfg.split.min_child_volume);
+        return assign_parsed(parse_u64(value), cfg.split.min_child_volume);
     }
     if (key == "split.max_child_count") {
-        return parse_u32(value, cfg.split.max_child_count);
+        return assign_parsed(parse_u32(value), cfg.split.max_child_count);
     }
     if (key == "split.interval_ms") {
-        return parse_u32(value, cfg.split.interval_ms);
+        return assign_parsed(parse_u32(value), cfg.split.interval_ms);
     }
     if (key == "split.randomize_factor") {
-        return parse_double(value, cfg.split.randomize_factor);
+        return assign_parsed(parse_double(value), cfg.split.randomize_factor);
     }
 
     if (key == "log.log_dir") {
         cfg.log.log_dir = value;
-        return true;
+        return std::nullopt;
     }
     if (key == "log.log_level") {
         cfg.log.log_level = value;
-        return true;
+        return std::nullopt;
     }
     if (key == "log.async_logging") {
-        return parse_bool(value, cfg.log.async_logging);
+        return assign_parsed(parse_bool(value), cfg.log.async_logging);
     }
     if (key == "log.async_queue_size") {
-        uint64_t parsed = 0;
-        if (!parse_u64(value, parsed)) {
-            return false;
-        }
-        cfg.log.async_queue_size = static_cast<std::size_t>(parsed);
-        return true;
+        return assign_parsed(parse_u64(value), cfg.log.async_queue_size);
     }
 
     if (key == "business_log.enabled") {
-        return parse_bool(value, cfg.business_log.enabled);
+        return assign_parsed(parse_bool(value), cfg.business_log.enabled);
     }
     if (key == "business_log.output_dir") {
         cfg.business_log.output_dir = value;
-        return true;
+        return std::nullopt;
     }
     if (key == "business_log.queue_capacity") {
-        uint64_t parsed = 0;
-        if (!parse_u64(value, parsed)) {
-            return false;
-        }
-        cfg.business_log.queue_capacity = static_cast<std::size_t>(parsed);
-        return true;
+        return assign_parsed(parse_u64(value), cfg.business_log.queue_capacity);
     }
     if (key == "business_log.flush_interval_ms") {
-        return parse_u32(value, cfg.business_log.flush_interval_ms);
+        return assign_parsed(parse_u32(value), cfg.business_log.flush_interval_ms);
     }
 
     if (key == "db.db_path") {
         cfg.db.db_path = value;
-        return true;
+        return std::nullopt;
     }
     if (key == "db.enable_persistence") {
-        return parse_bool(value, cfg.db.enable_persistence);
+        return assign_parsed(parse_bool(value), cfg.db.enable_persistence);
     }
     if (key == "db.sync_interval_ms") {
-        return parse_u32(value, cfg.db.sync_interval_ms);
+        return assign_parsed(parse_u32(value), cfg.db.sync_interval_ms);
     }
 
-    return false;
+    return ConfigValueParseError::UnknownKey;
 }
 
 bool contains_key(std::string_view key, std::initializer_list<std::string_view> allowed_keys) {
@@ -649,8 +724,9 @@ bool parse_section(Config& cfg, const YAML::Node& root, std::string_view section
             return false;
         }
 
-        if (!apply_value(cfg, path, value)) {
-            return report_yaml_parse_error(path, "invalid value");
+        const auto applied = apply_value(cfg, path, value);
+        if (applied) {
+            return report_yaml_parse_error(path, config_value_parse_error_message(*applied));
         }
     }
 
@@ -687,8 +763,9 @@ bool ConfigManager::load_from_file(const std::string& config_path) {
             if (!read_scalar_string(account_id_node, "account_id", value)) {
                 return false;
             }
-            if (!apply_value(loaded, "account_id", value)) {
-                return report_yaml_parse_error("account_id", "invalid value");
+            const auto applied = apply_value(loaded, "account_id", value);
+            if (applied) {
+                return report_yaml_parse_error("account_id", config_value_parse_error_message(*applied));
             }
         }
 
@@ -698,8 +775,9 @@ bool ConfigManager::load_from_file(const std::string& config_path) {
             if (!read_scalar_string(trading_day_node, "trading_day", value)) {
                 return false;
             }
-            if (!apply_value(loaded, "trading_day", value)) {
-                return report_yaml_parse_error("trading_day", "invalid value");
+            const auto applied = apply_value(loaded, "trading_day", value);
+            if (applied) {
+                return report_yaml_parse_error("trading_day", config_value_parse_error_message(*applied));
             }
         }
 
@@ -778,6 +856,26 @@ bool ConfigManager::parse_command_line(int argc, char* argv[]) {
             return true;
         };
 
+        auto consume_and_apply = [&](std::string_view key, std::string_view option_name) -> bool {
+            std::string value;
+            if (!consume_value(value)) {
+                std::string message = "missing value for ";
+                message += option_name;
+                return report_config_error(ErrorCode::InvalidConfig, message);
+            }
+
+            const auto applied = apply_value(config_, key, value);
+            if (!applied) {
+                return true;
+            }
+
+            std::string message = "invalid ";
+            message += option_name;
+            message += ": ";
+            message += config_value_parse_error_message(*applied);
+            return report_config_error(ErrorCode::InvalidConfig, message);
+        };
+
         std::string value;
         if (arg == "--config") {
             if (!consume_value(value)) {
@@ -789,14 +887,14 @@ bool ConfigManager::parse_command_line(int argc, char* argv[]) {
             continue;
         }
         if (arg == "--account-id") {
-            if (!consume_value(value) || !apply_value(config_, "account_id", value)) {
-                return report_config_error(ErrorCode::InvalidConfig, "invalid --account-id");
+            if (!consume_and_apply("account_id", "--account-id")) {
+                return false;
             }
             continue;
         }
         if (arg == "--trading-day") {
-            if (!consume_value(value) || !apply_value(config_, "trading_day", value)) {
-                return report_config_error(ErrorCode::InvalidConfig, "invalid --trading-day");
+            if (!consume_and_apply("trading_day", "--trading-day")) {
+                return false;
             }
             continue;
         }
@@ -836,38 +934,38 @@ bool ConfigManager::parse_command_line(int argc, char* argv[]) {
             continue;
         }
         if (arg == "--poll-batch") {
-            if (!consume_value(value) || !apply_value(config_, "EventLoop.poll_batch_size", value)) {
-                return report_config_error(ErrorCode::InvalidConfig, "invalid --poll-batch");
+            if (!consume_and_apply("EventLoop.poll_batch_size", "--poll-batch")) {
+                return false;
             }
             continue;
         }
         if (arg == "--idle-sleep-us") {
-            if (!consume_value(value) || !apply_value(config_, "EventLoop.idle_sleep_us", value)) {
-                return report_config_error(ErrorCode::InvalidConfig, "invalid --idle-sleep-us");
+            if (!consume_and_apply("EventLoop.idle_sleep_us", "--idle-sleep-us")) {
+                return false;
             }
             continue;
         }
         if (arg == "--terminal-archive-delay-ms") {
-            if (!consume_value(value) || !apply_value(config_, "EventLoop.terminal_archive_delay_ms", value)) {
-                return report_config_error(ErrorCode::InvalidConfig, "invalid --terminal-archive-delay-ms");
+            if (!consume_and_apply("EventLoop.terminal_archive_delay_ms", "--terminal-archive-delay-ms")) {
+                return false;
             }
             continue;
         }
         if (arg == "--archive-terminal-orders") {
-            if (!consume_value(value) || !apply_value(config_, "EventLoop.archive_terminal_orders", value)) {
-                return report_config_error(ErrorCode::InvalidConfig, "invalid --archive-terminal-orders");
+            if (!consume_and_apply("EventLoop.archive_terminal_orders", "--archive-terminal-orders")) {
+                return false;
             }
             continue;
         }
         if (arg == "--split-strategy") {
-            if (!consume_value(value) || !apply_value(config_, "split.strategy", value)) {
-                return report_config_error(ErrorCode::InvalidConfig, "invalid --split-strategy");
+            if (!consume_and_apply("split.strategy", "--split-strategy")) {
+                return false;
             }
             continue;
         }
         if (arg == "--max-child-volume") {
-            if (!consume_value(value) || !apply_value(config_, "split.max_child_volume", value)) {
-                return report_config_error(ErrorCode::InvalidConfig, "invalid --max-child-volume");
+            if (!consume_and_apply("split.max_child_volume", "--max-child-volume")) {
+                return false;
             }
             continue;
         }

@@ -7,6 +7,7 @@
 #include <fstream>
 #include <string>
 
+#include "common/error.hpp"
 #include "core/config_manager.hpp"
 
 #define TEST(name) static void test_##name()
@@ -131,6 +132,44 @@ TEST(load_rejects_unknown_key) {
 
     ConfigManager manager;
     assert(!manager.load_from_file(in_path));
+
+    std::remove(in_path.c_str());
+}
+
+TEST(load_rejects_invalid_bool_value) {
+    const std::string in_path = unique_path("config_mgr_invalid_bool", ".yaml");
+
+    {
+        std::ofstream out(in_path);
+        assert(out.is_open());
+        out << "shm:\n";
+        out << "  create_if_not_exist: maybe\n";
+    }
+
+    clear_last_error();
+    ConfigManager manager;
+    assert(!manager.load_from_file(in_path));
+    assert(last_error().code == ErrorCode::ConfigParseFailed);
+    assert(std::string(last_error().message.view()).find("invalid boolean value") != std::string::npos);
+
+    std::remove(in_path.c_str());
+}
+
+TEST(load_rejects_invalid_split_strategy) {
+    const std::string in_path = unique_path("config_mgr_invalid_split", ".yaml");
+
+    {
+        std::ofstream out(in_path);
+        assert(out.is_open());
+        out << "split:\n";
+        out << "  strategy: \"not_a_strategy\"\n";
+    }
+
+    clear_last_error();
+    ConfigManager manager;
+    assert(!manager.load_from_file(in_path));
+    assert(last_error().code == ErrorCode::ConfigParseFailed);
+    assert(std::string(last_error().message.view()).find("invalid split strategy") != std::string::npos);
 
     std::remove(in_path.c_str());
 }
@@ -287,6 +326,8 @@ int main() {
 
     RUN_TEST(load_and_export_roundtrip);
     RUN_TEST(load_rejects_unknown_key);
+    RUN_TEST(load_rejects_invalid_bool_value);
+    RUN_TEST(load_rejects_invalid_split_strategy);
     RUN_TEST(to_log_string_includes_all_sections);
     RUN_TEST(bundled_account_configs_cover_all_keys);
     RUN_TEST(parse_command_line_and_validate);

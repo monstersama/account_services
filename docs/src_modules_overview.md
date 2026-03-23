@@ -150,6 +150,7 @@
 - [订单处理流程图](order_flowchart.md)
 - [Broker API Contract](broker_api_contract.md)
 - [订单监控 SDK 使用文档](order_monitor_sdk.md)
+- [C++ 函数签名设计规范](cpp_function_api_guideline.md)
 - [position_loader 设计说明](plans/position_loader.md)
 - [错误日志设计说明](plans/error_logging_design.md)
 - [SHM manager 方案记录](plans/implemented/shm_manager_plan.md)
