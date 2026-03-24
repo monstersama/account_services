@@ -7,8 +7,8 @@
 #include <charconv>
 #include <climits>
 #include <cstdint>
+#include <expected>
 #include <fstream>
-#include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -34,25 +34,13 @@ enum class ConfigValueParseError {
 };
 
 template <typename T>
-struct ConfigValueParseResult {
-    T value{};
-    ConfigValueParseError error = ConfigValueParseError::UnknownKey;
-    bool ok = false;
+using ConfigValueParseResult = std::expected<T, ConfigValueParseError>;
 
-    explicit operator bool() const noexcept { return ok; }
-    const T& operator*() const noexcept { return value; }
-};
-
-using ConfigValueApplyError = std::optional<ConfigValueParseError>;
-
-template <typename T>
-ConfigValueParseResult<T> make_parse_success(T value) {
-    return ConfigValueParseResult<T>{value, ConfigValueParseError::UnknownKey, true};
-}
+using ConfigValueApplyResult = std::expected<void, ConfigValueParseError>;
 
 template <typename T>
 ConfigValueParseResult<T> make_parse_failure(ConfigValueParseError error) {
-    return ConfigValueParseResult<T>{{}, error, false};
+    return std::unexpected(error);
 }
 
 const char* config_value_parse_error_message(ConfigValueParseError error) noexcept {
@@ -125,7 +113,7 @@ ConfigValueParseResult<T> parse_integral(std::string_view raw_value, ConfigValue
     const auto [ptr, ec] = std::from_chars(begin, end, parsed);
 
     if (ec == std::errc{} && ptr == end) {
-        return make_parse_success(parsed);
+        return parsed;
     }
     if (ec == std::errc::result_out_of_range) {
         return make_parse_failure<T>(ConfigValueParseError::OutOfRange);
@@ -139,10 +127,10 @@ ConfigValueParseResult<bool> parse_bool(std::string_view raw_value) {
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
     if (value == "1" || value == "true" || value == "yes" || value == "on") {
-        return make_parse_success(true);
+        return true;
     }
     if (value == "0" || value == "false" || value == "no" || value == "off") {
-        return make_parse_success(false);
+        return false;
     }
     return make_parse_failure<bool>(ConfigValueParseError::InvalidBool);
 }
@@ -171,7 +159,7 @@ ConfigValueParseResult<double> parse_double(std::string_view raw_value) {
         if (consumed != value.size()) {
             return make_parse_failure<double>(ConfigValueParseError::InvalidDouble);
         }
-        return make_parse_success(parsed);
+        return parsed;
     } catch (const std::out_of_range&) {
         return make_parse_failure<double>(ConfigValueParseError::OutOfRange);
     } catch (...) {
@@ -185,19 +173,19 @@ ConfigValueParseResult<SplitStrategy> parse_split_strategy(std::string_view raw_
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
     if (value == "none") {
-        return make_parse_success(SplitStrategy::None);
+        return SplitStrategy::None;
     }
     if (value == "fixed" || value == "fixed_size" || value == "fixedsize") {
-        return make_parse_success(SplitStrategy::FixedSize);
+        return SplitStrategy::FixedSize;
     }
     if (value == "twap") {
-        return make_parse_success(SplitStrategy::TWAP);
+        return SplitStrategy::TWAP;
     }
     if (value == "vwap") {
-        return make_parse_success(SplitStrategy::VWAP);
+        return SplitStrategy::VWAP;
     }
     if (value == "iceberg") {
-        return make_parse_success(SplitStrategy::Iceberg);
+        return SplitStrategy::Iceberg;
     }
     return make_parse_failure<SplitStrategy>(ConfigValueParseError::InvalidSplitStrategy);
 }
@@ -420,52 +408,52 @@ std::string escape_yaml_string(std::string_view value) {
 std::string escape_log_value(std::string_view value) { return escape_yaml_string(value); }
 
 template <typename T, typename U>
-ConfigValueApplyError assign_parsed(ConfigValueParseResult<T> parsed, U& out) {
+ConfigValueApplyResult assign_parsed(ConfigValueParseResult<T> parsed, U& out) {
     if (!parsed) {
-        return parsed.error;
+        return std::unexpected(parsed.error());
     }
     out = static_cast<U>(*parsed);
-    return std::nullopt;
+    return {};
 }
 
-ConfigValueApplyError apply_value(Config& cfg, std::string_view key, std::string_view raw_value) {
+ConfigValueApplyResult apply_value(Config& cfg, std::string_view key, std::string_view raw_value) {
     const std::string value = trim_copy(std::string(raw_value));
 
     if (key == "account_id") {
         const auto parsed = parse_u32(value);
         if (!parsed) {
-            return parsed.error;
+            return std::unexpected(parsed.error());
         }
         cfg.account_id = static_cast<AccountId>(*parsed);
-        return std::nullopt;
+        return {};
     }
     if (key == "trading_day") {
         if (!is_valid_trading_day_value(value)) {
-            return ConfigValueParseError::InvalidTradingDay;
+            return std::unexpected(ConfigValueParseError::InvalidTradingDay);
         }
         cfg.trading_day = value;
-        return std::nullopt;
+        return {};
     }
 
     if (key == "shm.upstream_shm_name") {
         cfg.shm.upstream_shm_name = value;
-        return std::nullopt;
+        return {};
     }
     if (key == "shm.downstream_shm_name") {
         cfg.shm.downstream_shm_name = value;
-        return std::nullopt;
+        return {};
     }
     if (key == "shm.trades_shm_name") {
         cfg.shm.trades_shm_name = value;
-        return std::nullopt;
+        return {};
     }
     if (key == "shm.orders_shm_name") {
         cfg.shm.orders_shm_name = value;
-        return std::nullopt;
+        return {};
     }
     if (key == "shm.positions_shm_name") {
         cfg.shm.positions_shm_name = value;
-        return std::nullopt;
+        return {};
     }
     if (key == "shm.create_if_not_exist") {
         return assign_parsed(parse_bool(value), cfg.shm.create_if_not_exist);
@@ -501,7 +489,7 @@ ConfigValueApplyError apply_value(Config& cfg, std::string_view key, std::string
     }
     if (key == "market_data.snapshot_shm_name") {
         cfg.market_data.snapshot_shm_name = value;
-        return std::nullopt;
+        return {};
     }
     if (key == "market_data.allow_order_price_fallback") {
         return assign_parsed(parse_bool(value), cfg.market_data.allow_order_price_fallback);
@@ -512,7 +500,7 @@ ConfigValueApplyError apply_value(Config& cfg, std::string_view key, std::string
     }
     if (key == "active_strategy.name") {
         cfg.active_strategy.name = value;
-        return std::nullopt;
+        return {};
     }
     if (key == "active_strategy.signal_threshold") {
         return assign_parsed(parse_double(value), cfg.active_strategy.signal_threshold);
@@ -567,11 +555,11 @@ ConfigValueApplyError apply_value(Config& cfg, std::string_view key, std::string
 
     if (key == "log.log_dir") {
         cfg.log.log_dir = value;
-        return std::nullopt;
+        return {};
     }
     if (key == "log.log_level") {
         cfg.log.log_level = value;
-        return std::nullopt;
+        return {};
     }
     if (key == "log.async_logging") {
         return assign_parsed(parse_bool(value), cfg.log.async_logging);
@@ -585,7 +573,7 @@ ConfigValueApplyError apply_value(Config& cfg, std::string_view key, std::string
     }
     if (key == "business_log.output_dir") {
         cfg.business_log.output_dir = value;
-        return std::nullopt;
+        return {};
     }
     if (key == "business_log.queue_capacity") {
         return assign_parsed(parse_u64(value), cfg.business_log.queue_capacity);
@@ -596,7 +584,7 @@ ConfigValueApplyError apply_value(Config& cfg, std::string_view key, std::string
 
     if (key == "db.db_path") {
         cfg.db.db_path = value;
-        return std::nullopt;
+        return {};
     }
     if (key == "db.enable_persistence") {
         return assign_parsed(parse_bool(value), cfg.db.enable_persistence);
@@ -605,7 +593,7 @@ ConfigValueApplyError apply_value(Config& cfg, std::string_view key, std::string
         return assign_parsed(parse_u32(value), cfg.db.sync_interval_ms);
     }
 
-    return ConfigValueParseError::UnknownKey;
+    return std::unexpected(ConfigValueParseError::UnknownKey);
 }
 
 bool contains_key(std::string_view key, std::initializer_list<std::string_view> allowed_keys) {
@@ -725,8 +713,8 @@ bool parse_section(Config& cfg, const YAML::Node& root, std::string_view section
         }
 
         const auto applied = apply_value(cfg, path, value);
-        if (applied) {
-            return report_yaml_parse_error(path, config_value_parse_error_message(*applied));
+        if (!applied) {
+            return report_yaml_parse_error(path, config_value_parse_error_message(applied.error()));
         }
     }
 
@@ -764,8 +752,8 @@ bool ConfigManager::load_from_file(const std::string& config_path) {
                 return false;
             }
             const auto applied = apply_value(loaded, "account_id", value);
-            if (applied) {
-                return report_yaml_parse_error("account_id", config_value_parse_error_message(*applied));
+            if (!applied) {
+                return report_yaml_parse_error("account_id", config_value_parse_error_message(applied.error()));
             }
         }
 
@@ -776,8 +764,8 @@ bool ConfigManager::load_from_file(const std::string& config_path) {
                 return false;
             }
             const auto applied = apply_value(loaded, "trading_day", value);
-            if (applied) {
-                return report_yaml_parse_error("trading_day", config_value_parse_error_message(*applied));
+            if (!applied) {
+                return report_yaml_parse_error("trading_day", config_value_parse_error_message(applied.error()));
             }
         }
 
@@ -865,14 +853,14 @@ bool ConfigManager::parse_command_line(int argc, char* argv[]) {
             }
 
             const auto applied = apply_value(config_, key, value);
-            if (!applied) {
+            if (applied) {
                 return true;
             }
 
             std::string message = "invalid ";
             message += option_name;
             message += ": ";
-            message += config_value_parse_error_message(*applied);
+            message += config_value_parse_error_message(applied.error());
             return report_config_error(ErrorCode::InvalidConfig, message);
         };
 

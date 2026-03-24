@@ -158,6 +158,60 @@ TEST(reject_unknown_yaml_key) {
     std::remove(path.c_str());
 }
 
+TEST(reject_invalid_bool_value) {
+    const std::string path = unique_path("gateway_cfg_invalid_bool", ".yaml");
+    {
+        std::ofstream out(path);
+        assert(out.is_open());
+        out << "create_if_not_exist: maybe\n";
+    }
+
+    gateway::gateway_config config;
+    std::string error;
+    const gateway::parse_result_t result = parse_gateway_args({"test_gateway", "--config", path}, config, error);
+    assert(result == gateway::parse_result_t::Error);
+    assert(error.find("invalid value for create_if_not_exist") != std::string::npos);
+    assert(error.find("invalid boolean value") != std::string::npos);
+
+    std::remove(path.c_str());
+}
+
+TEST(reject_invalid_u32_value) {
+    const std::string path = unique_path("gateway_cfg_invalid_u32", ".yaml");
+    {
+        std::ofstream out(path);
+        assert(out.is_open());
+        out << "poll_batch_size: 12abc\n";
+    }
+
+    gateway::gateway_config config;
+    std::string error;
+    const gateway::parse_result_t result = parse_gateway_args({"test_gateway", "--config", path}, config, error);
+    assert(result == gateway::parse_result_t::Error);
+    assert(error.find("invalid value for poll_batch_size") != std::string::npos);
+    assert(error.find("invalid uint32 value") != std::string::npos);
+
+    std::remove(path.c_str());
+}
+
+TEST(reject_invalid_trading_day_value) {
+    const std::string path = unique_path("gateway_cfg_invalid_trading_day", ".yaml");
+    {
+        std::ofstream out(path);
+        assert(out.is_open());
+        out << "trading_day: \"2026-02-26\"\n";
+    }
+
+    gateway::gateway_config config;
+    std::string error;
+    const gateway::parse_result_t result = parse_gateway_args({"test_gateway", "--config", path}, config, error);
+    assert(result == gateway::parse_result_t::Error);
+    assert(error.find("invalid value for trading_day") != std::string::npos);
+    assert(error.find("invalid trading day") != std::string::npos);
+
+    std::remove(path.c_str());
+}
+
 int main() {
     printf("=== Gateway Config Test Suite ===\n\n");
 
@@ -165,6 +219,9 @@ int main() {
     RUN_TEST(load_from_positional_path);
     RUN_TEST(reject_legacy_command_line_options);
     RUN_TEST(reject_unknown_yaml_key);
+    RUN_TEST(reject_invalid_bool_value);
+    RUN_TEST(reject_invalid_u32_value);
+    RUN_TEST(reject_invalid_trading_day_value);
 
     printf("\n=== All tests passed! ===\n");
     return 0;

@@ -119,9 +119,18 @@ sudo apt install libsqlite3-dev
 
 准备完第三方仓库后，可按以下顺序构建：
 
+- 使用clang构建
+
 ```bash
 CC=clang CXX=clang++ cmake -S . -B build
 cmake --build build -j4
+```
+
+- 使用gcc构建
+
+```bash
+CC=gcc CXX=gxx cmake -S . -B build-gcc
+cmake --build build-gcc -j4
 ```
 
 ## OrbStack 虚拟机下 VSCode 调试（GDB）
