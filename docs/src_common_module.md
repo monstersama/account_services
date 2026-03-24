@@ -193,6 +193,7 @@
 
 - [错误日志设计说明](plans/error_logging_design.md)
 - [C++ 命名基线](cpp_naming_baseline.md)
+- [C++ 函数签名设计规范](cpp_function_api_guideline.md)
 
 ## 6. 维护提示
 
