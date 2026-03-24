@@ -10,6 +10,18 @@
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-03-24
+
+### Added
+
+- 新增 `docs/cpp_function_api_guideline.md`，统一仓库内 C++ 函数签名、返回值、错误通道和输出参数的设计约定。
+- 为 Codex / Claude 工作流补充工程技能与参考资料，新增 `comment-new-functions`、`enforce-cpp-raii`、`enforce-project-naming`、`prioritize-hft-performance` 等 skill，并补充高频交易设计参考文档。
+
+### Changed
+
+- 收敛账户服务与 Gateway 的配置解析函数风格，统一 YAML 字段解析与校验路径，并同步更新 `README.md` 中的 Gateway / Broker API、SHM 权限与监控 SDK 使用说明。
+- 为配置解析补充回归测试，新增 Gateway 配置文件加载、未知字段拒绝、非法布尔值 / 整数 / 交易日格式校验，以及 `ConfigManager` 配置覆盖检查与日志输出验证。
+
 ## [1.1.3] - 2026-03-18
 
 ### Changed
